@@ -521,6 +521,13 @@ bool active_axis(double*& lo, double*& hi, double& minb, double& maxb, double& m
 bool current_time_yrange(double& ymin, double& ymax);
 void sync_menu();
 
+void invalidate_plot() {
+    RECT pr = plot_rect();
+    RECT rc; GetClientRect(g.main, &rc);
+    pr.bottom = rc.bottom; // include status bar
+    InvalidateRect(g.main, &pr, FALSE);
+}
+
 void zoom_at(double center_frac, double factor) {
     double *lo, *hi, minb, maxb, minw;
     if (!active_axis(lo, hi, minb, maxb, minw)) return;
@@ -537,7 +544,7 @@ void zoom_at(double center_frac, double factor) {
     *lo = nlo;
     *hi = nhi;
     set_status();
-    InvalidateRect(g.main, nullptr, TRUE);
+    invalidate_plot();
 }
 
 void zoom_y_at(double center_frac, double factor) {
@@ -559,7 +566,7 @@ void zoom_y_at(double center_frac, double factor) {
     if (g.autoy) { SendMessageW(g.autoy, BM_SETCHECK, BST_UNCHECKED, 0); InvalidateRect(g.autoy, nullptr, FALSE); }
     sync_menu();
     set_status();
-    InvalidateRect(g.main, nullptr, TRUE);
+    invalidate_plot();
 }
 
 void zoom_y_amp_at(double center_frac, double factor) {
@@ -582,7 +589,7 @@ void zoom_y_amp_at(double center_frac, double factor) {
     g.y_amp_max = nw;
     g.auto_y_amp = false;
     set_status();
-    InvalidateRect(g.main, nullptr, TRUE);
+    invalidate_plot();
 }
 
 void pan_by(double frac) {
@@ -593,7 +600,7 @@ void pan_by(double frac) {
     *hi += w * frac;
     clamp_range(*lo, *hi, minb, maxb, minw);
     set_status();
-    InvalidateRect(g.main, nullptr, TRUE);
+    invalidate_plot();
 }
 
 void reset_view() {
@@ -602,7 +609,7 @@ void reset_view() {
     g.freq_start = 0.0;
     g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
     set_status();
-    InvalidateRect(g.main, nullptr, TRUE);
+    invalidate_plot();
 }
 
 // ---- playback ------------------------------------------------------------
@@ -1360,7 +1367,7 @@ void on_paint(HDC hdc) {
     SetBkMode(mem, TRANSPARENT);
     SetTextColor(mem, kTextPrimary);
     SetTextAlign(mem, TA_LEFT | TA_TOP);
-    SelectObject(mem, g.bold_font ? g.bold_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    SelectObject(mem, g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
     TextOutW(mem, cw - kRightPanel + 12, kTopBar + 10, L"Каналы", 6);
 
     // Draw colored channel indicators next to checkboxes
@@ -1896,9 +1903,16 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = dis->hDC;
             RECT r = dis->rcItem;
             bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-            COLORREF bg_col = pressed ? kAccentHover : kBtnBg;
-            COLORREF border_col = pressed ? kAccentHover : kBtnBorder;
-            COLORREF text_col = pressed ? RGB(255,255,255) : kTextPrimary;
+            bool is_toggle = (dis->hwndItem == g.measure || dis->hwndItem == g.autoy);
+            bool active = is_toggle && (SendMessageW(dis->hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            COLORREF bg_col, border_col, text_col;
+            if (active) {
+                bg_col = kBtnActive; border_col = kBtnActive; text_col = RGB(255,255,255);
+            } else if (pressed) {
+                bg_col = kAccentHover; border_col = kAccentHover; text_col = RGB(255,255,255);
+            } else {
+                bg_col = kBtnBg; border_col = kBtnBorder; text_col = kTextPrimary;
+            }
             HBRUSH bg = CreateSolidBrush(bg_col);
             HPEN border = CreatePen(PS_SOLID, 1, border_col);
             HGDIOBJ old_brush = SelectObject(dc, bg);
@@ -1935,18 +1949,23 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 void show_welcome(HINSTANCE inst) {
-    if (g.welcome_wnd) { ShowWindow(g.welcome_wnd, SW_SHOW); UpdateWindow(g.welcome_wnd); return; }
+    if (g.welcome_wnd) {
+        ShowWindow(g.welcome_wnd, SW_SHOW);
+        SetWindowPos(g.welcome_wnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        UpdateWindow(g.welcome_wnd);
+        return;
+    }
     RECT rc;
     GetClientRect(g.main, &rc);
-    // Map client rect to screen coordinates for popup positioning
-    POINT pt = {rc.left, rc.top};
-    ClientToScreen(g.main, &pt);
-    g.welcome_wnd = CreateWindowExW(0, L"LvmWelcome", L"",
-        WS_POPUP | WS_VISIBLE,
-        pt.x, pt.y, rc.right, rc.bottom,
+    g.welcome_wnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW,
+        L"LvmWelcome", L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
+        0, 0, rc.right, rc.bottom,
         g.main, nullptr, inst, nullptr);
     if (!g.welcome_wnd) return;
     ShowWindow(g.welcome_wnd, SW_SHOW);
+    SetWindowPos(g.welcome_wnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     UpdateWindow(g.welcome_wnd);
 }
 
@@ -1988,7 +2007,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.play = mk(L"▶ Play", IDC_PLAY, 0);
             g.measure = mk(L"Точки", IDC_MEASURE, 0);
             g.reset = mk(L"Сброс", IDC_RESET, 0);
-            g.autoy = mk(L"Auto Y", IDC_AUTOY, 0);
+            g.autoy = mk(L"Авто Y", IDC_AUTOY, 0);
             g.ptsettings = mk(L"Настройки", IDC_PTSETTINGS, 0);
 
             g.status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
@@ -2006,6 +2025,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_SIZE:
             layout();
+            if (g.welcome_wnd && IsWindowVisible(g.welcome_wnd)) {
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                MoveWindow(g.welcome_wnd, 0, 0, rc.right, rc.bottom, TRUE);
+                SetWindowPos(g.welcome_wnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+            }
             InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         case WM_GETMINMAXINFO: {

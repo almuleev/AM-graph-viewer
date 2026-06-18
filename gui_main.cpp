@@ -1,13 +1,19 @@
 // LVM Viewer — native Win32 GUI front end.
 //
 // Self-contained desktop viewer (no external GUI toolkit). Features:
+//   - Main menu bar (Файл / Вид / Измерения / Линии / Справка) + toolbar.
 //   - Time plot and FFT (Hz) spectrum, with zoom/pan on both axes.
 //   - Channel show/hide, colored legend, min/max envelope for dense data.
-//   - Measure tool: click points, read distance (Δx/Δy, 1/Δt) between them.
+//   - Measure tool with a settings menu: choose which read-outs to show
+//     (X, Y, Δx, Δy, 1/Δt, distance, point number) and optionally snap
+//     markers to the nearest real data sample ("примагничивание").
+//   - Reference guide lines: add vertical / horizontal lines on the plot.
+//   - Two independent smoothing controls: a moving-average filter (changes
+//     the rendered values) and a purely visual Catmull-Rom spline that
+//     curves between samples without moving the underlying data points.
 //   - Playback / pause that sweeps a playhead through the time signal.
 //   - Export the visible segment to PNG (GDI+) or CSV.
-//   - Smoothing factor (moving average) for the time plot.
-//   - Keyboard shortcuts.
+//   - Keyboard shortcuts (see Справка → Горячие клавиши / F1).
 //
 // Build:
 //   g++ -std=c++17 -O2 -municode -static -mwindows -o lvm_viewer_gui.exe \
@@ -58,6 +64,27 @@ enum {
     IDC_PANLEFT,
     IDC_PANRIGHT,
     IDC_SMOOTH,
+
+    // Menu-only commands (no toolbar button).
+    IDM_EXIT = 1100,
+    IDM_VISMOOTH,       // visual (spline) smoothing toggle
+    IDM_SNAP,           // snap measurement markers to data
+    IDM_ADD_VLINE,      // arm: place a vertical guide line
+    IDM_ADD_HLINE,      // arm: place a horizontal guide line
+    IDM_CLEAR_LINES,
+    IDM_CLEAR_POINTS,
+    IDM_HOTKEYS,
+    IDM_ABOUT,
+
+    // Measurement read-out toggles (contiguous block).
+    IDM_PT_NUM = 1200,
+    IDM_PT_X,
+    IDM_PT_Y,
+    IDM_PT_DX,
+    IDM_PT_DY,
+    IDM_PT_INVDT,
+    IDM_PT_DIST,
+
     IDC_CHAN_BASE = 2000,
 };
 
@@ -74,6 +101,27 @@ const COLORREF kPalette[] = {
 };
 COLORREF channel_color(std::size_t i) { return kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))]; }
 
+// Which read-outs to draw next to measurement markers (toggled from the
+// "Измерения → Отображать у точек" menu).
+struct PointDisplay {
+    bool number = true;   // #1, #2, …
+    bool x = true;        // x coordinate
+    bool y = true;        // y coordinate
+    bool dx = true;       // Δx to the previous point
+    bool dy = true;       // Δy to the previous point
+    bool inv_dt = true;   // 1/Δt (Hz) — time mode only
+    bool dist = false;    // Euclidean distance to the previous point
+};
+
+// A reference line the user dropped on the plot. `value` is in data units of
+// the axis it pins (x for vertical, y for horizontal); `freq` records whether
+// it belongs to the Hz view so it only shows in the matching mode.
+struct GuideLine {
+    bool vertical = true;
+    double value = 0.0;
+    bool freq = false;
+};
+
 struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
@@ -88,9 +136,15 @@ struct App {
     bool spec_valid = false;
 
     int smooth = 0;            // moving-average window (0 = off)
+    bool visual_smooth = false;  // Catmull-Rom spline rendering (data unchanged)
 
     bool measure_mode = false;
+    bool snap_to_data = true;       // snap markers to the nearest real sample
+    PointDisplay pdisp;             // which read-outs to draw at markers
     std::vector<std::pair<double, double>> points;  // measurement points (data coords)
+
+    std::vector<GuideLine> guides;  // vertical / horizontal reference lines
+    int pending_line = 0;           // 0 none, 1 next click = vertical, 2 = horizontal
 
     bool playing = false;
     bool playhead_active = false;
@@ -111,6 +165,10 @@ struct App {
     HWND smoothlbl = nullptr, smoothbar = nullptr;
     HWND status = nullptr;
     std::vector<HWND> checks;
+
+    HMENU menu = nullptr;       // main menu bar
+    HFONT ui_font = nullptr;    // Segoe UI for controls / labels
+    HFONT bold_font = nullptr;  // semibold for headings
 
     bool dragging = false;
     int drag_x = 0;
@@ -162,6 +220,13 @@ void set_status() {
                  L"Время  |  Каналов: %zu  |  Точек: %zu  |  Окно: %.5g .. %.5g c  |  Сглаж.: %d",
                  g.ds.channel_count(), g.ds.rows(), g.win_start, g.win_end, g.smooth);
         s = buf;
+        if (g.visual_smooth) s += L" (+сплайн)";
+    }
+    if (has_data()) {
+        std::size_t nlines = 0;
+        for (const auto& gl : g.guides)
+            if (gl.freq == g.freq_mode) ++nlines;
+        if (nlines) { swprintf(buf, 512, L"  |  Линий: %zu", nlines); s += buf; }
     }
     if (g.points.size() >= 2) {
         const auto& a = g.points[g.points.size() - 2];
@@ -198,7 +263,7 @@ void destroy_checks() {
 void rebuild_checks() {
     destroy_checks();
     if (!has_data()) return;
-    HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
         HWND c = CreateWindowExW(
@@ -478,7 +543,50 @@ void draw_legend(HDC dc, const RECT& p) {
     }
 }
 
-// Draw measurement points / segments using the cached mapping.
+// Vertical / horizontal reference lines, using the cached mapping.
+void draw_guides(HDC dc) {
+    if (g.guides.empty() || !g.vvalid) return;
+    const RECT& p = g.vrect;
+    if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
+    auto mx = [&](double dx) {
+        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+    };
+    auto my = [&](double dy) {
+        return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
+    };
+
+    HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
+    SelectClipRgn(dc, clip);
+    HPEN pen = CreatePen(PS_DASH, 1, RGB(0, 150, 60));
+    HGDIOBJ old = SelectObject(dc, pen);
+    SetTextColor(dc, RGB(0, 110, 45));
+    wchar_t b[48];
+    for (const auto& gl : g.guides) {
+        if (gl.freq != g.freq_mode) continue;
+        if (gl.vertical) {
+            const int X = mx(gl.value);
+            if (X < p.left || X > p.right) continue;
+            MoveToEx(dc, X, p.top, nullptr); LineTo(dc, X, p.bottom);
+            swprintf(b, 48, g.freq_mode ? L"%.5g Гц" : L"%.5g c", gl.value);
+            SetTextAlign(dc, TA_LEFT | TA_TOP);
+            TextOutW(dc, X + 3, p.top + 2, b, lstrlenW(b));
+        } else {
+            const int Y = my(gl.value);
+            if (Y < p.top || Y > p.bottom) continue;
+            MoveToEx(dc, p.left, Y, nullptr); LineTo(dc, p.right, Y);
+            swprintf(b, 48, L"y=%.5g", gl.value);
+            SetTextAlign(dc, TA_LEFT | TA_BOTTOM);
+            TextOutW(dc, p.left + 4, Y - 2, b, lstrlenW(b));
+        }
+    }
+    SelectObject(dc, old);
+    DeleteObject(pen);
+    SelectClipRgn(dc, nullptr);
+    DeleteObject(clip);
+}
+
+// Draw measurement points / segments using the cached mapping. Which read-outs
+// appear is controlled by g.pdisp (the "Отображать у точек" settings menu).
 void draw_measure(HDC dc) {
     if (g.points.empty() || !g.vvalid) return;
     const RECT& p = g.vrect;
@@ -489,6 +597,7 @@ void draw_measure(HDC dc) {
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
     };
+    const wchar_t* xunit = g.freq_mode ? L"Гц" : L"c";
 
     HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
     SelectClipRgn(dc, clip);
@@ -504,23 +613,42 @@ void draw_measure(HDC dc) {
 
     HPEN pp = CreatePen(PS_SOLID, 2, RGB(200, 0, 0));
     old = SelectObject(dc, pp);
+    wchar_t b[96];
     for (std::size_t i = 0; i < g.points.size(); ++i) {
         const int X = mx(g.points[i].first), Y = my(g.points[i].second);
         MoveToEx(dc, X - 6, Y, nullptr); LineTo(dc, X + 7, Y);
         MoveToEx(dc, X, Y - 6, nullptr); LineTo(dc, X, Y + 7);
-        SetTextColor(dc, RGB(160, 0, 0));
-        SetTextAlign(dc, TA_LEFT | TA_TOP);
-        wchar_t b[16];
-        swprintf(b, 16, L"%zu", i + 1);
-        TextOutW(dc, X + 6, Y + 4, b, lstrlenW(b));
-        if (i >= 1) {  // segment delta label at midpoint
+
+        std::wstring lab;
+        if (g.pdisp.number) { swprintf(b, 96, L"#%zu ", i + 1); lab += b; }
+        if (g.pdisp.x) { swprintf(b, 96, L"x=%.5g", g.points[i].first); lab += b; lab += xunit; lab += L" "; }
+        if (g.pdisp.y) { swprintf(b, 96, L"y=%.5g", g.points[i].second); lab += b; }
+        if (!lab.empty()) {
+            SetTextColor(dc, RGB(150, 0, 0));
+            SetTextAlign(dc, TA_LEFT | TA_BOTTOM);
+            TextOutW(dc, X + 8, Y - 2, lab.c_str(), static_cast<int>(lab.size()));
+        }
+
+        if (i >= 1) {  // segment read-out at the midpoint
             const double dx = g.points[i].first - g.points[i - 1].first;
-            const int mxp = (mx(g.points[i].first) + mx(g.points[i - 1].first)) / 2;
-            const int myp = (my(g.points[i].second) + my(g.points[i - 1].second)) / 2;
-            wchar_t lab[48];
-            swprintf(lab, 48, g.freq_mode ? L"Δ=%.4g Гц" : L"Δ=%.4g c", dx);
-            SetTextAlign(dc, TA_CENTER | TA_BOTTOM);
-            TextOutW(dc, mxp, myp - 2, lab, lstrlenW(lab));
+            const double dy = g.points[i].second - g.points[i - 1].second;
+            std::wstring dl;
+            if (g.pdisp.dx) { swprintf(b, 96, L"Δx=%.5g", dx); dl += b; dl += xunit; dl += L" "; }
+            if (g.pdisp.dy) { swprintf(b, 96, L"Δy=%.5g ", dy); dl += b; }
+            if (g.pdisp.inv_dt && !g.freq_mode) {
+                const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
+                swprintf(b, 96, L"1/Δt=%.5g Гц ", inv); dl += b;
+            }
+            if (g.pdisp.dist) {
+                swprintf(b, 96, L"d=%.5g", std::sqrt(dx * dx + dy * dy)); dl += b;
+            }
+            if (!dl.empty()) {
+                const int mxp = (mx(g.points[i].first) + mx(g.points[i - 1].first)) / 2;
+                const int myp = (my(g.points[i].second) + my(g.points[i - 1].second)) / 2;
+                SetTextColor(dc, RGB(120, 0, 0));
+                SetTextAlign(dc, TA_CENTER | TA_BOTTOM);
+                TextOutW(dc, mxp, myp - 2, dl.c_str(), static_cast<int>(dl.size()));
+            }
         }
     }
     SelectObject(dc, old);
@@ -528,6 +656,36 @@ void draw_measure(HDC dc) {
 
     SelectClipRgn(dc, nullptr);
     DeleteObject(clip);
+}
+
+// Render a polyline as a smooth Catmull-Rom spline through the given pixel
+// points. Purely visual: it curves *between* samples but never moves them.
+void draw_catmull_rom(HDC dc, const std::vector<POINT>& pts) {
+    if (pts.size() < 2) return;
+    if (pts.size() == 2) {
+        MoveToEx(dc, pts[0].x, pts[0].y, nullptr);
+        LineTo(dc, pts[1].x, pts[1].y);
+        return;
+    }
+    const int steps = 12;
+    MoveToEx(dc, pts[0].x, pts[0].y, nullptr);
+    for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
+        const POINT& p0 = pts[i == 0 ? 0 : i - 1];
+        const POINT& p1 = pts[i];
+        const POINT& p2 = pts[i + 1];
+        const POINT& p3 = pts[i + 2 < pts.size() ? i + 2 : i + 1];
+        for (int s = 1; s <= steps; ++s) {
+            const double t = static_cast<double>(s) / steps;
+            const double t2 = t * t, t3 = t2 * t;
+            const double x = 0.5 * (2.0 * p1.x + (-p0.x + p2.x) * t +
+                                    (2.0 * p0.x - 5.0 * p1.x + 4.0 * p2.x - p3.x) * t2 +
+                                    (-p0.x + 3.0 * p1.x - 3.0 * p2.x + p3.x) * t3);
+            const double y = 0.5 * (2.0 * p1.y + (-p0.y + p2.y) * t +
+                                    (2.0 * p0.y - 5.0 * p1.y + 4.0 * p2.y - p3.y) * t2 +
+                                    (-p0.y + 3.0 * p1.y - 3.0 * p2.y + p3.y) * t3);
+            LineTo(dc, static_cast<int>(x + 0.5), static_cast<int>(y + 0.5));
+        }
+    }
 }
 
 void draw_time(HDC dc, const RECT& p) {
@@ -577,13 +735,42 @@ void draw_time(HDC dc, const RECT& p) {
         HGDIOBJ old = SelectObject(dc, pen);
 
         if (sparse) {
-            bool started = false;
+            // Collect contiguous (non-NaN) runs, then draw each as straight
+            // segments or a visual spline. NaN gaps break the line.
+            std::vector<POINT> run;
+            auto flush = [&]() {
+                if (g.visual_smooth) {
+                    draw_catmull_rom(dc, run);
+                } else {
+                    for (std::size_t k = 0; k < run.size(); ++k) {
+                        if (k == 0) MoveToEx(dc, run[k].x, run[k].y, nullptr);
+                        else LineTo(dc, run[k].x, run[k].y);
+                    }
+                }
+                run.clear();
+            };
             for (std::size_t i = lo; i < hi; ++i) {
                 const float v = series[i - lo];
-                if (std::isnan(v)) { started = false; continue; }
-                const int px = mapx(t[i]), py = mapy(v);
-                if (!started) { MoveToEx(dc, px, py, nullptr); started = true; }
-                else LineTo(dc, px, py);
+                if (std::isnan(v)) { flush(); continue; }
+                run.push_back(POINT{mapx(t[i]), mapy(v)});
+            }
+            flush();
+
+            // With visual smoothing on and few points in view, mark the real
+            // samples so it's clear the curve only interpolates between them.
+            if (g.visual_smooth && (hi - lo) <= 400) {
+                HBRUSH dot = CreateSolidBrush(channel_color(c));
+                HGDIOBJ ob = SelectObject(dc, dot);
+                HGDIOBJ opn = SelectObject(dc, GetStockObject(NULL_PEN));
+                for (std::size_t i = lo; i < hi; ++i) {
+                    const float v = series[i - lo];
+                    if (std::isnan(v)) continue;
+                    const int px = mapx(t[i]), py = mapy(v);
+                    Ellipse(dc, px - 2, py - 2, px + 3, py + 3);
+                }
+                SelectObject(dc, opn);
+                SelectObject(dc, ob);
+                DeleteObject(dot);
             }
         } else {
             std::vector<float> cmin(pw, 1e30f), cmax(pw, -1e30f);
@@ -703,6 +890,7 @@ void draw_chart(HDC dc, const RECT& p) {
     }
     if (g.freq_mode) draw_freq(dc, p);
     else draw_time(dc, p);
+    draw_guides(dc);
     draw_measure(dc);
 }
 
@@ -715,20 +903,36 @@ void on_paint(HDC hdc) {
     HBITMAP bmp = CreateCompatibleBitmap(hdc, cw, ch);
     HGDIOBJ obmp = SelectObject(mem, bmp);
 
-    HBRUSH bg = CreateSolidBrush(RGB(250, 250, 250));
+    HBRUSH bg = CreateSolidBrush(RGB(250, 251, 253));
     FillRect(mem, &rc, bg);
     DeleteObject(bg);
 
+    // Toolbar band across the top.
+    RECT topbar = {0, 0, cw, kTopBar};
+    HBRUSH tbb = CreateSolidBrush(RGB(237, 241, 247));
+    FillRect(mem, &topbar, tbb);
+    DeleteObject(tbb);
+
+    // Right-side channels panel.
     RECT panel = {cw - kRightPanel, kTopBar, cw, ch};
-    HBRUSH pbg = CreateSolidBrush(RGB(240, 240, 240));
+    HBRUSH pbg = CreateSolidBrush(RGB(242, 244, 248));
     FillRect(mem, &panel, pbg);
     DeleteObject(pbg);
 
-    SelectObject(mem, reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    // Hairline separators (under the toolbar, left of the panel).
+    HPEN sep = CreatePen(PS_SOLID, 1, RGB(206, 213, 224));
+    HGDIOBJ oldpen = SelectObject(mem, sep);
+    MoveToEx(mem, 0, kTopBar - 1, nullptr); LineTo(mem, cw, kTopBar - 1);
+    MoveToEx(mem, cw - kRightPanel, kTopBar, nullptr); LineTo(mem, cw - kRightPanel, ch);
+    SelectObject(mem, oldpen);
+    DeleteObject(sep);
+
     SetBkMode(mem, TRANSPARENT);
-    SetTextColor(mem, RGB(60, 60, 60));
+    SetTextColor(mem, RGB(40, 50, 65));
     SetTextAlign(mem, TA_LEFT | TA_TOP);
-    TextOutW(mem, cw - kRightPanel + 12, kTopBar + 6, L"Каналы:", 7);
+    SelectObject(mem, g.bold_font ? g.bold_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    TextOutW(mem, cw - kRightPanel + 12, kTopBar + 6, L"Каналы", 6);
+    SelectObject(mem, g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
 
     draw_chart(mem, plot_rect());
 
@@ -893,13 +1097,178 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
     return true;
 }
 
+// Snap a clicked coordinate to the nearest real sample (Time mode) or spectrum
+// bin (Hz mode) of the closest visible channel, so a marker lands exactly on a
+// data point. The stored data is never modified — only the marker is adjusted.
+void snap_to_nearest(double& dx, double& dy) {
+    if (g.freq_mode) {
+        if (!g.spec_valid || g.spec.freqs.size() < 2) return;
+        const auto& f = g.spec.freqs;
+        std::size_t k = static_cast<std::size_t>(std::lower_bound(f.begin(), f.end(), dx) - f.begin());
+        if (k >= f.size()) k = f.size() - 1;
+        if (k > 0 && (dx - f[k - 1]) < (f[k] - dx)) --k;
+        double best = std::numeric_limits<double>::max(), by = dy;
+        bool any = false;
+        for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
+            const int ci = channel_index_by_name(g.spec.names[j]);
+            if (ci < 0 || !g.visible[ci]) continue;
+            const double v = g.spec.amp[j][k];
+            const double d = std::fabs(v - dy);
+            if (d < best) { best = d; by = v; any = true; }
+        }
+        dx = f[k];
+        if (any) dy = by;
+        return;
+    }
+    if (!has_data()) return;
+    const auto& t = g.ds.time;
+    std::size_t i = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), dx) - t.begin());
+    if (i >= t.size()) i = t.size() - 1;
+    if (i > 0 && (dx - t[i - 1]) < (t[i] - dx)) --i;
+    double best = std::numeric_limits<double>::max(), by = dy;
+    bool any = false;
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        if (!g.visible[c]) continue;
+        const double v = g.ds.channels[c][i];
+        if (std::isnan(v)) continue;
+        const double d = std::fabs(v - dy);
+        if (d < best) { best = d; by = v; any = true; }
+    }
+    dx = t[i];
+    if (any) dy = by;
+}
+
+void show_hotkeys() {
+    MessageBoxW(g.main,
+        L"Файлы\n"
+        L"  O / Ctrl+O\t— Открыть файл\n"
+        L"  S / Ctrl+S\t— Сохранить PNG\n"
+        L"  E / Ctrl+E\t— Сохранить CSV\n\n"
+        L"Вид\n"
+        L"  M\t— Переключить Время / Гц\n"
+        L"  C\t— Визуальное сглаживание (сплайн)\n"
+        L"  + / ↑\t— Увеличить\n"
+        L"  − / ↓\t— Уменьшить\n"
+        L"  ← / →\t— Сдвиг влево / вправо\n"
+        L"  Home\t— Сбросить вид\n"
+        L"  Пробел\t— Воспроизведение / Пауза\n\n"
+        L"Измерения и линии\n"
+        L"  V\t— Режим измерения вкл/выкл\n"
+        L"  Delete\t— Очистить точки измерения\n"
+        L"  Esc\t— Отменить добавление линии\n\n"
+        L"Мышь\n"
+        L"  Колесо\t— Масштаб под курсором\n"
+        L"  ЛКМ + тяга\t— Панорамирование\n"
+        L"  ЛКМ\t— Поставить точку / линию (в режиме)\n"
+        L"  ПКМ\t— Очистить точки измерения\n\n"
+        L"  F1\t— Эта справка",
+        L"Горячие клавиши — LVM Viewer", MB_OK | MB_ICONINFORMATION);
+}
+
+void show_about() {
+    MessageBoxW(g.main,
+        L"LVM Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt)\n\n"
+        L"Нативное приложение Win32 + GDI/GDI+, без внешних\n"
+        L"зависимостей и без Qt. Время и спектр (БПФ), измерения\n"
+        L"с примагничиванием, направляющие линии, визуальное\n"
+        L"сглаживание, экспорт PNG/CSV.\n\n"
+        L"Сборка: build_gui.ps1 (MinGW g++) или make gui.",
+        L"О программе — LVM Viewer", MB_OK | MB_ICONINFORMATION);
+}
+
+// Refresh every checkable menu item from the current app state. Cheap, so we
+// just call it whenever a toggle changes (menu, toolbar, or accelerator).
+void sync_menu() {
+    if (!g.menu) return;
+    auto chk = [&](UINT id, bool on) {
+        CheckMenuItem(g.menu, id, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
+    };
+    chk(IDM_VISMOOTH, g.visual_smooth);
+    chk(IDC_MEASURE, g.measure_mode);
+    chk(IDM_SNAP, g.snap_to_data);
+    chk(IDM_PT_NUM, g.pdisp.number);
+    chk(IDM_PT_X, g.pdisp.x);
+    chk(IDM_PT_Y, g.pdisp.y);
+    chk(IDM_PT_DX, g.pdisp.dx);
+    chk(IDM_PT_DY, g.pdisp.dy);
+    chk(IDM_PT_INVDT, g.pdisp.inv_dt);
+    chk(IDM_PT_DIST, g.pdisp.dist);
+}
+
+HMENU make_menu() {
+    HMENU bar = CreateMenu();
+
+    HMENU file = CreatePopupMenu();
+    AppendMenuW(file, MF_STRING, IDC_OPEN, L"Открыть файл…\tCtrl+O");
+    AppendMenuW(file, MF_STRING, IDC_SAVEPNG, L"Сохранить PNG…\tCtrl+S");
+    AppendMenuW(file, MF_STRING, IDC_SAVECSV, L"Сохранить CSV…\tCtrl+E");
+    AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(file, MF_STRING, IDM_EXIT, L"Выход\tAlt+F4");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(file), L"Файл");
+
+    HMENU view = CreatePopupMenu();
+    AppendMenuW(view, MF_STRING, IDC_MODE, L"Время / Гц\tM");
+    AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(view, MF_STRING, IDC_ZOOMIN, L"Увеличить\t+");
+    AppendMenuW(view, MF_STRING, IDC_ZOOMOUT, L"Уменьшить\t−");
+    AppendMenuW(view, MF_STRING, IDC_RESET, L"Сбросить вид\tHome");
+    AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(view, MF_STRING, IDM_VISMOOTH, L"Визуальное сглаживание (сплайн)\tC");
+    AppendMenuW(view, MF_STRING, IDC_PLAY, L"Воспроизведение / Пауза\tПробел");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view), L"Вид");
+
+    HMENU meas = CreatePopupMenu();
+    AppendMenuW(meas, MF_STRING, IDC_MEASURE, L"Режим измерения\tV");
+    AppendMenuW(meas, MF_STRING, IDM_SNAP, L"Примагничивать к точкам данных");
+    AppendMenuW(meas, MF_SEPARATOR, 0, nullptr);
+    HMENU disp = CreatePopupMenu();
+    AppendMenuW(disp, MF_STRING, IDM_PT_NUM, L"Номер точки");
+    AppendMenuW(disp, MF_STRING, IDM_PT_X, L"Координата X");
+    AppendMenuW(disp, MF_STRING, IDM_PT_Y, L"Координата Y");
+    AppendMenuW(disp, MF_STRING, IDM_PT_DX, L"Δx (между точками)");
+    AppendMenuW(disp, MF_STRING, IDM_PT_DY, L"Δy (между точками)");
+    AppendMenuW(disp, MF_STRING, IDM_PT_INVDT, L"1/Δt — частота (Время)");
+    AppendMenuW(disp, MF_STRING, IDM_PT_DIST, L"Расстояние d");
+    AppendMenuW(meas, MF_POPUP, reinterpret_cast<UINT_PTR>(disp), L"Отображать у точек");
+    AppendMenuW(meas, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(meas, MF_STRING, IDM_CLEAR_POINTS, L"Очистить точки\tDelete");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(meas), L"Измерения");
+
+    HMENU lines = CreatePopupMenu();
+    AppendMenuW(lines, MF_STRING, IDM_ADD_VLINE, L"Добавить вертикальную линию");
+    AppendMenuW(lines, MF_STRING, IDM_ADD_HLINE, L"Добавить горизонтальную линию");
+    AppendMenuW(lines, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(lines, MF_STRING, IDM_CLEAR_LINES, L"Очистить линии");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(lines), L"Линии");
+
+    HMENU help = CreatePopupMenu();
+    AppendMenuW(help, MF_STRING, IDM_HOTKEYS, L"Горячие клавиши…\tF1");
+    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"О программе…");
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"Справка");
+
+    return bar;
+}
+
 // ---- window procedure ----------------------------------------------------
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE inst = reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance;
-            HFONT font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+            // Modern UI font (falls back to the stock font if unavailable).
+            g.ui_font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            g.bold_font = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            if (!g.ui_font) g.ui_font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT font = g.ui_font;
+
+            g.menu = make_menu();
+            SetMenu(hwnd, g.menu);
+
             auto mk = [&](const wchar_t* text, int id, DWORD extra) {
                 HWND b = CreateWindowExW(0, L"BUTTON", text, WS_CHILD | WS_VISIBLE | extra,
                                          0, 0, 10, 10, hwnd,
@@ -912,7 +1281,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.savecsv = mk(L"Сохранить CSV", IDC_SAVECSV, BS_PUSHBUTTON);
             g.mode = mk(L"Время / Гц", IDC_MODE, BS_PUSHBUTTON);
             g.play = mk(L"▶ Воспроизв.", IDC_PLAY, BS_PUSHBUTTON);
-            g.measure = mk(L"Измерение", IDC_MEASURE, BS_AUTOCHECKBOX | BS_PUSHLIKE);
+            // Owner-toggled (not BS_AUTO) so menu / accelerator and the button
+            // stay in sync through a single code path.
+            g.measure = mk(L"Измерение", IDC_MEASURE, BS_CHECKBOX | BS_PUSHLIKE);
             g.zin = mk(L"Увеличить +", IDC_ZOOMIN, BS_PUSHBUTTON);
             g.zout = mk(L"Уменьшить −", IDC_ZOOMOUT, BS_PUSHBUTTON);
             g.reset = mk(L"Сбросить вид", IDC_RESET, BS_PUSHBUTTON);
@@ -930,6 +1301,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                        0, 0, 10, 10, hwnd, nullptr, inst, nullptr);
             SendMessageW(g.status, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            sync_menu();
             set_status();
             return 0;
         }
@@ -983,6 +1355,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_OPEN: open_file(); return 0;
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
                 case IDC_SAVECSV: save_csv_dialog(); return 0;
+                case IDM_EXIT: DestroyWindow(hwnd); return 0;
                 case IDC_MODE:
                     g.freq_mode = !g.freq_mode;
                     if (g.freq_mode) stop_play();
@@ -992,13 +1365,52 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_PLAY: toggle_play(); return 0;
                 case IDC_MEASURE:
-                    g.measure_mode = (SendMessageW(g.measure, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    g.measure_mode = !g.measure_mode;
+                    if (g.measure_mode) g.pending_line = 0;
+                    SendMessageW(g.measure, BM_SETCHECK,
+                                 g.measure_mode ? BST_CHECKED : BST_UNCHECKED, 0);
+                    sync_menu();
+                    set_status();
+                    return 0;
+                case IDM_SNAP: g.snap_to_data = !g.snap_to_data; sync_menu(); return 0;
+                case IDM_VISMOOTH:
+                    g.visual_smooth = !g.visual_smooth;
+                    sync_menu();
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                    return 0;
+                case IDM_PT_NUM: g.pdisp.number = !g.pdisp.number; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_X: g.pdisp.x = !g.pdisp.x; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_Y: g.pdisp.y = !g.pdisp.y; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_DX: g.pdisp.dx = !g.pdisp.dx; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_DY: g.pdisp.dy = !g.pdisp.dy; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_INVDT: g.pdisp.inv_dt = !g.pdisp.inv_dt; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_PT_DIST: g.pdisp.dist = !g.pdisp.dist; sync_menu(); InvalidateRect(hwnd, nullptr, FALSE); return 0;
+                case IDM_ADD_VLINE:
+                    if (!has_data()) { MessageBoxW(hwnd, L"Сначала откройте файл.", L"Нет данных", MB_ICONINFORMATION); return 0; }
+                    g.pending_line = 1;
+                    status_msg(L"Кликните на графике, чтобы поставить вертикальную линию (Esc — отмена).");
+                    return 0;
+                case IDM_ADD_HLINE:
+                    if (!has_data()) { MessageBoxW(hwnd, L"Сначала откройте файл.", L"Нет данных", MB_ICONINFORMATION); return 0; }
+                    g.pending_line = 2;
+                    status_msg(L"Кликните на графике, чтобы поставить горизонтальную линию (Esc — отмена).");
+                    return 0;
+                case IDM_CLEAR_LINES:
+                    if (!g.guides.empty()) { g.guides.clear(); InvalidateRect(hwnd, nullptr, FALSE); }
+                    set_status();
+                    return 0;
+                case IDM_CLEAR_POINTS:
+                    if (!g.points.empty()) { g.points.clear(); InvalidateRect(hwnd, nullptr, FALSE); }
+                    set_status();
                     return 0;
                 case IDC_ZOOMIN: zoom_at(0.5, 0.7); return 0;
                 case IDC_ZOOMOUT: zoom_at(0.5, 1.0 / 0.7); return 0;
                 case IDC_RESET: reset_view(); return 0;
                 case IDC_PANLEFT: pan_by(-0.2); return 0;
                 case IDC_PANRIGHT: pan_by(0.2); return 0;
+                case IDM_HOTKEYS: show_hotkeys(); return 0;
+                case IDM_ABOUT: show_about(); return 0;
                 default: break;
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
@@ -1024,9 +1436,29 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             const RECT p = plot_rect();
             const int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
             if (mx < p.left || mx > p.right || my < p.top || my > p.bottom) return 0;
+            if (g.pending_line) {
+                double dx, dy;
+                if (px_to_data(mx, my, dx, dy)) {
+                    GuideLine gl;
+                    gl.vertical = (g.pending_line == 1);
+                    gl.freq = g.freq_mode;
+                    if (gl.vertical && g.snap_to_data) { double sx = dx, sy = dy; snap_to_nearest(sx, sy); dx = sx; }
+                    gl.value = gl.vertical ? dx : dy;
+                    g.guides.push_back(gl);
+                }
+                g.pending_line = 0;
+                set_status();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
             if (g.measure_mode) {
                 double dx, dy;
-                if (px_to_data(mx, my, dx, dy)) { g.points.push_back({dx, dy}); set_status(); InvalidateRect(hwnd, nullptr, FALSE); }
+                if (px_to_data(mx, my, dx, dy)) {
+                    if (g.snap_to_data) snap_to_nearest(dx, dy);
+                    g.points.push_back({dx, dy});
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
                 return 0;
             }
             double *lo, *hi, minb, maxb, minw;
@@ -1059,8 +1491,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LBUTTONUP:
             if (g.dragging) { g.dragging = false; ReleaseCapture(); }
             return 0;
+        case WM_KEYDOWN:
+            if (wp == VK_ESCAPE && g.pending_line) {
+                g.pending_line = 0;
+                set_status();
+                return 0;
+            }
+            break;
         case WM_DESTROY:
             stop_play();
+            if (g.ui_font && g.ui_font != reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)))
+                DeleteObject(g.ui_font);
+            if (g.bold_font) DeleteObject(g.bold_font);
             PostQuitMessage(0);
             return 0;
     }
@@ -1087,6 +1529,9 @@ HACCEL make_accelerators() {
         {FVIRTKEY, VK_LEFT, IDC_PANLEFT},
         {FVIRTKEY, VK_RIGHT, IDC_PANRIGHT},
         {FVIRTKEY, VK_HOME, IDC_RESET},
+        {FVIRTKEY, 'C', IDM_VISMOOTH},
+        {FVIRTKEY, VK_DELETE, IDM_CLEAR_POINTS},
+        {FVIRTKEY, VK_F1, IDM_HOTKEYS},
     };
     return CreateAcceleratorTableW(acc, static_cast<int>(sizeof(acc) / sizeof(acc[0])));
 }

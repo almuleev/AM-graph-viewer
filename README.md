@@ -17,6 +17,8 @@ the bundled sample files (verified on a 1 GB / 6.8 M-sample file too).
 
 A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs):
 
+- **Main menu** (Файл / Вид / Измерения / Линии / Справка) alongside the
+  toolbar, a modern Segoe UI look, and a status bar.
 - **Открыть файл** — open a `.lvm`/`.txt` via the file dialog (or pass a path on
   the command line / drag a file onto the exe).
 - Multi-channel plot with a colored legend; for dense views it draws a min/max
@@ -30,16 +32,30 @@ A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs):
 - **▶ Воспроизв. / ⏸ Пауза** — play back the time signal: a red playhead sweeps
   across the plot and the window auto-scrolls to follow it.
 - **Измерение** — measurement tool. Click points on the plot to drop markers;
-  the status bar shows the distance between the last two (Δt/Δy and 1/Δt in Hz,
-  or Δf/Δamp in Hz mode). Right-click clears the points.
-- **Сглаживание** slider — smoothing factor (centered moving average, 0–80
-  samples) for the time plot, to tame a noisy/“sharp” signal.
+  the segment read-out (Δx, Δy, 1/Δt …) is drawn right on the chart and in the
+  status bar. The **Измерения** menu is a settings panel: toggle exactly which
+  read-outs appear next to each marker (number, X, Y, Δx, Δy, 1/Δt, distance),
+  and turn **«Примагничивать к точкам данных»** on/off to snap markers to the
+  nearest real sample so coordinates are exact. Right-click (or `Delete`) clears
+  the points.
+- **Линии** — drop **vertical** and **horizontal** reference lines on the plot.
+  Pick *Добавить вертикальную/горизонтальную линию*, then click where it goes
+  (vertical lines snap to a sample when snapping is on); *Очистить линии* removes
+  them. Lines are remembered per view (Time vs Hz).
+- **Сглаживание** slider — moving-average filter (centered, 0–80 samples) that
+  changes the rendered values to tame a noisy signal.
+- **Визуальное сглаживание (сплайн)** — a *purely visual* Catmull-Rom curve
+  drawn between samples. It smooths the **line** without moving the underlying
+  data points (measurements/snapping still hit the true samples); when zoomed in
+  the real samples are shown as dots so the distinction is clear.
 - **Увеличить / Уменьшить / Сбросить вид** plus mouse-wheel zoom and
   left-drag panning. Zoom/pan work on **both** axes — time in Time mode and the
   **frequency axis in Hz mode** — so you can drill into a narrow band. A status
   bar shows the current window and sample count.
 
 ### Keyboard shortcuts
+
+The full list also lives in-app under **Справка → Горячие клавиши** (or press `F1`).
 
 | Key | Action |
 |-----|--------|
@@ -49,10 +65,18 @@ A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs):
 | `M` | Toggle Time / Hz |
 | `Space` | Play / Pause |
 | `V` | Measure tool on/off |
+| `C` | Visual (spline) smoothing on/off |
 | `+` / `↑` | Zoom in |
 | `−` / `↓` | Zoom out |
 | `←` / `→` | Pan left / right |
 | `Home` | Reset view |
+| `Delete` | Clear measurement points |
+| `Esc` | Cancel adding a guide line |
+| `F1` | Keyboard-shortcuts help |
+
+Mouse: wheel zooms under the cursor, left-drag pans, left-click drops a
+measurement point or guide line (in the matching mode), right-click clears
+measurement points.
 
 Build it (Windows):
 

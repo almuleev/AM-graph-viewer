@@ -107,7 +107,7 @@ enum {
     IDC_CHAN_BASE = 2000,
 };
 
-const int kTopBar = 92;        // two toolbar rows (increased to avoid Y-axis overlap)
+const int kTopBar = 52;        // compact single-row toolbar
 const int kRightPanel = 180;
 const int kBottomBar = 28;     // status-bar strip at the very bottom
 const int kAxisBottom = 38;    // room under the plot for the X tick labels + title
@@ -219,6 +219,7 @@ struct App {
     std::vector<HWND> buttons;   // owner-drawn toolbar buttons
     HWND hovered_btn = nullptr;
     std::wstring status_text;
+    std::wstring hover_status_text;  // shown in status bar when hovering toolbar buttons
     std::vector<int> toolbar_seps;
 
     HWND settings_wnd = nullptr; // measurement-point settings panel (modeless)
@@ -229,6 +230,7 @@ struct App {
     HFONT bold_font = nullptr;   // semibold for headings
     HFONT title_font = nullptr;  // large font for the welcome title
     HFONT axis_font = nullptr;   // 11px for axis tick labels
+    HFONT icon_font = nullptr;   // 18px for toolbar button icons
 
     bool dragging = false;
     int drag_x = 0;
@@ -454,22 +456,21 @@ void layout() {
 
     g.toolbar_seps.clear();
     int x = 8;
-    auto place = [&](HWND h, int w, int y) { MoveWindow(h, x, y, w, 28, TRUE); x += w + 6; };
-    auto sep = [&]() { g.toolbar_seps.push_back(x - 3); };
+    auto place = [&](HWND h, int w) { MoveWindow(h, x, 8, w, 36, TRUE); x += w + 4; };
+    auto sep = [&]() { g.toolbar_seps.push_back(x + 2); x += 8; };
     x = 8;
-    place(g.open, 110, 8);
-    place(g.savepng, 120, 8);
-    place(g.savecsv, 120, 8);
+    place(g.open, 40);
+    place(g.savepng, 40);
+    place(g.savecsv, 40);
     sep();
-    place(g.mode, 100, 8);
+    place(g.mode, 40);
+    place(g.play, 40);
     sep();
-    place(g.play, 150, 8);
+    place(g.measure, 40);
+    place(g.reset, 40);
+    place(g.autoy, 40);
     sep();
-    place(g.measure, 120, 8);
-    x = 8;
-    place(g.reset, 120, 42);
-    place(g.autoy, 150, 42);
-    place(g.ptsettings, 170, 42);
+    place(g.ptsettings, 40);
 
     const int panel_x = cw - kRightPanel + 12;
     int y = kTopBar + 28;
@@ -617,7 +618,7 @@ void reset_view() {
 void stop_play() {
     g.playing = false;
     KillTimer(g.main, 1);
-    if (g.play) SetWindowTextW(g.play, L"▶ Play");
+    if (g.play) SetWindowTextW(g.play, L"\u25B6");
 }
 
 void start_play() {
@@ -630,7 +631,7 @@ void start_play() {
     g.play_anchor_data = g.playhead;
     QueryPerformanceCounter(&g.play_anchor_qpc);
     SetTimer(g.main, 1, 16, nullptr);   // ~60 fps for smooth scrolling
-    if (g.play) SetWindowTextW(g.play, L"⏸ Pause");
+    if (g.play) SetWindowTextW(g.play, L"\u23F8");
 }
 
 void toggle_play() {
@@ -1355,11 +1356,11 @@ void on_paint(HDC hdc) {
     SelectObject(mem, oldpen);
     DeleteObject(sep);
 
-    // Toolbar vertical separators (first row only)
+    // Toolbar vertical separators (single compact row)
     HPEN vsep = CreatePen(PS_SOLID, 1, kSeparator);
     oldpen = SelectObject(mem, vsep);
     for (int sx : g.toolbar_seps) {
-        MoveToEx(mem, sx, 8, nullptr); LineTo(mem, sx, 36);
+        MoveToEx(mem, sx, 8, nullptr); LineTo(mem, sx, 44);
     }
     SelectObject(mem, oldpen);
     DeleteObject(vsep);
@@ -1402,7 +1403,10 @@ void on_paint(HDC hdc) {
     SetTextColor(mem, kTextSecondary);
     SetTextAlign(mem, TA_LEFT | TA_TOP);
     SelectObject(mem, g.ui_font);
-    if (!g.status_text.empty()) {
+    if (!g.hover_status_text.empty()) {
+        SetTextColor(mem, kAccent);
+        TextOutW(mem, 12, ch - kBottomBar + 5, g.hover_status_text.c_str(), static_cast<int>(g.hover_status_text.size()));
+    } else if (!g.status_text.empty()) {
         TextOutW(mem, 12, ch - kBottomBar + 5, g.status_text.c_str(), static_cast<int>(g.status_text.size()));
     }
 
@@ -1980,6 +1984,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.ui_font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            g.icon_font = CreateFontW(-18, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                      CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             g.bold_font = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -1987,6 +1994,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
             if (!g.ui_font) g.ui_font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            if (!g.icon_font) g.icon_font = g.ui_font;
             HFONT font = g.ui_font;
 
             g.menu = make_menu();
@@ -2000,15 +2008,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 g.buttons.push_back(b);
                 return b;
             };
-            g.open = mk(L"Открыть", IDC_OPEN, 0);
-            g.savepng = mk(L"PNG", IDC_SAVEPNG, 0);
-            g.savecsv = mk(L"CSV", IDC_SAVECSV, 0);
-            g.mode = mk(L"Время/Гц", IDC_MODE, 0);
-            g.play = mk(L"▶ Play", IDC_PLAY, 0);
-            g.measure = mk(L"Точки", IDC_MEASURE, 0);
-            g.reset = mk(L"Сброс", IDC_RESET, 0);
-            g.autoy = mk(L"Авто Y", IDC_AUTOY, 0);
-            g.ptsettings = mk(L"Настройки", IDC_PTSETTINGS, 0);
+            g.open = mk(L"\u229E", IDC_OPEN, 0);
+            g.savepng = mk(L"\u2193", IDC_SAVEPNG, 0);
+            g.savecsv = mk(L"\u21D3", IDC_SAVECSV, 0);
+            g.mode = mk(L"\u223F", IDC_MODE, 0);
+            g.play = mk(L"\u25B6", IDC_PLAY, 0);
+            g.measure = mk(L"\u2295", IDC_MEASURE, 0);
+            g.reset = mk(L"\u2302", IDC_RESET, 0);
+            g.autoy = mk(L"\u21C5", IDC_AUTOY, 0);
+            g.ptsettings = mk(L"\u2261", IDC_PTSETTINGS, 0);
 
             g.status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                        0, 0, 10, 10, hwnd, nullptr, inst, nullptr);
@@ -2098,7 +2106,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, text_col);
-            HFONT f = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT f = g.icon_font ? g.icon_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             SelectObject(dc, f);
             wchar_t txt[128];
             GetWindowTextW(btn, txt, 128);
@@ -2125,6 +2133,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (g.hovered_btn) InvalidateRect(g.hovered_btn, nullptr, FALSE);
                     if (new_hover) InvalidateRect(new_hover, nullptr, FALSE);
                     g.hovered_btn = new_hover;
+                    // Update hover status description and invalidate status bar
+                    g.hover_status_text.clear();
+                    if (new_hover == g.open) g.hover_status_text = L"Открыть файл…";
+                    else if (new_hover == g.savepng) g.hover_status_text = L"Сохранить PNG";
+                    else if (new_hover == g.savecsv) g.hover_status_text = L"Сохранить CSV";
+                    else if (new_hover == g.mode) g.hover_status_text = L"Переключить Время / Гц";
+                    else if (new_hover == g.play) g.hover_status_text = g.playing ? L"Пауза" : L"Воспроизведение";
+                    else if (new_hover == g.measure) g.hover_status_text = L"Режим измерения точек";
+                    else if (new_hover == g.reset) g.hover_status_text = L"Сбросить вид";
+                    else if (new_hover == g.autoy) g.hover_status_text = L"Авто масштаб по Y";
+                    else if (new_hover == g.ptsettings) g.hover_status_text = L"Настройки точек";
+                    RECT rc; GetClientRect(hwnd, &rc);
+                    RECT sr = {0, rc.bottom - kBottomBar, rc.right, rc.bottom};
+                    InvalidateRect(hwnd, &sr, FALSE);
                 }
                 return 0;
             }
@@ -2439,6 +2461,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             KillTimer(hwnd, 2);
             if (g.ui_font && g.ui_font != reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)))
                 DeleteObject(g.ui_font);
+            if (g.icon_font && g.icon_font != g.ui_font) DeleteObject(g.icon_font);
             if (g.bold_font) DeleteObject(g.bold_font);
             if (g.title_font) DeleteObject(g.title_font);
             if (g.axis_font) DeleteObject(g.axis_font);

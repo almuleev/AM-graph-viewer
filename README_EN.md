@@ -19,7 +19,7 @@ The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT m
 
 ## GUI Viewer
 
-A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs). Latest version: **v0.4.4**.
+A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs). Latest version: **v0.5.0**.
 
 ### Start Screen
 
@@ -195,6 +195,13 @@ Behaviour mirrors the Python viewer:
 - `Makefile` — build helper
 
 ## Changelog
+
+### v0.5.0
+- **Drag & Drop** — drag a .lvm / .txt file into the app window to open it.
+- **Rename channels** — View → Rename channels… — dialog to set custom display names for each channel.
+- **Go to start/end** — Ctrl+Home (go to start) and Ctrl+End (go to end) for quick navigation.
+- **Vertical panning** — left-drag now moves the plot up/down too (toggle via View → Vertical panning, key P).
+- **Alt+wheel** — pan the graph up/down without dragging.
 
 ### v0.4.4
 - Deeper zoom — zoom in far enough to see individual samples.

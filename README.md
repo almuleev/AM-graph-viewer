@@ -8,7 +8,7 @@ A dependency-free C++ desktop application for viewing LabVIEW `.lvm` / `.txt` si
 
 Two front ends share one parser/FFT library:
 
-- **`lvm_viewer_gui.exe`** — a native Win32 desktop viewer (window, buttons, interactive plot). Latest version: **v0.4.4**.
+- **`lvm_viewer_gui.exe`** — a native Win32 desktop viewer (window, buttons, interactive plot). Latest version: **v0.5.0**.
 - **`lvm_reader.exe`** — a command-line tool (structure, statistics, FFT peaks, CSV export).
 
 The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT matches numpy's `rfft` (to ~1e-13). Results match the Python reference on the bundled sample files (verified on a 1 GB / 6.8 M-sample file too).

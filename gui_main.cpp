@@ -663,6 +663,18 @@ void rebuild_checks() {
     }
 }
 
+void hide_ui_controls() {
+    for (HWND b : g.buttons) ShowWindow(b, SW_HIDE);
+    for (HWND c : g.checks) ShowWindow(c, SW_HIDE);
+    if (g.status) ShowWindow(g.status, SW_HIDE);
+}
+
+void show_ui_controls() {
+    for (HWND b : g.buttons) ShowWindow(b, SW_SHOW);
+    for (HWND c : g.checks) ShowWindow(c, SW_SHOW);
+    if (g.status) ShowWindow(g.status, SW_SHOW);
+}
+
 void layout() {
     RECT rc;
     GetClientRect(g.main, &rc);
@@ -927,7 +939,7 @@ bool load_path(const std::wstring& wpath) {
     const wchar_t* base = wcsrchr(wpath.c_str(), L'\\');
     g.file_name = base ? base + 1 : wpath;
     SetWindowTextW(g.main, (std::wstring(g_str->app_title) + L" — " + g.file_name).c_str());
-    if (g.welcome_wnd) ShowWindow(g.welcome_wnd, SW_HIDE);
+    if (g.welcome_wnd) { ShowWindow(g.welcome_wnd, SW_HIDE); show_ui_controls(); }
 
     rebuild_checks();
     layout();
@@ -2124,10 +2136,10 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 1;
         case WM_COMMAND:
             switch (LOWORD(wp)) {
-                case IDC_OPEN: ShowWindow(hwnd, SW_HIDE); SendMessageW(g.main, WM_COMMAND, IDC_OPEN, 0); return 0;
+                case IDC_OPEN: ShowWindow(hwnd, SW_HIDE); show_ui_controls(); SendMessageW(g.main, WM_COMMAND, IDC_OPEN, 0); return 0;
                 case IDC_PTSETTINGS: open_settings(); return 0;
                 case IDM_HOTKEYS: show_hotkeys(); return 0;
-                case IDW_START: ShowWindow(hwnd, SW_HIDE); return 0;
+                case IDW_START: ShowWindow(hwnd, SW_HIDE); show_ui_controls(); return 0;
             }
             return 0;
         case WM_DRAWITEM: {
@@ -2195,6 +2207,7 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 void show_welcome(HINSTANCE inst) {
     if (g.welcome_wnd) {
+        hide_ui_controls();
         ShowWindow(g.welcome_wnd, SW_SHOW);
         SetWindowPos(g.welcome_wnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
         UpdateWindow(g.welcome_wnd);
@@ -2209,6 +2222,7 @@ void show_welcome(HINSTANCE inst) {
         0, 0, rc.right, rc.bottom,
         g.main, nullptr, inst, nullptr);
     if (!g.welcome_wnd) return;
+    hide_ui_controls();
     ShowWindow(g.welcome_wnd, SW_SHOW);
     BringWindowToTop(g.welcome_wnd);
     SetWindowPos(g.welcome_wnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);

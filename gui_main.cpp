@@ -106,6 +106,7 @@ enum {
     IDM_THEME = 1500,
     IDM_LANG_RU = 1600,
     IDM_LANG_EN = 1601,
+    IDM_CURSOR_LINES = 1700,
 
     IDC_CHAN_BASE = 2000,
 };
@@ -220,6 +221,10 @@ struct Strings {
     const wchar_t* hover_open; const wchar_t* hover_png; const wchar_t* hover_csv; const wchar_t* hover_timehz; const wchar_t* hover_play; const wchar_t* hover_pause; const wchar_t* hover_measure; const wchar_t* hover_reset; const wchar_t* hover_autoy; const wchar_t* hover_settings;
     const wchar_t* lang_ru; const wchar_t* lang_en;
     const wchar_t* m_lang;
+    const wchar_t* m_cursor;
+    const wchar_t* fmt_xval;
+    const wchar_t* fmt_yval;
+    const wchar_t* fmt_cursor;
     const wchar_t* msg_loading;
     const wchar_t* msg_openprompt;
     const wchar_t* msg_delta_f;
@@ -294,7 +299,8 @@ static const Strings kRu = {
     L"Frequency",
     L"Кликните на графике, чтобы поставить вертикальную линию (Esc — отмена). Можно добавить несколько линий подряд.",
     L"Кликните на графике, чтобы поставить горизонтальную линию (Esc — отмена). Можно добавить несколько линий подряд.",
-    L"Кликните на графике, чтобы поставить маркер (Esc — отмена)."
+    L"Кликните на графике, чтобы поставить маркер (Esc — отмена).",
+    L"Курсорные линии", L"X=%.5g", L"Y=%.5g", L"Курсор: X=%.5g, Y=%.5g"
 };
 
 static const Strings kEn = {
@@ -345,7 +351,8 @@ static const Strings kEn = {
     L"Frequency",
     L"Click on the plot to place a vertical line (Esc to cancel). You can add multiple lines.",
     L"Click on the plot to place a horizontal line (Esc to cancel). You can add multiple lines.",
-    L"Click on the plot to place a marker (Esc to cancel)."
+    L"Click on the plot to place a marker (Esc to cancel).",
+    L"Cursor lines", L"X=%.5g", L"Y=%.5g", L"Cursor: X=%.5g, Y=%.5g"
 };
 
 const Strings* g_str = &kRu;
@@ -445,6 +452,9 @@ struct App {
     bool dragging = false;
     int drag_x = 0;
     double drag_lo = 0.0, drag_hi = 0.0;
+    bool cursor_lines = false;
+    int cursor_x = -1;
+    int cursor_y = -1;
 };
 
 App g;
@@ -739,13 +749,13 @@ bool active_axis(double*& lo, double*& hi, double& minb, double& maxb, double& m
         if (!g.spec_valid || g.spec.freqs.size() < 2) return false;
         lo = &g.freq_start; hi = &g.freq_end;
         minb = 0.0; maxb = g.spec.nyquist;
-        minw = (g.spec.freqs[1] - g.spec.freqs[0]) * 4.0;
+        minw = (g.spec.freqs[1] - g.spec.freqs[0]) * 1.5;
         return true;
     }
     if (!has_data()) return false;
     lo = &g.win_start; hi = &g.win_end;
     minb = g.data_t0; maxb = g.data_t1;
-    minw = std::max(g.approx_dt * 4.0, (g.data_t1 - g.data_t0) * 1e-6);
+    minw = std::max(g.approx_dt * 1.5, (g.data_t1 - g.data_t0) * 1e-6);
     return true;
 }
 
@@ -1569,6 +1579,8 @@ void draw_freq(HDC dc, const RECT& p) {
     g.vrect = p; g.vvalid = true;
 }
 
+void draw_cursor_lines(HDC dc);
+
 void draw_chart(HDC dc, const RECT& p) {
     if (!has_data()) {
         SetTextAlign(dc, TA_CENTER | TA_BASELINE);
@@ -1583,6 +1595,55 @@ void draw_chart(HDC dc, const RECT& p) {
     draw_guides(dc);
     draw_markers(dc);
     draw_measure(dc);
+    draw_cursor_lines(dc);
+}
+
+void draw_cursor_lines(HDC dc) {
+    if (!g.cursor_lines || g.cursor_x < 0 || !g.vvalid) return;
+    const RECT& p = g.vrect;
+    if (g.cursor_x < p.left || g.cursor_x > p.right || g.cursor_y < p.top || g.cursor_y > p.bottom) return;
+    
+    HPEN vpen = CreatePen(PS_DOT, 1, g_theme->grid);
+    HPEN hpen = CreatePen(PS_DOT, 1, g_theme->grid);
+    HGDIOBJ old = SelectObject(dc, vpen);
+    SetBkMode(dc, TRANSPARENT);
+    
+    MoveToEx(dc, g.cursor_x, g.cursor_y, nullptr);
+    LineTo(dc, g.cursor_x, p.bottom);
+    
+    SelectObject(dc, hpen);
+    MoveToEx(dc, g.cursor_x, g.cursor_y, nullptr);
+    LineTo(dc, p.left, g.cursor_y);
+    
+    SelectObject(dc, old);
+    DeleteObject(vpen);
+    DeleteObject(hpen);
+    
+    HFONT font = g.axis_font ? g.axis_font : g.ui_font;
+    HGDIOBJ oldf = SelectObject(dc, font);
+    SetTextColor(dc, g_theme->axis_text);
+    SetBkMode(dc, TRANSPARENT);
+    wchar_t buf[64];
+    
+    double xval = g.vx0 + static_cast<double>(g.cursor_x - p.left) / (p.right - p.left) * (g.vx1 - g.vx0);
+    double yval = g.vy0 + static_cast<double>(p.bottom - g.cursor_y) / (p.bottom - p.top) * (g.vy1 - g.vy0);
+    swprintf(buf, 64, L"%.5g", xval);
+    SIZE ts; GetTextExtentPoint32W(dc, buf, lstrlenW(buf), &ts);
+    int tx = g.cursor_x - ts.cx / 2;
+    if (tx < p.left) tx = p.left;
+    if (tx + ts.cx > p.right) tx = p.right - ts.cx;
+    SetTextAlign(dc, TA_CENTER | TA_TOP);
+    TextOutW(dc, tx, p.bottom + 2, buf, lstrlenW(buf));
+    
+    swprintf(buf, 64, L"%.5g", yval);
+    GetTextExtentPoint32W(dc, buf, lstrlenW(buf), &ts);
+    SetTextAlign(dc, TA_RIGHT | TA_BASELINE);
+    int ty = g.cursor_y;
+    if (ty < p.top) ty = p.top;
+    if (ty > p.bottom) ty = p.bottom;
+    TextOutW(dc, p.left - 4, ty, buf, lstrlenW(buf));
+    
+    SelectObject(dc, oldf);
 }
 
 void on_paint(HDC hdc) {
@@ -1894,6 +1955,7 @@ void sync_menu() {
     chk(IDC_MEASURE, g.measure_mode);
     chk(IDC_AUTOY, g.auto_y);
     chk(IDM_THEME, g_theme == &kDarkTheme);
+    chk(IDM_CURSOR_LINES, g.cursor_lines);
     ModifyMenuW(g.menu, IDM_THEME, MF_BYCOMMAND | MF_STRING, IDM_THEME,
                 g_theme == &kDarkTheme ? g_str->theme_light : g_str->theme_dark);
 }
@@ -1902,27 +1964,28 @@ HMENU make_menu() {
     HMENU bar = CreateMenu();
 
     HMENU file = CreatePopupMenu();
-    AppendMenuW(file, MF_STRING, IDC_OPEN, L"Открыть файл…\tCtrl+O");
-    AppendMenuW(file, MF_STRING, IDC_SAVEPNG, L"Сохранить PNG…\tCtrl+S");
-    AppendMenuW(file, MF_STRING, IDC_SAVECSV, L"Сохранить CSV…\tCtrl+E");
+    AppendMenuW(file, MF_STRING, IDC_OPEN, g_str->m_open);
+    AppendMenuW(file, MF_STRING, IDC_SAVEPNG, g_str->m_savepng);
+    AppendMenuW(file, MF_STRING, IDC_SAVECSV, g_str->m_savecsv);
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(file, MF_STRING, IDM_UNDO, L"Отменить\tCtrl+Z");
-    AppendMenuW(file, MF_STRING, IDM_REDO, L"Повторить\tCtrl+Shift+Z");
+    AppendMenuW(file, MF_STRING, IDM_UNDO, g_str->m_undo);
+    AppendMenuW(file, MF_STRING, IDM_REDO, g_str->m_redo);
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(file, MF_STRING, IDM_EXIT, L"Выход\tAlt+F4");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(file), L"Файл");
+    AppendMenuW(file, MF_STRING, IDM_EXIT, g_str->m_exit);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(file), g_str->menu_file);
 
     HMENU view = CreatePopupMenu();
-    AppendMenuW(view, MF_STRING, IDC_MODE, L"Время / Гц\tM");
+    AppendMenuW(view, MF_STRING, IDC_MODE, g_str->m_timehz);
     AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(view, MF_STRING, IDC_ZOOMIN, L"Увеличить\t+");
-    AppendMenuW(view, MF_STRING, IDC_ZOOMOUT, L"Уменьшить\t−");
-    AppendMenuW(view, MF_STRING, IDC_RESET, L"Сбросить вид\tHome");
+    AppendMenuW(view, MF_STRING, IDC_ZOOMIN, g_str->m_zoomin);
+    AppendMenuW(view, MF_STRING, IDC_ZOOMOUT, g_str->m_zoomout);
+    AppendMenuW(view, MF_STRING, IDC_RESET, g_str->m_reset);
     AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(view, MF_STRING, IDC_AUTOY, L"Auto Y");
-    AppendMenuW(view, MF_STRING, IDM_VISMOOTH, L"Сглаживание\tC");
-    AppendMenuW(view, MF_STRING, IDC_PLAY, L"Play / Pause\tПробел");
-    AppendMenuW(view, MF_STRING, IDM_THEME, L"Тёмная тема\tT");
+    AppendMenuW(view, MF_STRING, IDC_AUTOY, g_str->m_autoy);
+    AppendMenuW(view, MF_STRING, IDM_VISMOOTH, g_str->m_smooth);
+    AppendMenuW(view, MF_STRING, IDC_PLAY, g_str->m_play);
+    AppendMenuW(view, MF_STRING, IDM_THEME, g_str->m_theme);
+    AppendMenuW(view, MF_STRING, IDM_CURSOR_LINES, g_str->m_cursor);
     HMENU speed = CreatePopupMenu();
     AppendMenuW(speed, MF_STRING, IDM_SPEED_00001, L"0.0001×");
     AppendMenuW(speed, MF_STRING, IDM_SPEED_0001, L"0.001×");
@@ -1933,33 +1996,33 @@ HMENU make_menu() {
     AppendMenuW(speed, MF_STRING, IDM_SPEED_2, L"2×");
     AppendMenuW(speed, MF_STRING, IDM_SPEED_5, L"5×");
     AppendMenuW(speed, MF_STRING, IDM_SPEED_10, L"10×");
-    AppendMenuW(view, MF_POPUP, reinterpret_cast<UINT_PTR>(speed), L"Скорость");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view), L"Вид");
+    AppendMenuW(view, MF_POPUP, reinterpret_cast<UINT_PTR>(speed), g_str->m_speed);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view), g_str->menu_view);
 
     HMENU meas = CreatePopupMenu();
-    AppendMenuW(meas, MF_STRING, IDC_MEASURE, L"Точки\tV");
-    AppendMenuW(meas, MF_STRING, IDC_PTSETTINGS, L"Настройки…");
+    AppendMenuW(meas, MF_STRING, IDC_MEASURE, g_str->m_points);
+    AppendMenuW(meas, MF_STRING, IDC_PTSETTINGS, g_str->m_ptsettings);
     AppendMenuW(meas, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(meas, MF_STRING, IDM_CLEAR_POINTS, L"Очистить\tDelete");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(meas), L"Точки");
+    AppendMenuW(meas, MF_STRING, IDM_CLEAR_POINTS, g_str->m_clearpts);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(meas), g_str->menu_meas);
 
     HMENU lines = CreatePopupMenu();
-    AppendMenuW(lines, MF_STRING, IDM_ADD_VLINE, L"Вертикальная\tL");
-    AppendMenuW(lines, MF_STRING, IDM_ADD_HLINE, L"Горизонтальная\tH");
+    AppendMenuW(lines, MF_STRING, IDM_ADD_VLINE, g_str->m_vline);
+    AppendMenuW(lines, MF_STRING, IDM_ADD_HLINE, g_str->m_hline);
     AppendMenuW(lines, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(lines, MF_STRING, IDM_CLEAR_LINES, L"Очистить");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(lines), L"Линии");
+    AppendMenuW(lines, MF_STRING, IDM_CLEAR_LINES, g_str->m_clearlines);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(lines), g_str->menu_lines);
 
     HMENU markers = CreatePopupMenu();
-    AppendMenuW(markers, MF_STRING, IDM_ADD_MARKER, L"Добавить\tK");
+    AppendMenuW(markers, MF_STRING, IDM_ADD_MARKER, g_str->m_addmarker);
     AppendMenuW(markers, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(markers, MF_STRING, IDM_CLEAR_MARKERS, L"Очистить");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(markers), L"Маркеры");
+    AppendMenuW(markers, MF_STRING, IDM_CLEAR_MARKERS, g_str->m_clearmarkers);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(markers), g_str->menu_markers);
 
     HMENU help = CreatePopupMenu();
-    AppendMenuW(help, MF_STRING, IDM_HOTKEYS, L"Горячие клавиши…\tF1");
-    AppendMenuW(help, MF_STRING, IDM_ABOUT, L"О программе…");
-    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), L"Справка");
+    AppendMenuW(help, MF_STRING, IDM_HOTKEYS, g_str->m_hotkeys);
+    AppendMenuW(help, MF_STRING, IDM_ABOUT, g_str->m_about);
+    AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), g_str->menu_help);
 
     return bar;
 }
@@ -2619,6 +2682,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDM_ABOUT: show_about(); return 0;
                 case IDM_LANG_RU: g_str = &kRu; rebuild_ui(); return 0;
                 case IDM_LANG_EN: g_str = &kEn; rebuild_ui(); return 0;
+                case IDM_CURSOR_LINES: g.cursor_lines = !g.cursor_lines; sync_menu(); invalidate_plot(); return 0;
                 default: break;
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
@@ -2790,6 +2854,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         case WM_MOUSEMOVE: {
+            const RECT pr = plot_rect();
+            const int mx = GET_X_LPARAM(lp), my = GET_Y_LPARAM(lp);
+            if (g.cursor_lines && mx >= pr.left && mx <= pr.right && my >= pr.top && my <= pr.bottom) {
+                g.cursor_x = mx;
+                g.cursor_y = my;
+                invalidate_plot();
+                return 0;
+            }
             if (!g.dragging) return 0;
             double *lo, *hi, minb, maxb, minw;
             if (!active_axis(lo, hi, minb, maxb, minw)) return 0;

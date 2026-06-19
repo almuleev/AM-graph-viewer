@@ -2901,13 +2901,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (ph > 0) {
                     const double dy = static_cast<double>(GET_Y_LPARAM(lp) - g.drag_y) / ph * (g.drag_y_hi - g.drag_y_lo);
                     if (g.freq_mode) {
-                        double new_ytop = g.drag_y_hi - dy;
+                        double new_ytop = g.drag_y_hi + dy;
                         if (new_ytop < 1e-12) new_ytop = 1e-12;
                         g.y_amp_max = new_ytop;
                         g.auto_y_amp = false;
                     } else {
-                        double new_lo = g.drag_y_lo - dy;
-                        double new_hi = g.drag_y_hi - dy;
+                        double new_lo = g.drag_y_lo + dy;
+                        double new_hi = g.drag_y_hi + dy;
                         g.y_lock_min = new_lo;
                         g.y_lock_max = new_hi;
                         g.auto_y = false;

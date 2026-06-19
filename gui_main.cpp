@@ -209,6 +209,7 @@ struct Strings {
     const wchar_t* st_time; const wchar_t* st_hz; const wchar_t* st_channels; const wchar_t* st_points; const wchar_t* st_window; const wchar_t* st_yauto; const wchar_t* st_yfix; const wchar_t* st_lines; const wchar_t* st_markers; const wchar_t* st_speed;
     const wchar_t* plot_xlabel_time; const wchar_t* plot_xlabel_freq;
     const wchar_t* pt_num; const wchar_t* pt_x; const wchar_t* pt_y; const wchar_t* pt_dx; const wchar_t* pt_dy; const wchar_t* pt_invdt; const wchar_t* pt_dist;
+    const wchar_t* fmt_pt_x; const wchar_t* fmt_pt_dx; const wchar_t* fmt_pt_dy; const wchar_t* fmt_pt_invdt; const wchar_t* fmt_pt_dist;
     const wchar_t* pt_snap;
     const wchar_t* dlg_ptsettings_title;
     const wchar_t* dlg_hotkeys_title; const wchar_t* dlg_about_title;
@@ -260,6 +261,7 @@ static const Strings kRu = {
     L"Время", L"Гц (FFT)", L"Каналов", L"Точек", L"Окно", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость",
     L"Время, c", L"Частота, Гц",
     L"Показывать номер точки", L"Показывать координату X", L"Показывать координату Y", L"Расстояние между точками по X (Δx)", L"Расстояние между точками по Y (Δy)", L"Частота 1/Δt", L"Расстояние d (по прямой)",
+    L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Гц", L"d=%.5g",
     L"Примагничивать маркеры к графику",
     L"Настройки точек измерения",
     L"Горячие клавиши — LVM Viewer", L"О программе — LVM Viewer",
@@ -311,6 +313,7 @@ static const Strings kEn = {
     L"Time", L"Hz (FFT)", L"Channels", L"Points", L"Window", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Speed",
     L"Time, s", L"Frequency, Hz",
     L"Show point number", L"Show X coordinate", L"Show Y coordinate", L"Distance along X (Δx)", L"Distance along Y (Δy)", L"Frequency 1/Δt", L"Straight-line distance d",
+    L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Hz", L"d=%.5g",
     L"Snap markers to graph",
     L"Measurement point settings",
     L"Keyboard shortcuts — LVM Viewer", L"About — LVM Viewer",
@@ -1306,7 +1309,7 @@ void draw_measure(HDC dc) {
 
         std::wstring lab;
         if (g.pdisp.number) { swprintf(b, 96, L"#%zu ", i + 1); lab += b; }
-        if (g.pdisp.x) { swprintf(b, 96, g_str->pt_x, g.points[i].first); lab += b; lab += xunit; lab += L" "; }
+        if (g.pdisp.x) { swprintf(b, 96, g_str->fmt_pt_x, g.points[i].first); lab += b; lab += xunit; lab += L" "; }
         if (g.pdisp.y) { swprintf(b, 96, g_str->fmt_y, g.points[i].second); lab += b; }
         if (!lab.empty()) {
             SetTextColor(dc, g.marker_color);
@@ -1321,14 +1324,14 @@ void draw_measure(HDC dc) {
             const double dx = g.points[i].first - g.points[i - 1].first;
             const double dy = g.points[i].second - g.points[i - 1].second;
             std::wstring dl;
-            if (g.pdisp.dx) { swprintf(b, 96, g_str->pt_dx, dx); dl += b; dl += xunit; dl += L" "; }
-            if (g.pdisp.dy) { swprintf(b, 96, g_str->pt_dy, dy); dl += b; }
+            if (g.pdisp.dx) { swprintf(b, 96, g_str->fmt_pt_dx, dx); dl += b; dl += xunit; dl += L" "; }
+            if (g.pdisp.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
             if (g.pdisp.inv_dt && !g.freq_mode) {
                 const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
-                swprintf(b, 96, g_str->pt_invdt, inv); dl += b;
+                swprintf(b, 96, g_str->fmt_pt_invdt, inv); dl += b;
             }
             if (g.pdisp.dist) {
-                swprintf(b, 96, g_str->pt_dist, std::sqrt(dx * dx + dy * dy)); dl += b;
+                swprintf(b, 96, g_str->fmt_pt_dist, std::sqrt(dx * dx + dy * dy)); dl += b;
             }
             if (!dl.empty()) {
                 const int mxp = (mx(g.points[i].first) + mx(g.points[i - 1].first)) / 2;

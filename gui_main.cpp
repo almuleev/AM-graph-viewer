@@ -111,10 +111,23 @@ enum {
     IDM_THEME = 1500,
     IDM_LANG_RU = 1600,
     IDM_LANG_EN = 1601,
+    IDM_MODE_TIME = 1700,
+    IDM_MODE_FREQ,
 
     IDC_CHAN_BASE = 2000,
     IDC_CHAN_LABEL_BASE = 3000,
     IDC_CHAN_EDIT = 4000,
+
+    IDC_SET_LANG_RU = 5000,
+    IDC_SET_LANG_EN,
+    IDC_SET_HOTKEY_LIST,
+    IDC_SET_HOTKEY_CTRL,
+    IDC_SET_HOTKEY_SHIFT,
+    IDC_SET_HOTKEY_ALT,
+    IDC_SET_HOTKEY_KEY,
+    IDC_SET_HOTKEY_APPLY,
+    IDC_SET_HOTKEY_RESET,
+    IDC_SET_HOTKEY_CLEAR,
 };
 
 const int kTopBar = 72;        // two-row compact toolbar
@@ -381,6 +394,12 @@ struct GuideLine {
     bool freq = false;
 };
 
+struct HotkeyBinding {
+    int command = 0;
+    BYTE fvirt = FVIRTKEY;
+    WORD key = 0;
+};
+
 struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
@@ -411,6 +430,7 @@ struct App {
 
     std::vector<GuideLine> guides;  // vertical / horizontal reference lines
     int pending_line = 0;           // 0 none, 1 next click = vertical, 2 = horizontal
+    std::vector<HotkeyBinding> hotkeys;
 
     bool playing = false;
     bool playhead_active = false;
@@ -424,9 +444,17 @@ struct App {
     RECT vrect = {0, 0, 1, 1};
     bool vvalid = false;
 
-    struct Marker { double x = 0.0; std::wstring label; bool freq = false; };
+    struct Marker {
+        double x = 0.0;
+        double y = 0.0;
+        std::wstring label;
+        bool freq = false;
+        bool snapped = false;
+        int channel = -1;
+    };
     std::vector<Marker> markers;
     bool pending_marker = false;
+    int active_marker = -1;
 
     std::wstring file_name;
     std::string last_error;
@@ -443,6 +471,8 @@ struct App {
     std::vector<HWND> buttons;   // owner-drawn toolbar buttons
     HWND hovered_btn = nullptr;
     std::wstring status_text;
+    std::wstring status_detail_text;
+    COLORREF status_detail_color = RGB(0, 0, 0);
     std::wstring hover_status_text;  // shown in status bar when hovering toolbar buttons
     std::vector<int> toolbar_seps;
 
@@ -450,6 +480,7 @@ struct App {
     HWND welcome_wnd = nullptr;  // start screen
 
     HMENU menu = nullptr;        // main menu bar
+    HACCEL accel = nullptr;      // current accelerator table (rebuilt from hotkeys)
     HFONT ui_font = nullptr;     // Segoe UI for controls / labels
     HFONT bold_font = nullptr;   // semibold for headings
     HFONT title_font = nullptr;  // large font for the welcome title
@@ -460,6 +491,16 @@ struct App {
     int drag_x = 0, drag_y = 0;
     double drag_lo = 0.0, drag_hi = 0.0;
     double drag_y_lo = 0.0, drag_y_hi = 0.0;
+
+    bool fft_window_active = false;
+    double fft_window_start = 0.0, fft_window_end = 0.0;
+    bool fft_selecting = false;
+    int fft_select_anchor_x = 0, fft_select_current_x = 0;
+    double fft_select_anchor_t = 0.0, fft_select_current_t = 0.0;
+
+    double spec_source_start = 0.0, spec_source_end = 0.0;
+    bool spec_source_from_selection = false;
+    bool spec_source_valid = false;
 
     bool vertical_pan = true;  // enable vertical panning with left-drag
 };
@@ -593,9 +634,94 @@ std::string numfmt(double v) {
 
 bool has_data() { return g.ds.ok && g.ds.rows() > 1 && g.ds.channel_count() > 0; }
 
+bool marker_status_detail(std::wstring& text, COLORREF& color) {
+    if (g.active_marker < 0 || g.active_marker >= static_cast<int>(g.markers.size())) return false;
+    const App::Marker& m = g.markers[static_cast<std::size_t>(g.active_marker)];
+    if (m.freq != g.freq_mode || !m.snapped || m.channel < 0) return false;
+    color = channel_color(static_cast<std::size_t>(m.channel));
+    wchar_t buf[160];
+    if (g.freq_mode) {
+        if (g_str == &kEn) swprintf(buf, 160, L"   |   %ls: f=%.6g Hz, amp=%.6g", m.label.c_str(), m.x, m.y);
+        else swprintf(buf, 160, L"   |   %ls: f=%.6g Гц, amp=%.6g", m.label.c_str(), m.x, m.y);
+    } else {
+        if (g_str == &kEn) swprintf(buf, 160, L"   |   %ls: t=%.6g s, y=%.6g", m.label.c_str(), m.x, m.y);
+        else swprintf(buf, 160, L"   |   %ls: t=%.6g c, y=%.6g", m.label.c_str(), m.x, m.y);
+    }
+    text = buf;
+    return true;
+}
+
+bool has_fft_window() {
+    return g.fft_window_active && g.fft_window_end > g.fft_window_start;
+}
+
+void clear_fft_window() {
+    g.fft_window_active = false;
+    g.fft_window_start = 0.0;
+    g.fft_window_end = 0.0;
+}
+
+void clamp_time_window(double& start, double& end) {
+    if (start > end) std::swap(start, end);
+    start = std::max(start, g.data_t0);
+    end = std::min(end, g.data_t1);
+}
+
+void set_fft_window(double start, double end) {
+    clamp_time_window(start, end);
+    if (end <= start) {
+        clear_fft_window();
+        return;
+    }
+    g.fft_window_active = true;
+    g.fft_window_start = start;
+    g.fft_window_end = end;
+}
+
+bool current_fft_source_window(double& start, double& end, bool& from_selection) {
+    if (!has_data()) return false;
+    if (has_fft_window()) {
+        start = g.fft_window_start;
+        end = g.fft_window_end;
+        from_selection = true;
+        return true;
+    }
+    start = g.win_start;
+    end = g.win_end;
+    clamp_time_window(start, end);
+    from_selection = false;
+    return end > start;
+}
+
+bool last_fft_source_window(double& start, double& end, bool& from_selection) {
+    if (!g.spec_source_valid || g.spec_source_end <= g.spec_source_start) return false;
+    start = g.spec_source_start;
+    end = g.spec_source_end;
+    from_selection = g.spec_source_from_selection;
+    return true;
+}
+
+std::wstring fft_window_status(double start, double end, bool from_selection) {
+    wchar_t buf[160];
+    if (g_str == &kEn) {
+        swprintf(buf, 160, from_selection
+            ? L"   |   FFT window: selected %.6g..%.6g s"
+            : L"   |   FFT window: visible %.6g..%.6g s",
+            start, end);
+    } else {
+        swprintf(buf, 160, from_selection
+            ? L"   |   FFT окно: выбранный участок %.6g..%.6g c"
+            : L"   |   FFT окно: видимый участок %.6g..%.6g c",
+            start, end);
+    }
+    return buf;
+}
+
 void set_status() {
     std::wstring s;
     wchar_t buf[512];
+    g.status_detail_text.clear();
+    g.status_detail_color = g_theme->accent;
     if (!has_data()) {
         s = g_str->msg_nodata;
     } else if (g.freq_mode) {
@@ -611,6 +737,17 @@ void set_status() {
         s = buf;
         s += g.auto_y ? g_str->st_yauto : g_str->st_yfix;
         if (g.visual_smooth) s += g_str->st_spline;
+    }
+    if (has_data()) {
+        double fft_start, fft_end;
+        bool from_selection = false;
+        if (g.freq_mode) {
+            if (last_fft_source_window(fft_start, fft_end, from_selection)) {
+                s += fft_window_status(fft_start, fft_end, from_selection);
+            }
+        } else if (has_fft_window()) {
+            s += fft_window_status(g.fft_window_start, g.fft_window_end, true);
+        }
     }
     if (has_data()) {
         std::size_t nlines = 0;
@@ -638,6 +775,7 @@ void set_status() {
         }
         s += buf;
     }
+    marker_status_detail(g.status_detail_text, g.status_detail_color);
     g.status_text = s;
     if (g.status) SetWindowTextW(g.status, s.c_str());
     if (g.main) {
@@ -648,10 +786,54 @@ void set_status() {
     }
 }
 
+bool build_time_window_dataset(const lvm::Dataset& in, double start, double end, lvm::Dataset& out) {
+    out = lvm::Dataset{};
+    out.stats = in.stats;
+    out.ok = true;
+    out.names = in.names;
+    out.channels.resize(in.channels.size());
+    for (std::size_t r = 0; r < in.time.size(); ++r) {
+        const double t = in.time[r];
+        if (t < start || t > end) continue;
+        out.time.push_back(t);
+        for (std::size_t c = 0; c < in.channels.size(); ++c) {
+            out.channels[c].push_back(in.channels[c][r]);
+        }
+    }
+    return true;
+}
+
+void compute_spectrum_for_window(double start, double end, bool from_selection) {
+    if (!has_data()) return;
+    clamp_time_window(start, end);
+    g.spec_source_start = start;
+    g.spec_source_end = end;
+    g.spec_source_from_selection = from_selection;
+    g.spec_source_valid = end > start;
+    lvm::Dataset view;
+    build_time_window_dataset(g.ds, start, end, view);
+    g.spec = lvm::compute_spectrum(view, 16384);
+    g.spec_valid = g.spec.ok;
+}
+
+void compute_spectrum_from_current_source() {
+    if (!has_data()) return;
+    double start = 0.0, end = 0.0;
+    bool from_selection = false;
+    if (current_fft_source_window(start, end, from_selection)) {
+        compute_spectrum_for_window(start, end, from_selection);
+    }
+}
+
 void compute_spectrum() {
     if (!has_data()) return;
-    g.spec = lvm::compute_spectrum(g.ds, 16384);
-    g.spec_valid = g.spec.ok;
+    double start = 0.0, end = 0.0;
+    bool from_selection = false;
+    if (g.freq_mode && last_fft_source_window(start, end, from_selection)) {
+        compute_spectrum_for_window(start, end, from_selection);
+        return;
+    }
+    compute_spectrum_from_current_source();
 }
 
 int channel_index_by_name(const std::string& name) {
@@ -867,6 +1049,12 @@ bool active_axis(double*& lo, double*& hi, double& minb, double& maxb, double& m
 
 bool current_time_yrange(double& ymin, double& ymax);
 void sync_menu();
+void set_mode(bool freq_mode);
+void rebuild_ui();
+void rebuild_accelerators();
+void refresh_settings_controls();
+HMENU make_menu();
+std::wstring hotkey_text_for_command(int command);
 
 void invalidate_plot() {
     RECT pr = plot_rect();
@@ -1102,6 +1290,13 @@ bool load_path(const std::wstring& wpath) {
     g.points.clear();
     g.guides.clear();
     g.markers.clear();
+    g.active_marker = -1;
+    clear_fft_window();
+    g.fft_selecting = false;
+    g.spec_source_valid = false;
+    g.spec_source_start = 0.0;
+    g.spec_source_end = 0.0;
+    g.spec_source_from_selection = false;
     g_undo.clear();
     g_redo.clear();
     stop_play();
@@ -1111,7 +1306,7 @@ bool load_path(const std::wstring& wpath) {
     if (g.autoy) { SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0); InvalidateRect(g.autoy, nullptr, FALSE); }
     if (g.menu) CheckMenuItem(g.menu, IDC_AUTOY, MF_BYCOMMAND | MF_CHECKED);
 
-    compute_spectrum();
+    compute_spectrum_from_current_source();
     g.freq_start = 0.0;
     g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
 
@@ -1395,6 +1590,9 @@ void draw_markers(HDC dc) {
     auto mx = [&](double dx) {
         return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
+    auto my = [&](double dy) {
+        return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
+    };
     HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
     SelectClipRgn(dc, clip);
     HPEN pen = CreatePen(PS_SOLID, 2, RGB(180, 0, 180));
@@ -1430,6 +1628,19 @@ void draw_markers(HDC dc) {
         RoundRect(dc, tx - 2, ty - 1, tx + ts.cx + 4, ty + ts.cy + 2, 3, 3);
         SetTextAlign(dc, TA_LEFT | TA_TOP);
         TextOutW(dc, tx, ty, txt, tlen);
+
+        if (m.snapped && m.channel >= 0) {
+            const int Y = my(m.y);
+            if (Y >= p.top && Y <= p.bottom) {
+                HBRUSH dot = CreateSolidBrush(channel_color(static_cast<std::size_t>(m.channel)));
+                HGDIOBJ old_dot_br = SelectObject(dc, dot);
+                HGDIOBJ old_dot_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+                Ellipse(dc, X - 4, Y - 4, X + 5, Y + 5);
+                SelectObject(dc, old_dot_pen);
+                SelectObject(dc, old_dot_br);
+                DeleteObject(dot);
+            }
+        }
     }
     SelectObject(dc, prev_pen);
     DeleteObject(bp);
@@ -1598,6 +1809,29 @@ void draw_time(HDC dc, const RECT& p) {
     HRGN clip = CreateRectRgn(p.left + 1, p.top + 1, p.right, p.bottom);
     SelectClipRgn(dc, clip);
 
+    double fft0 = 0.0, fft1 = 0.0;
+    bool show_fft_window = false;
+    int fft_left_px = 0, fft_right_px = 0;
+    if (g.fft_selecting) {
+        fft0 = g.fft_select_anchor_t;
+        fft1 = g.fft_select_current_t;
+        show_fft_window = true;
+    } else if (has_fft_window()) {
+        fft0 = g.fft_window_start;
+        fft1 = g.fft_window_end;
+        show_fft_window = true;
+    }
+    if (show_fft_window) {
+        clamp_time_window(fft0, fft1);
+        const double vis0 = std::max(fft0, g.win_start);
+        const double vis1 = std::min(fft1, g.win_end);
+        if (vis1 > vis0) {
+            fft_left_px = mapx(vis0);
+            fft_right_px = mapx(vis1);
+            if (fft_right_px <= fft_left_px) fft_right_px = fft_left_px + 1;
+        }
+    }
+
     static std::vector<float> series;
     static std::vector<float> cmin, cmax;
     const bool sparse = (hi - lo) <= static_cast<std::size_t>(pw) * 2;
@@ -1688,6 +1922,29 @@ void draw_time(HDC dc, const RECT& p) {
 
     SelectClipRgn(dc, nullptr);
     DeleteObject(clip);
+
+    if (show_fft_window && fft_right_px > fft_left_px) {
+        HPEN sel_pen = CreatePen(PS_DOT, 1, g_theme->accent);
+        HGDIOBJ old_pen = SelectObject(dc, sel_pen);
+        MoveToEx(dc, fft_left_px, p.top, nullptr); LineTo(dc, fft_left_px, p.bottom);
+        MoveToEx(dc, fft_right_px, p.top, nullptr); LineTo(dc, fft_right_px, p.bottom);
+        SelectObject(dc, old_pen);
+        DeleteObject(sel_pen);
+
+        HPEN tick_pen = CreatePen(PS_SOLID, 2, g_theme->accent);
+        HGDIOBJ old_tick_pen = SelectObject(dc, tick_pen);
+        const int tick = 8;
+        const int top_y = p.top + 2;
+        const int bottom_y = p.bottom - 2;
+
+        MoveToEx(dc, fft_left_px, top_y, nullptr); LineTo(dc, fft_left_px + tick, top_y);
+        MoveToEx(dc, fft_right_px - tick, top_y, nullptr); LineTo(dc, fft_right_px, top_y);
+        MoveToEx(dc, fft_left_px, bottom_y, nullptr); LineTo(dc, fft_left_px + tick, bottom_y);
+        MoveToEx(dc, fft_right_px - tick, bottom_y, nullptr); LineTo(dc, fft_right_px, bottom_y);
+
+        SelectObject(dc, old_tick_pen);
+        DeleteObject(tick_pen);
+    }
     draw_legend(dc, p);
 
     g.vx0 = g.win_start; g.vx1 = g.win_end; g.vy0 = ymin; g.vy1 = ymax;
@@ -1695,7 +1952,7 @@ void draw_time(HDC dc, const RECT& p) {
 }
 
 void draw_freq(HDC dc, const RECT& p) {
-    if (!g.spec_valid) compute_spectrum();
+    if (!g.spec_valid && !g.spec_source_valid) compute_spectrum();
     if (!g.spec_valid || g.spec.freqs.size() < 2) {
         draw_axes(dc, p, 0, 1, 0, 1, g_str->plot_xlabel_freq);
         return;
@@ -1773,8 +2030,10 @@ void draw_chart(HDC dc, const RECT& p) {
     if (!has_data()) {
         SetTextAlign(dc, TA_CENTER | TA_BASELINE);
         SetTextColor(dc, g_theme->text_secondary);
-        const wchar_t* msg = g_str->msg_openprompt;
-        TextOutW(dc, (p.left + p.right) / 2, (p.top + p.bottom) / 2, msg, lstrlenW(msg));
+        std::wstring msg = (g_str == &kEn)
+            ? L"Open a .lvm or .txt file (" + hotkey_text_for_command(IDC_OPEN) + L")"
+            : L"Откройте файл .lvm или .txt (" + hotkey_text_for_command(IDC_OPEN) + L")";
+        TextOutW(dc, (p.left + p.right) / 2, (p.top + p.bottom) / 2, msg.c_str(), static_cast<int>(msg.size()));
         g.vvalid = false;
         return;
     }
@@ -1879,6 +2138,12 @@ void on_paint(HDC hdc) {
         TextOutW(mem, 12, ch - kBottomBar + 5, g.hover_status_text.c_str(), static_cast<int>(g.hover_status_text.size()));
     } else if (!g.status_text.empty()) {
         TextOutW(mem, 12, ch - kBottomBar + 5, g.status_text.c_str(), static_cast<int>(g.status_text.size()));
+        if (!g.status_detail_text.empty()) {
+            SIZE sz = {};
+            GetTextExtentPoint32W(mem, g.status_text.c_str(), static_cast<int>(g.status_text.size()), &sz);
+            SetTextColor(mem, g.status_detail_color);
+            TextOutW(mem, 12 + sz.cx, ch - kBottomBar + 5, g.status_detail_text.c_str(), static_cast<int>(g.status_detail_text.size()));
+        }
     }
 
     BitBlt(hdc, 0, 0, cw, ch, mem, 0, 0, SRCCOPY);
@@ -2114,46 +2379,295 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
 // Snap a clicked coordinate to the nearest real sample (Time mode) or spectrum
 // bin (Hz mode) of the closest visible channel, so a marker lands exactly on a
 // data point. The stored data is never modified — only the marker is adjusted.
-void snap_to_nearest(double& dx, double& dy) {
+bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) {
     if (g.freq_mode) {
-        if (!g.spec_valid || g.spec.freqs.size() < 2) return;
+        if (!g.spec_valid || g.spec.freqs.size() < 2) return false;
         const auto& f = g.spec.freqs;
         std::size_t k = static_cast<std::size_t>(std::lower_bound(f.begin(), f.end(), dx) - f.begin());
         if (k >= f.size()) k = f.size() - 1;
         if (k > 0 && (dx - f[k - 1]) < (f[k] - dx)) --k;
         double best = std::numeric_limits<double>::max(), by = dy;
-        bool any = false;
+        int best_ci = -1;
         for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
             const int ci = channel_index_by_name(g.spec.names[j]);
             if (ci < 0 || !g.visible[ci]) continue;
             const double v = g.spec.amp[j][k];
             const double d = std::fabs(v - dy);
-            if (d < best) { best = d; by = v; any = true; }
+            if (d < best) { best = d; by = v; best_ci = ci; }
         }
         dx = f[k];
-        if (any) dy = by;
-        return;
+        if (best_ci >= 0) {
+            dy = by;
+            if (out_channel) *out_channel = best_ci;
+            return true;
+        }
+        return false;
     }
-    if (!has_data()) return;
+    if (!has_data()) return false;
     const auto& t = g.ds.time;
     std::size_t i = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), dx) - t.begin());
     if (i >= t.size()) i = t.size() - 1;
     if (i > 0 && (dx - t[i - 1]) < (t[i] - dx)) --i;
     double best = std::numeric_limits<double>::max(), by = dy;
-    bool any = false;
+    int best_ci = -1;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
         const double v = g.ds.channels[c][i];
         if (std::isnan(v)) continue;
         const double d = std::fabs(v - dy);
-        if (d < best) { best = d; by = v; any = true; }
+        if (d < best) { best = d; by = v; best_ci = static_cast<int>(c); }
     }
     dx = t[i];
-    if (any) dy = by;
+    if (best_ci >= 0) {
+        dy = by;
+        if (out_channel) *out_channel = best_ci;
+        return true;
+    }
+    return false;
+}
+
+void snap_to_nearest(double& dx, double& dy) {
+    snap_to_nearest_target(dx, dy, nullptr);
+}
+
+int hit_test_marker(int px, int py) {
+    if (!g.vvalid || g.markers.empty()) return -1;
+    const RECT& p = g.vrect;
+    if (px < p.left || px > p.right || py < p.top || py > p.bottom) return -1;
+    if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return -1;
+    auto mx = [&](double dx) {
+        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+    };
+    auto my = [&](double dy) {
+        return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
+    };
+    int best = -1;
+    int best_score = 999999;
+    for (std::size_t i = 0; i < g.markers.size(); ++i) {
+        const App::Marker& m = g.markers[i];
+        if (m.freq != g.freq_mode) continue;
+        const int dxp = std::abs(px - mx(m.x));
+        if (dxp > 6) continue;
+        int score = dxp * 10;
+        if (m.snapped) {
+            const int dyp = std::abs(py - my(m.y));
+            if (dyp <= 8) score = dxp + dyp;
+        }
+        if (score < best_score) {
+            best_score = score;
+            best = static_cast<int>(i);
+        }
+    }
+    return best;
+}
+
+const HotkeyBinding* find_hotkey_binding(int command) {
+    for (const auto& hk : g.hotkeys)
+        if (hk.command == command) return &hk;
+    return nullptr;
+}
+
+std::vector<HotkeyBinding> default_hotkeys() {
+    return {
+        {IDC_OPEN, FVIRTKEY | FCONTROL, 'O'},
+        {IDC_SAVEPNG, FVIRTKEY | FCONTROL, 'S'},
+        {IDC_SAVECSV, FVIRTKEY | FCONTROL, 'E'},
+        {IDM_UNDO, FVIRTKEY | FCONTROL, 'Z'},
+        {IDM_REDO, FVIRTKEY | FCONTROL | FSHIFT, 'Z'},
+        {IDM_MODE_TIME, FVIRTKEY, 'T'},
+        {IDM_MODE_FREQ, FVIRTKEY, 'F'},
+        {IDC_MEASURE, FVIRTKEY, 'P'},
+        {IDM_ADD_MARKER, FVIRTKEY, 'M'},
+        {IDM_ADD_VLINE, FVIRTKEY, 'V'},
+        {IDM_ADD_HLINE, FVIRTKEY, 'H'},
+        {IDC_AUTOY, FVIRTKEY, 'A'},
+        {IDM_VISMOOTH, FVIRTKEY, 'C'},
+        {IDM_VPAN, FVIRTKEY, 'Y'},
+        {IDM_THEME, FVIRTKEY, 'D'},
+        {IDC_PLAY, FVIRTKEY, VK_SPACE},
+        {IDC_ZOOMIN, FVIRTKEY, VK_OEM_PLUS},
+        {IDC_ZOOMOUT, FVIRTKEY, VK_OEM_MINUS},
+        {IDC_PANLEFT, FVIRTKEY, VK_LEFT},
+        {IDC_PANRIGHT, FVIRTKEY, VK_RIGHT},
+        {IDC_RESET, FVIRTKEY, VK_HOME},
+        {IDC_GOTO_START, FVIRTKEY | FCONTROL, VK_HOME},
+        {IDC_GOTO_END, FVIRTKEY | FCONTROL, VK_END},
+        {IDM_CLEAR_POINTS, FVIRTKEY, VK_DELETE},
+        {IDM_HOTKEYS, FVIRTKEY, VK_F1},
+    };
+}
+
+void ensure_hotkeys_initialized() {
+    if (g.hotkeys.empty()) g.hotkeys = default_hotkeys();
+}
+
+std::wstring key_name(WORD key) {
+    switch (key) {
+        case 0: return g_str == &kEn ? L"None" : L"Нет";
+        case VK_SPACE: return g_str == &kEn ? L"Space" : L"Пробел";
+        case VK_LEFT: return g_str == &kEn ? L"Left" : L"Влево";
+        case VK_RIGHT: return g_str == &kEn ? L"Right" : L"Вправо";
+        case VK_UP: return g_str == &kEn ? L"Up" : L"Вверх";
+        case VK_DOWN: return g_str == &kEn ? L"Down" : L"Вниз";
+        case VK_HOME: return L"Home";
+        case VK_END: return L"End";
+        case VK_DELETE: return L"Delete";
+        case VK_ESCAPE: return L"Esc";
+        case VK_OEM_PLUS: return L"+";
+        case VK_OEM_MINUS: return L"-";
+        default:
+            if (key >= 'A' && key <= 'Z') return std::wstring(1, static_cast<wchar_t>(key));
+            if (key >= '0' && key <= '9') return std::wstring(1, static_cast<wchar_t>(key));
+            if (key >= VK_F1 && key <= VK_F12) return L"F" + std::to_wstring(key - VK_F1 + 1);
+            return L"?";
+    }
+}
+
+std::wstring hotkey_text(BYTE fvirt, WORD key) {
+    if (key == 0) return g_str == &kEn ? L"Not assigned" : L"Не назначено";
+    std::wstring out;
+    if (fvirt & FCONTROL) out += L"Ctrl+";
+    if (fvirt & FSHIFT) out += L"Shift+";
+    if (fvirt & FALT) out += L"Alt+";
+    out += key_name(key);
+    return out;
+}
+
+std::wstring hotkey_text_for_command(int command) {
+    const HotkeyBinding* hk = find_hotkey_binding(command);
+    return hk ? hotkey_text(hk->fvirt, hk->key) : std::wstring();
+}
+
+std::wstring menu_text(const wchar_t* base, int command) {
+    const HotkeyBinding* binding = find_hotkey_binding(command);
+    if (!binding || binding->key == 0) return base;
+    std::wstring hk = hotkey_text(binding->fvirt, binding->key);
+    if (hk.empty()) return base;
+    return std::wstring(base) + L"\t" + hk;
+}
+
+std::wstring command_name(int command) {
+    const bool en = (g_str == &kEn);
+    switch (command) {
+        case IDC_OPEN: return en ? L"Open file" : L"Открыть файл";
+        case IDC_SAVEPNG: return en ? L"Save PNG" : L"Сохранить PNG";
+        case IDC_SAVECSV: return en ? L"Save CSV" : L"Сохранить CSV";
+        case IDM_UNDO: return en ? L"Undo" : L"Отменить";
+        case IDM_REDO: return en ? L"Redo" : L"Повторить";
+        case IDM_MODE_TIME: return en ? L"Time view" : L"Режим времени";
+        case IDM_MODE_FREQ: return en ? L"Hz / FFT view" : L"Режим Гц / БПФ";
+        case IDC_MEASURE: return en ? L"Measurement points" : L"Точки измерения";
+        case IDM_ADD_MARKER: return en ? L"Marker" : L"Маркер";
+        case IDM_ADD_VLINE: return en ? L"Vertical line" : L"Вертикальная линия";
+        case IDM_ADD_HLINE: return en ? L"Horizontal line" : L"Горизонтальная линия";
+        case IDC_AUTOY: return L"Auto Y";
+        case IDM_VISMOOTH: return en ? L"Smoothing" : L"Сглаживание";
+        case IDM_VPAN: return en ? L"Vertical pan" : L"Вертикальное панорамирование";
+        case IDM_THEME: return en ? L"Dark theme" : L"Тёмная тема";
+        case IDC_PLAY: return en ? L"Play / Pause" : L"Play / Pause";
+        case IDC_ZOOMIN: return en ? L"Zoom in" : L"Увеличить";
+        case IDC_ZOOMOUT: return en ? L"Zoom out" : L"Уменьшить";
+        case IDC_PANLEFT: return en ? L"Pan left" : L"Сдвиг влево";
+        case IDC_PANRIGHT: return en ? L"Pan right" : L"Сдвиг вправо";
+        case IDC_RESET: return en ? L"Reset view" : L"Сброс вида";
+        case IDC_GOTO_START: return en ? L"Go to start" : L"В начало";
+        case IDC_GOTO_END: return en ? L"Go to end" : L"В конец";
+        case IDM_CLEAR_POINTS: return en ? L"Clear points" : L"Очистить точки";
+        case IDM_HOTKEYS: return en ? L"Hotkeys help" : L"Справка по клавишам";
+        default: return L"?";
+    }
+}
+
+std::vector<int> hotkey_command_order() {
+    return {
+        IDC_OPEN, IDC_SAVEPNG, IDC_SAVECSV, IDM_UNDO, IDM_REDO,
+        IDM_MODE_TIME, IDM_MODE_FREQ, IDC_MEASURE, IDM_ADD_MARKER,
+        IDM_ADD_VLINE, IDM_ADD_HLINE, IDC_AUTOY, IDM_VISMOOTH,
+        IDM_VPAN, IDM_THEME, IDC_PLAY, IDC_ZOOMIN, IDC_ZOOMOUT,
+        IDC_PANLEFT, IDC_PANRIGHT, IDC_RESET, IDC_GOTO_START,
+        IDC_GOTO_END, IDM_CLEAR_POINTS, IDM_HOTKEYS
+    };
+}
+
+std::wstring hotkey_list_item_text(int command) {
+    return command_name(command) + L"  [" + hotkey_text_for_command(command) + L"]";
+}
+
+std::wstring welcome_body_text() {
+    const bool en = (g_str == &kEn);
+    std::wstring s = en ? L"How to use the app:\r\n" : L"Как работать с приложением:\r\n";
+    s += en ? L"   •  " : L"   •  ";
+    s += hotkey_text_for_command(IDC_OPEN) + (en ? L" — open a .lvm or .txt file.\r\n" : L" — открыть файл .lvm или .txt.\r\n");
+    s += (en ? L"   •  " : L"   •  ") + hotkey_text_for_command(IDM_MODE_TIME) + (en ? L" — time view, " : L" — режим времени, ")
+       + hotkey_text_for_command(IDM_MODE_FREQ) + (en ? L" — FFT spectrum.\r\n" : L" — спектр БПФ.\r\n");
+    s += (en ? L"   •  " : L"   •  ") + hotkey_text_for_command(IDC_MEASURE) + (en ? L" — measurement points, " : L" — точки измерения, ")
+       + hotkey_text_for_command(IDM_ADD_MARKER) + (en ? L" — marker.\r\n" : L" — маркер.\r\n");
+    s += (en ? L"   •  " : L"   •  ") + hotkey_text_for_command(IDM_ADD_VLINE) + L" / "
+       + hotkey_text_for_command(IDM_ADD_HLINE) + (en ? L" — vertical or horizontal guide line.\r\n" : L" — вертикальная или горизонтальная линия.\r\n");
+    s += en ? L"   •  Mouse wheel — zoom, left-drag — pan.\r\n" : L"   •  Колесо мыши — масштаб, тяга ЛКМ — прокрутка.\r\n";
+    s += (en ? L"   •  " : L"   •  ") + hotkey_text_for_command(IDC_AUTOY) + L" — Auto Y, "
+       + hotkey_text_for_command(IDM_VPAN) + (en ? L" — vertical pan, " : L" — вертикальное панорамирование, ")
+       + hotkey_text_for_command(IDM_THEME) + (en ? L" — dark theme.\r\n" : L" — тёмная тема.\r\n");
+    s += (en ? L"   •  " : L"   •  ") + hotkey_text_for_command(IDC_PLAY)
+       + (en ? L" — playback, " : L" — воспроизведение, ")
+       + hotkey_text_for_command(IDM_HOTKEYS) + (en ? L" — full hotkeys list." : L" — полный список горячих клавиш.");
+    return s;
+}
+
+void append_hotkey_line(std::wstring& out, int command) {
+    out += L"  " + hotkey_text_for_command(command) + L"\t— " + command_name(command) + L"\n";
+}
+
+std::wstring hotkeys_body_text() {
+    const bool en = (g_str == &kEn);
+    std::wstring out = en ? L"Files\n" : L"Файлы\n";
+    append_hotkey_line(out, IDC_OPEN);
+    append_hotkey_line(out, IDC_SAVEPNG);
+    append_hotkey_line(out, IDC_SAVECSV);
+    append_hotkey_line(out, IDM_UNDO);
+    append_hotkey_line(out, IDM_REDO);
+    out += L"\n";
+
+    out += en ? L"Modes and tools\n" : L"Режимы и инструменты\n";
+    append_hotkey_line(out, IDM_MODE_TIME);
+    append_hotkey_line(out, IDM_MODE_FREQ);
+    append_hotkey_line(out, IDC_MEASURE);
+    append_hotkey_line(out, IDM_ADD_MARKER);
+    append_hotkey_line(out, IDM_ADD_VLINE);
+    append_hotkey_line(out, IDM_ADD_HLINE);
+    out += en ? L"  Esc\t— Cancel current add mode\n\n" : L"  Esc\t— Отменить текущий режим добавления\n\n";
+
+    out += en ? L"View\n" : L"Вид\n";
+    append_hotkey_line(out, IDC_AUTOY);
+    append_hotkey_line(out, IDM_VISMOOTH);
+    append_hotkey_line(out, IDM_VPAN);
+    append_hotkey_line(out, IDM_THEME);
+    append_hotkey_line(out, IDC_PLAY);
+    append_hotkey_line(out, IDC_ZOOMIN);
+    append_hotkey_line(out, IDC_ZOOMOUT);
+    append_hotkey_line(out, IDC_PANLEFT);
+    append_hotkey_line(out, IDC_PANRIGHT);
+    append_hotkey_line(out, IDC_RESET);
+    append_hotkey_line(out, IDC_GOTO_START);
+    append_hotkey_line(out, IDC_GOTO_END);
+    append_hotkey_line(out, IDM_CLEAR_POINTS);
+    out += L"\n";
+
+    out += en ? L"Mouse\n" : L"Мышь\n";
+    out += en ? L"  Wheel\t— Zoom under cursor\n" : L"  Колесо\t— Масштаб под курсором\n";
+    out += en ? L"  Shift+Wheel\t— Pan left / right\n" : L"  Shift+колесо\t— Прокрутка влево / вправо\n";
+    out += en ? L"  Ctrl+Wheel\t— Zoom Y\n" : L"  Ctrl+колесо\t— Масштаб по Y\n";
+    out += en ? L"  Alt+Wheel\t— Pan up / down (Y)\n" : L"  Alt+колесо\t— Сдвиг вверх / вниз по Y\n";
+    out += en ? L"  Left-drag\t— Pan view\n" : L"  ЛКМ + тяга\t— Панорамирование\n";
+    out += en ? L"  Left-click\t— Place point / line / marker in active mode\n" : L"  ЛКМ\t— Поставить точку / линию / маркер в активном режиме\n";
+    out += en ? L"  Right-click\t— Clear points\n\n" : L"  ПКМ\t— Очистить точки\n\n";
+    append_hotkey_line(out, IDM_HOTKEYS);
+    return out;
 }
 
 void show_hotkeys() {
-    MessageBoxW(g.main, g_str->hk_title, g_str->dlg_hotkeys_title, MB_OK | MB_ICONINFORMATION);
+    std::wstring text = hotkeys_body_text();
+    MessageBoxW(g.main, text.c_str(), g_str->dlg_hotkeys_title, MB_OK | MB_ICONINFORMATION);
 }
 
 void show_about() {
@@ -2167,18 +2681,132 @@ void sync_menu() {
     auto chk = [&](UINT id, bool on) {
         CheckMenuItem(g.menu, id, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
     };
+    chk(IDM_MODE_TIME, !g.freq_mode);
+    chk(IDM_MODE_FREQ, g.freq_mode);
     chk(IDM_VISMOOTH, g.visual_smooth);
     chk(IDM_VPAN, g.vertical_pan);
     chk(IDC_MEASURE, g.measure_mode);
     chk(IDC_AUTOY, g.auto_y);
     chk(IDM_THEME, g_theme == &kDarkTheme);
-    ModifyMenuW(g.menu, IDM_THEME, MF_BYCOMMAND | MF_STRING, IDM_THEME,
-                g_theme == &kDarkTheme ? g_str->theme_light : g_str->theme_dark);
+    std::wstring theme_label = menu_text(g_theme == &kDarkTheme ? g_str->theme_light : g_str->theme_dark, IDM_THEME);
+    ModifyMenuW(g.menu, IDM_THEME, MF_BYCOMMAND | MF_STRING, IDM_THEME, theme_label.c_str());
+}
+
+void set_mode(bool freq_mode) {
+    if (g.freq_mode == freq_mode) return;
+    g.freq_mode = freq_mode;
+    if (g.freq_mode) stop_play();
+    if (g.freq_mode) {
+        compute_spectrum_from_current_source();
+        g.freq_start = 0.0;
+        g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
+    }
+    sync_menu();
+    set_status();
+    InvalidateRect(g.main, nullptr, TRUE);
 }
 
 HMENU make_menu() {
     HMENU bar = CreateMenu();
     const wchar_t* savetxt_menu = (g_str == &kEn) ? L"Export TXT…" : L"Выгрузить TXT…";
+
+    {
+        const bool en = (g_str == &kEn);
+        const wchar_t* menu_file = en ? L"File" : L"Файл";
+        const wchar_t* menu_view = en ? L"View" : L"Вид";
+        const wchar_t* menu_points = en ? L"Points" : L"Точки";
+        const wchar_t* menu_lines = en ? L"Lines" : L"Линии";
+        const wchar_t* menu_markers = en ? L"Markers" : L"Маркеры";
+        const wchar_t* menu_help = en ? L"Help" : L"Справка";
+
+        HMENU file = CreatePopupMenu();
+        std::wstring open_text = menu_text(en ? L"Open file…" : L"Открыть файл…", IDC_OPEN);
+        std::wstring save_png_text = menu_text(en ? L"Save PNG…" : L"Сохранить PNG…", IDC_SAVEPNG);
+        std::wstring save_csv_text = menu_text(en ? L"Save CSV…" : L"Сохранить CSV…", IDC_SAVECSV);
+        std::wstring undo_text = menu_text(en ? L"Undo" : L"Отменить", IDM_UNDO);
+        std::wstring redo_text = menu_text(en ? L"Redo" : L"Повторить", IDM_REDO);
+        AppendMenuW(file, MF_STRING, IDC_OPEN, open_text.c_str());
+        AppendMenuW(file, MF_STRING, IDC_SAVEPNG, save_png_text.c_str());
+        AppendMenuW(file, MF_STRING, IDC_SAVECSV, save_csv_text.c_str());
+        AppendMenuW(file, MF_STRING, IDC_SAVETXT, savetxt_menu);
+        AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(file, MF_STRING, IDM_UNDO, undo_text.c_str());
+        AppendMenuW(file, MF_STRING, IDM_REDO, redo_text.c_str());
+        AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(file, MF_STRING, IDM_EXIT, en ? L"Exit\tAlt+F4" : L"Выход\tAlt+F4");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(file), menu_file);
+
+        HMENU view = CreatePopupMenu();
+        std::wstring mode_time_text = menu_text(en ? L"Time" : L"Время", IDM_MODE_TIME);
+        std::wstring mode_freq_text = menu_text(en ? L"Hz (FFT)" : L"Гц (FFT)", IDM_MODE_FREQ);
+        std::wstring zoom_in_text = menu_text(en ? L"Zoom in" : L"Увеличить", IDC_ZOOMIN);
+        std::wstring zoom_out_text = menu_text(en ? L"Zoom out" : L"Уменьшить", IDC_ZOOMOUT);
+        std::wstring reset_text = menu_text(en ? L"Reset view" : L"Сбросить вид", IDC_RESET);
+        std::wstring start_text = menu_text(en ? L"Go to start" : L"В начало", IDC_GOTO_START);
+        std::wstring end_text = menu_text(en ? L"Go to end" : L"В конец", IDC_GOTO_END);
+        std::wstring autoy_text = menu_text(L"Auto Y", IDC_AUTOY);
+        std::wstring smooth_text = menu_text(en ? L"Smoothing" : L"Сглаживание", IDM_VISMOOTH);
+        std::wstring vpan_text = menu_text(en ? L"Vertical pan" : L"Вертикальное панорамирование", IDM_VPAN);
+        std::wstring play_text = menu_text(L"Play / Pause", IDC_PLAY);
+        std::wstring theme_text = menu_text(en ? L"Dark theme" : L"Тёмная тема", IDM_THEME);
+        AppendMenuW(view, MF_STRING, IDM_MODE_TIME, mode_time_text.c_str());
+        AppendMenuW(view, MF_STRING, IDM_MODE_FREQ, mode_freq_text.c_str());
+        AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(view, MF_STRING, IDC_ZOOMIN, zoom_in_text.c_str());
+        AppendMenuW(view, MF_STRING, IDC_ZOOMOUT, zoom_out_text.c_str());
+        AppendMenuW(view, MF_STRING, IDC_RESET, reset_text.c_str());
+        AppendMenuW(view, MF_STRING, IDC_GOTO_START, start_text.c_str());
+        AppendMenuW(view, MF_STRING, IDC_GOTO_END, end_text.c_str());
+        AppendMenuW(view, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(view, MF_STRING, IDC_AUTOY, autoy_text.c_str());
+        AppendMenuW(view, MF_STRING, IDM_VISMOOTH, smooth_text.c_str());
+        AppendMenuW(view, MF_STRING, IDM_VPAN, vpan_text.c_str());
+        AppendMenuW(view, MF_STRING, IDC_PLAY, play_text.c_str());
+        AppendMenuW(view, MF_STRING, IDM_THEME, theme_text.c_str());
+        HMENU speed = CreatePopupMenu();
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_00001, L"0.0001x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_0001, L"0.001x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_001, L"0.01x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_01, L"0.1x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_05, L"0.5x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_1, L"1x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_2, L"2x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_5, L"5x");
+        AppendMenuW(speed, MF_STRING, IDM_SPEED_10, L"10x");
+        AppendMenuW(view, MF_POPUP, reinterpret_cast<UINT_PTR>(speed), en ? L"Speed" : L"Скорость");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(view), menu_view);
+
+        HMENU meas = CreatePopupMenu();
+        std::wstring measure_text = menu_text(en ? L"Points" : L"Точки", IDC_MEASURE);
+        AppendMenuW(meas, MF_STRING, IDC_MEASURE, measure_text.c_str());
+        AppendMenuW(meas, MF_STRING, IDC_PTSETTINGS, en ? L"Settings…" : L"Настройки…");
+        AppendMenuW(meas, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(meas, MF_STRING, IDM_CLEAR_POINTS, en ? L"Clear\tDelete" : L"Очистить\tDelete");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(meas), menu_points);
+
+        HMENU lines = CreatePopupMenu();
+        std::wstring vline_text = menu_text(en ? L"Vertical" : L"Вертикальная", IDM_ADD_VLINE);
+        std::wstring hline_text = menu_text(en ? L"Horizontal" : L"Горизонтальная", IDM_ADD_HLINE);
+        AppendMenuW(lines, MF_STRING, IDM_ADD_VLINE, vline_text.c_str());
+        AppendMenuW(lines, MF_STRING, IDM_ADD_HLINE, hline_text.c_str());
+        AppendMenuW(lines, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(lines, MF_STRING, IDM_CLEAR_LINES, en ? L"Clear" : L"Очистить");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(lines), menu_lines);
+
+        HMENU markers = CreatePopupMenu();
+        std::wstring marker_text = menu_text(en ? L"Add" : L"Добавить", IDM_ADD_MARKER);
+        AppendMenuW(markers, MF_STRING, IDM_ADD_MARKER, marker_text.c_str());
+        AppendMenuW(markers, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(markers, MF_STRING, IDM_CLEAR_MARKERS, en ? L"Clear" : L"Очистить");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(markers), menu_markers);
+
+        HMENU help = CreatePopupMenu();
+        std::wstring hotkeys_text = menu_text(en ? L"Keyboard shortcuts…" : L"Горячие клавиши…", IDM_HOTKEYS);
+        AppendMenuW(help, MF_STRING, IDM_HOTKEYS, hotkeys_text.c_str());
+        AppendMenuW(help, MF_STRING, IDM_ABOUT, en ? L"About…" : L"О программе…");
+        AppendMenuW(bar, MF_POPUP, reinterpret_cast<UINT_PTR>(help), menu_help);
+        return bar;
+    }
 
     HMENU file = CreatePopupMenu();
     AppendMenuW(file, MF_STRING, IDC_OPEN, L"Открыть файл…\tCtrl+O");
@@ -2251,11 +2879,164 @@ HMENU make_menu() {
 
 COLORREF g_custom_colors[16] = {0};
 
+const wchar_t* settings_window_title() {
+    return (g_str == &kEn) ? L"Settings" : L"Настройки";
+}
+
+int hotkey_binding_index(int command) {
+    for (std::size_t i = 0; i < g.hotkeys.size(); ++i)
+        if (g.hotkeys[i].command == command) return static_cast<int>(i);
+    return -1;
+}
+
+void set_hotkey_binding(int command, BYTE fvirt, WORD key) {
+    int idx = hotkey_binding_index(command);
+    if (idx >= 0) {
+        g.hotkeys[static_cast<std::size_t>(idx)].fvirt = fvirt;
+        g.hotkeys[static_cast<std::size_t>(idx)].key = key;
+    } else {
+        g.hotkeys.push_back({command, fvirt, key});
+    }
+}
+
+HotkeyBinding default_hotkey_for_command(int command) {
+    for (const auto& hk : default_hotkeys())
+        if (hk.command == command) return hk;
+    return {command, FVIRTKEY, 0};
+}
+
+int find_conflicting_hotkey(BYTE fvirt, WORD key, int except_command) {
+    if (key == 0) return 0;
+    for (const auto& hk : g.hotkeys) {
+        if (hk.command == except_command) continue;
+        if (hk.key == key && hk.fvirt == fvirt) return hk.command;
+    }
+    return 0;
+}
+
+void hotkey_combo_add(HWND combo, const wchar_t* text, WORD key) {
+    int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)));
+    SendMessageW(combo, CB_SETITEMDATA, idx, key);
+}
+
+void populate_hotkey_key_combo(HWND combo) {
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    hotkey_combo_add(combo, g_str == &kEn ? L"None" : L"Нет", 0);
+    for (wchar_t ch = L'A'; ch <= L'Z'; ++ch) {
+        wchar_t txt[2] = {ch, 0};
+        hotkey_combo_add(combo, txt, static_cast<WORD>(ch));
+    }
+    for (wchar_t ch = L'0'; ch <= L'9'; ++ch) {
+        wchar_t txt[2] = {ch, 0};
+        hotkey_combo_add(combo, txt, static_cast<WORD>(ch));
+    }
+    for (int i = 1; i <= 12; ++i) {
+        std::wstring txt = L"F" + std::to_wstring(i);
+        hotkey_combo_add(combo, txt.c_str(), static_cast<WORD>(VK_F1 + i - 1));
+    }
+    hotkey_combo_add(combo, g_str == &kEn ? L"Space" : L"Пробел", VK_SPACE);
+    hotkey_combo_add(combo, L"Home", VK_HOME);
+    hotkey_combo_add(combo, L"End", VK_END);
+    hotkey_combo_add(combo, L"Delete", VK_DELETE);
+    hotkey_combo_add(combo, L"Esc", VK_ESCAPE);
+    hotkey_combo_add(combo, g_str == &kEn ? L"Left" : L"Влево", VK_LEFT);
+    hotkey_combo_add(combo, g_str == &kEn ? L"Right" : L"Вправо", VK_RIGHT);
+    hotkey_combo_add(combo, g_str == &kEn ? L"Up" : L"Вверх", VK_UP);
+    hotkey_combo_add(combo, g_str == &kEn ? L"Down" : L"Вниз", VK_DOWN);
+    hotkey_combo_add(combo, L"+", VK_OEM_PLUS);
+    hotkey_combo_add(combo, L"-", VK_OEM_MINUS);
+    SendMessageW(combo, CB_SETCURSEL, 0, 0);
+}
+
+int combo_index_by_key(HWND combo, WORD key) {
+    int count = static_cast<int>(SendMessageW(combo, CB_GETCOUNT, 0, 0));
+    for (int i = 0; i < count; ++i)
+        if (static_cast<WORD>(SendMessageW(combo, CB_GETITEMDATA, i, 0)) == key) return i;
+    return 0;
+}
+
+int settings_selected_hotkey_command(HWND hwnd) {
+    HWND list = GetDlgItem(hwnd, IDC_SET_HOTKEY_LIST);
+    if (!list) return 0;
+    int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    if (sel == LB_ERR) return 0;
+    return static_cast<int>(SendMessageW(list, LB_GETITEMDATA, sel, 0));
+}
+
+void load_selected_hotkey_controls(HWND hwnd) {
+    int command = settings_selected_hotkey_command(hwnd);
+    const HotkeyBinding* hk = find_hotkey_binding(command);
+    BYTE fvirt = hk ? hk->fvirt : FVIRTKEY;
+    WORD key = hk ? hk->key : 0;
+    SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_CTRL), BM_SETCHECK, (fvirt & FCONTROL) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_SHIFT), BM_SETCHECK, (fvirt & FSHIFT) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_ALT), BM_SETCHECK, (fvirt & FALT) ? BST_CHECKED : BST_UNCHECKED, 0);
+    HWND combo = GetDlgItem(hwnd, IDC_SET_HOTKEY_KEY);
+    if (combo) SendMessageW(combo, CB_SETCURSEL, combo_index_by_key(combo, key), 0);
+}
+
+void populate_hotkey_list(HWND hwnd) {
+    HWND list = GetDlgItem(hwnd, IDC_SET_HOTKEY_LIST);
+    if (!list) return;
+    int selected_command = settings_selected_hotkey_command(hwnd);
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    int selected_index = 0;
+    const auto order = hotkey_command_order();
+    for (std::size_t i = 0; i < order.size(); ++i) {
+        std::wstring item = hotkey_list_item_text(order[i]);
+        int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str())));
+        SendMessageW(list, LB_SETITEMDATA, idx, order[i]);
+        if (order[i] == selected_command) selected_index = idx;
+    }
+    SendMessageW(list, LB_SETCURSEL, selected_index, 0);
+}
+
+void refresh_settings_controls() {
+    if (!g.settings_wnd) return;
+    CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_NUM), BM_SETCHECK, g.pdisp.number ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_X), BM_SETCHECK, g.pdisp.x ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_Y), BM_SETCHECK, g.pdisp.y ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DX), BM_SETCHECK, g.pdisp.dx ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DY), BM_SETCHECK, g.pdisp.dy ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_INVDT), BM_SETCHECK, g.pdisp.inv_dt ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DIST), BM_SETCHECK, g.pdisp.dist ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(GetDlgItem(g.settings_wnd, IDM_SNAP), BM_SETCHECK, g.snap_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
+    populate_hotkey_list(g.settings_wnd);
+    load_selected_hotkey_controls(g.settings_wnd);
+}
+
+void rebuild_menu_bar() {
+    if (!g.main) return;
+    SetMenu(g.main, nullptr);
+    if (g.menu) DestroyMenu(g.menu);
+    g.menu = make_menu();
+    SetMenu(g.main, g.menu);
+    MENUINFO mi = { sizeof(mi) };
+    mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+    mi.hbrBack = CreateSolidBrush(g_theme->bg_toolbar);
+    SetMenuInfo(g.menu, &mi);
+    sync_menu();
+    DrawMenuBar(g.main);
+}
+
 LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE inst = reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance;
             HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
+                HWND c = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h, hwnd,
+                    id ? reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)) : nullptr, inst, nullptr);
+                if (c) SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                return c;
+            };
+            const bool en = (g_str == &kEn);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_GROUPBOX, 12, 10, 510, 72, 0);
+            mk(L"BUTTON", g_str->lang_ru, BS_AUTORADIOBUTTON, 28, 36, 110, 22, IDC_SET_LANG_RU);
+            mk(L"BUTTON", g_str->lang_en, BS_AUTORADIOBUTTON, 144, 36, 110, 22, IDC_SET_LANG_EN);
+
+            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_GROUPBOX, 12, 92, 510, 238, 0);
             struct Item { const wchar_t* text; int id; bool on; };
             const Item items[] = {
                 {g_str->pt_num,        IDM_PT_NUM,   g.pdisp.number},
@@ -2267,7 +3048,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 {g_str->pt_dist,       IDM_PT_DIST,  g.pdisp.dist},
                 {g_str->pt_snap,       IDM_SNAP,     g.snap_to_data},
             };
-            int y = 14;
+            int y = 118;
             for (const auto& it : items) {
                 HWND c = CreateWindowExW(0, L"BUTTON", it.text,
                     WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y, 300, 22, hwnd,
@@ -2278,9 +3059,24 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             y += 8;
             HWND col = CreateWindowExW(0, L"BUTTON", g_str->dlg_color,
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 16, y, 160, 28, hwnd,
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 16, y, 180, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDS_COLOR)), inst, nullptr);
             SendMessageW(col, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_GROUPBOX, 12, 340, 510, 188, 0);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 364, 240, 150, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 372, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 372, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 372, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 404, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_BORDER, 284, 424, 214, 260, IDC_SET_HOTKEY_KEY);
+            populate_hotkey_key_combo(combo);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_PUSHBUTTON, 284, 462, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_PUSHBUTTON, 398, 462, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_PUSHBUTTON, 284, 496, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            populate_hotkey_list(hwnd);
+            load_selected_hotkey_controls(hwnd);
+            CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
             return 0;
         }
         case WM_COMMAND: {
@@ -2288,6 +3084,12 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HWND ctl = reinterpret_cast<HWND>(lp);
             auto checked = [&]() { return SendMessageW(ctl, BM_GETCHECK, 0, 0) == BST_CHECKED; };
             switch (id) {
+                case IDC_SET_LANG_RU:
+                    if (HIWORD(wp) == BN_CLICKED && g_str != &kRu) { g_str = &kRu; rebuild_ui(); }
+                    break;
+                case IDC_SET_LANG_EN:
+                    if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; rebuild_ui(); }
+                    break;
                 case IDM_PT_NUM:   g.pdisp.number = checked(); break;
                 case IDM_PT_X:     g.pdisp.x = checked(); break;
                 case IDM_PT_Y:     g.pdisp.y = checked(); break;
@@ -2296,6 +3098,44 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDM_PT_INVDT: g.pdisp.inv_dt = checked(); break;
                 case IDM_PT_DIST:  g.pdisp.dist = checked(); break;
                 case IDM_SNAP:     g.snap_to_data = checked(); break;
+                case IDC_SET_HOTKEY_LIST:
+                    if (HIWORD(wp) == LBN_SELCHANGE) load_selected_hotkey_controls(hwnd);
+                    return 0;
+                case IDC_SET_HOTKEY_APPLY:
+                case IDC_SET_HOTKEY_RESET:
+                case IDC_SET_HOTKEY_CLEAR: {
+                    const int command = settings_selected_hotkey_command(hwnd);
+                    if (!command) return 0;
+                    BYTE fvirt = FVIRTKEY;
+                    WORD key = 0;
+                    if (id == IDC_SET_HOTKEY_RESET) {
+                        HotkeyBinding def = default_hotkey_for_command(command);
+                        fvirt = def.fvirt;
+                        key = def.key;
+                    } else if (id != IDC_SET_HOTKEY_CLEAR) {
+                        if (SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_CTRL), BM_GETCHECK, 0, 0) == BST_CHECKED) fvirt |= FCONTROL;
+                        if (SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_SHIFT), BM_GETCHECK, 0, 0) == BST_CHECKED) fvirt |= FSHIFT;
+                        if (SendMessageW(GetDlgItem(hwnd, IDC_SET_HOTKEY_ALT), BM_GETCHECK, 0, 0) == BST_CHECKED) fvirt |= FALT;
+                        HWND combo = GetDlgItem(hwnd, IDC_SET_HOTKEY_KEY);
+                        int sel = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+                        if (sel != CB_ERR) key = static_cast<WORD>(SendMessageW(combo, CB_GETITEMDATA, sel, 0));
+                    }
+                    int conflict = find_conflicting_hotkey(fvirt, key, command);
+                    if (conflict) {
+                        std::wstring msg = (g_str == &kEn ? L"Already used by: " : L"Уже используется действием: ");
+                        msg += command_name(conflict);
+                        MessageBoxW(hwnd, msg.c_str(), settings_window_title(), MB_OK | MB_ICONWARNING);
+                        return 0;
+                    }
+                    set_hotkey_binding(command, fvirt, key);
+                    rebuild_accelerators();
+                    rebuild_menu_bar();
+                    populate_hotkey_list(hwnd);
+                    load_selected_hotkey_controls(hwnd);
+                    set_status();
+                    InvalidateRect(g.main, nullptr, TRUE);
+                    return 0;
+                }
                 case IDS_COLOR: {
                     CHOOSECOLORW cc = {};
                     cc.lStructSize = sizeof(cc);
@@ -2341,8 +3181,8 @@ void open_settings() {
     if (!g.settings_wnd) {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
         g.settings_wnd = CreateWindowExW(
-            WS_EX_TOOLWINDOW, L"LvmPtSettings", g_str->dlg_ptsettings_title,
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 350, 340,
+            WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 580,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;
@@ -2354,18 +3194,51 @@ void open_settings() {
                      mr.top + ((mr.bottom - mr.top) - sh) / 2,
                      0, 0, SWP_NOSIZE | SWP_NOZORDER);
     }
+    refresh_settings_controls();
     ShowWindow(g.settings_wnd, SW_SHOW);
     SetForegroundWindow(g.settings_wnd);
 }
 
 // ---- welcome / start screen ----------------------------------------------
 
+void rebuild_ui();
+
 LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
             HINSTANCE inst = reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance;
             HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-            HWND title = CreateWindowExW(0, L"STATIC", L"LVM Viewer",
+            {
+                std::wstring welcome_body = welcome_body_text();
+                HWND title = CreateWindowExW(0, L"STATIC", g_str->welcome_title,
+                    WS_CHILD | WS_VISIBLE | SS_LEFT, 32, 24, 520, 40, hwnd, nullptr, inst, nullptr);
+                SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g.title_font ? g.title_font : font), TRUE);
+                HWND sub = CreateWindowExW(0, L"STATIC", g_str->welcome_subtitle,
+                    WS_CHILD | WS_VISIBLE | SS_LEFT, 32, 64, 520, 22, hwnd, nullptr, inst, nullptr);
+                SendMessageW(sub, WM_SETFONT, reinterpret_cast<WPARAM>(g.bold_font ? g.bold_font : font), TRUE);
+                HWND body = CreateWindowExW(0, L"STATIC", welcome_body.c_str(),
+                    WS_CHILD | WS_VISIBLE | SS_LEFT, 32, 94, 540, 200, hwnd, nullptr, inst, nullptr);
+                SendMessageW(body, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                HWND lang = CreateWindowExW(0, L"STATIC", g_str->m_lang,
+                    WS_CHILD | WS_VISIBLE | SS_LEFT, 32, 304, 92, 22, hwnd, nullptr, inst, nullptr);
+                SendMessageW(lang, WM_SETFONT, reinterpret_cast<WPARAM>(g.bold_font ? g.bold_font : font), TRUE);
+
+                auto mkbtn = [&](const wchar_t* t, int id, int x, int y, int w) {
+                    HWND b = CreateWindowExW(0, L"BUTTON", t, WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                                             x, y, w, 32, hwnd,
+                                             reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), inst, nullptr);
+                    SendMessageW(b, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                };
+
+                mkbtn(g_str->lang_ru, IDM_LANG_RU, 128, 298, 96);
+                mkbtn(g_str->lang_en, IDM_LANG_EN, 232, 298, 96);
+                mkbtn(g_str->welcome_btn_open, IDC_OPEN, 32, 340, 120);
+                mkbtn(g_str->welcome_btn_settings, IDC_PTSETTINGS, 158, 340, 160);
+                mkbtn(g_str->welcome_btn_hotkeys, IDM_HOTKEYS, 326, 340, 150);
+                mkbtn(g_str->welcome_btn_start, IDW_START, 482, 340, 110);
+                return 0;
+            }
+            HWND title = CreateWindowExW(0, L"STATIC", g_str->welcome_title,
                 WS_CHILD | WS_VISIBLE | SS_LEFT, 32, 24, 520, 40, hwnd, nullptr, inst, nullptr);
             SendMessageW(title, WM_SETFONT, reinterpret_cast<WPARAM>(g.title_font ? g.title_font : font), TRUE);
             HWND sub = CreateWindowExW(0, L"STATIC",
@@ -2423,6 +3296,8 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_PTSETTINGS: open_settings(); return 0;
                 case IDM_HOTKEYS: show_hotkeys(); return 0;
                 case IDW_START: ShowWindow(hwnd, SW_HIDE); show_ui_controls(); return 0;
+                case IDM_LANG_RU: if (g_str != &kRu) { g_str = &kRu; rebuild_ui(); } return 0;
+                case IDM_LANG_EN: if (g_str != &kEn) { g_str = &kEn; rebuild_ui(); } return 0;
             }
             return 0;
         case WM_DRAWITEM: {
@@ -2432,7 +3307,13 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             RECT r = dis->rcItem;
             bool pressed = (dis->itemState & ODS_SELECTED) != 0;
             bool is_toggle = (dis->hwndItem == g.measure || dis->hwndItem == g.autoy);
+            int ctl_id = GetDlgCtrlID(dis->hwndItem);
+            bool is_lang_button = (ctl_id == IDM_LANG_RU || ctl_id == IDM_LANG_EN);
             bool active = is_toggle && (SendMessageW(dis->hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            if (is_lang_button) {
+                active = (ctl_id == IDM_LANG_RU && g_str == &kRu) ||
+                         (ctl_id == IDM_LANG_EN && g_str == &kEn);
+            }
             COLORREF bg_col, border_col, text_col;
             if (active) {
                 bg_col = g_theme->btn_pressed; border_col = g_theme->separator; text_col = g_theme->accent;
@@ -2515,15 +3396,7 @@ void show_welcome(HINSTANCE inst) {
 void rebuild_ui() {
     if (!g.main) return;
     finish_channel_rename(true);
-    // Update menu
-    SetMenu(g.main, nullptr);
-    if (g.menu) DestroyMenu(g.menu);
-    g.menu = make_menu();
-    SetMenu(g.main, g.menu);
-    MENUINFO mi = { sizeof(mi) };
-    mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
-    mi.hbrBack = CreateSolidBrush(g_theme->bg_toolbar);
-    SetMenuInfo(g.menu, &mi);
+    rebuild_menu_bar();
     
     // Update buttons
     SetWindowTextW(g.open, g_str->btn_open);
@@ -2544,8 +3417,12 @@ void rebuild_ui() {
         show_welcome(inst);
     }
     
-    // Update settings window title
-    if (g.settings_wnd) SetWindowTextW(g.settings_wnd, g_str->dlg_ptsettings_title);
+    if (g.settings_wnd) {
+        bool was_visible = IsWindowVisible(g.settings_wnd) != FALSE;
+        DestroyWindow(g.settings_wnd);
+        g.settings_wnd = nullptr;
+        if (was_visible) open_settings();
+    }
     
     // Update main window title
     if (!g.file_name.empty()) {
@@ -2800,11 +3677,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SAVETXT: save_txt_dialog(); return 0;
                 case IDM_EXIT: DestroyWindow(hwnd); return 0;
                 case IDC_MODE:
-                    g.freq_mode = !g.freq_mode;
-                    if (g.freq_mode) stop_play();
-                    if (g.freq_mode && !g.spec_valid) compute_spectrum();
-                    set_status();
-                    InvalidateRect(hwnd, nullptr, TRUE);
+                    set_mode(!g.freq_mode);
+                    return 0;
+                case IDM_MODE_TIME:
+                    set_mode(false);
+                    return 0;
+                case IDM_MODE_FREQ:
+                    set_mode(true);
                     return 0;
                 case IDC_PLAY: toggle_play(); return 0;
                 case IDC_MEASURE:
@@ -2891,6 +3770,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         push_undo(ua);
                         g.markers.clear(); InvalidateRect(hwnd, nullptr, FALSE);
                     }
+                    g.active_marker = -1;
                     set_status();
                     return 0;
                 case IDM_SPEED_00001: g.play_speed = 0.0001; set_status(); return 0;
@@ -2943,7 +3823,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 ScreenToClient(hwnd, &pt);
                 RECT p = plot_rect();
                 bool in_plot = (pt.x >= p.left && pt.x <= p.right && pt.y >= p.top && pt.y <= p.bottom);
-                if (g.dragging || g.measure_mode || g.pending_line || g.pending_marker) {
+                const bool selecting_fft_here =
+                    !g.freq_mode && in_plot &&
+                    (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                    !g.measure_mode && !g.pending_line && !g.pending_marker;
+                if (g.dragging || g.fft_selecting || g.measure_mode || g.pending_line || g.pending_marker || selecting_fft_here) {
                     SetCursor(LoadCursor(nullptr, IDC_CROSS));
                     return TRUE;
                 }
@@ -3031,6 +3915,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
 
             if (mx < p.left || mx > p.right || my < p.top || my > p.bottom) return 0;
+            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (!g.freq_mode && shift && !g.pending_line && !g.pending_marker && !g.measure_mode) {
+                const int pw = p.right - p.left;
+                if (pw > 0) {
+                    const int clamped_x = std::clamp(mx, static_cast<int>(p.left), static_cast<int>(p.right));
+                    const double frac = static_cast<double>(clamped_x - p.left) / pw;
+                    const double tt = g.win_start + frac * (g.win_end - g.win_start);
+                    g.fft_selecting = true;
+                    g.fft_select_anchor_x = clamped_x;
+                    g.fft_select_current_x = clamped_x;
+                    g.fft_select_anchor_t = tt;
+                    g.fft_select_current_t = tt;
+                    SetCapture(hwnd);
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+            }
             if (g.pending_line) {
                 double dx, dy;
                 if (px_to_data(mx, my, dx, dy)) {
@@ -3052,12 +3953,19 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 double dx, dy;
                 if (px_to_data(mx, my, dx, dy)) {
                     App::Marker mk;
+                    int snapped_channel = -1;
+                    bool snapped = false;
+                    if (g.snap_to_data) snapped = snap_to_nearest_target(dx, dy, &snapped_channel);
                     mk.x = dx;
+                    mk.y = dy;
                     mk.freq = g.freq_mode;
+                    mk.snapped = snapped;
+                    mk.channel = snapped ? snapped_channel : -1;
                     wchar_t buf[16];
                     swprintf(buf, 16, L"M%zu", g.markers.size() + 1);
                     mk.label = buf;
                     g.markers.push_back(mk);
+                    g.active_marker = static_cast<int>(g.markers.size()) - 1;
                     UndoAction ua; ua.type = UndoAction::ADD_MARKER; ua.marker = mk;
                     push_undo(ua);
                 }
@@ -3119,6 +4027,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         case WM_MOUSEMOVE: {
+            if (g.fft_selecting) {
+                const RECT p = plot_rect();
+                const int pw = p.right - p.left;
+                if (pw > 0) {
+                    const int clamped_x = std::clamp(GET_X_LPARAM(lp), static_cast<int>(p.left), static_cast<int>(p.right));
+                    const double frac = static_cast<double>(clamped_x - p.left) / pw;
+                    g.fft_select_current_x = clamped_x;
+                    g.fft_select_current_t = g.win_start + frac * (g.win_end - g.win_start);
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
+                return 0;
+            }
+            const int hovered_marker = hit_test_marker(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            if (hovered_marker >= 0 && hovered_marker != g.active_marker) {
+                g.active_marker = hovered_marker;
+                set_status();
+                RECT rc; GetClientRect(hwnd, &rc);
+                RECT sr = {0, rc.bottom - kBottomBar, rc.right, rc.bottom};
+                InvalidateRect(hwnd, &sr, FALSE);
+            }
             if (!g.dragging) return 0;
             double *lo, *hi, minb, maxb, minw;
             if (!active_axis(lo, hi, minb, maxb, minw)) return 0;
@@ -3154,14 +4082,39 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_LBUTTONUP:
+            if (g.fft_selecting) {
+                g.fft_selecting = false;
+                if (GetCapture() == hwnd) ReleaseCapture();
+                if (std::abs(g.fft_select_current_x - g.fft_select_anchor_x) >= 4) {
+                    set_fft_window(g.fft_select_anchor_t, g.fft_select_current_t);
+                }
+                set_status();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
             if (g.dragging) { g.dragging = false; ReleaseCapture(); }
             return 0;
         case WM_KEYDOWN:
-            if (wp == VK_ESCAPE && (g.pending_line || g.pending_marker)) {
-                g.pending_line = 0;
-                g.pending_marker = false;
-                set_status();
-                return 0;
+            if (wp == VK_ESCAPE) {
+                if (g.pending_line || g.pending_marker) {
+                    g.pending_line = 0;
+                    g.pending_marker = false;
+                    set_status();
+                    return 0;
+                }
+                if (g.fft_selecting) {
+                    g.fft_selecting = false;
+                    if (GetCapture() == hwnd) ReleaseCapture();
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+                if (has_fft_window()) {
+                    clear_fft_window();
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
             }
             break;
         case WM_DROPFILES: {
@@ -3192,39 +4145,33 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 HACCEL make_accelerators() {
-    ACCEL acc[] = {
-        {FVIRTKEY, 'O', IDC_OPEN},
-        {FVIRTKEY | FCONTROL, 'O', IDC_OPEN},
-        {FVIRTKEY, 'S', IDC_SAVEPNG},
-        {FVIRTKEY | FCONTROL, 'S', IDC_SAVEPNG},
-        {FVIRTKEY, 'E', IDC_SAVECSV},
-        {FVIRTKEY | FCONTROL, 'E', IDC_SAVECSV},
-        {FVIRTKEY, 'M', IDC_MODE},
-        {FVIRTKEY, 'V', IDC_MEASURE},
-        {FVIRTKEY, VK_SPACE, IDC_PLAY},
-        {FVIRTKEY, VK_OEM_PLUS, IDC_ZOOMIN},
-        {FVIRTKEY, VK_ADD, IDC_ZOOMIN},
-        {FVIRTKEY, VK_UP, IDC_ZOOMIN},
-        {FVIRTKEY, VK_OEM_MINUS, IDC_ZOOMOUT},
-        {FVIRTKEY, VK_SUBTRACT, IDC_ZOOMOUT},
-        {FVIRTKEY, VK_DOWN, IDC_ZOOMOUT},
-        {FVIRTKEY, VK_LEFT, IDC_PANLEFT},
-        {FVIRTKEY, VK_RIGHT, IDC_PANRIGHT},
-        {FVIRTKEY, VK_HOME, IDC_RESET},
-        {FVIRTKEY | FCONTROL, VK_HOME, IDC_GOTO_START},
-        {FVIRTKEY | FCONTROL, VK_END, IDC_GOTO_END},
-        {FVIRTKEY, 'C', IDM_VISMOOTH},
-        {FVIRTKEY, 'P', IDM_VPAN},
-        {FVIRTKEY, 'T', IDM_THEME},
-        {FVIRTKEY, 'L', IDM_ADD_VLINE},
-        {FVIRTKEY, 'H', IDM_ADD_HLINE},
-        {FVIRTKEY, 'K', IDM_ADD_MARKER},
-        {FVIRTKEY, VK_DELETE, IDM_CLEAR_POINTS},
-        {FVIRTKEY | FCONTROL, 'Z', IDM_UNDO},
-        {FVIRTKEY | FCONTROL | FSHIFT, 'Z', IDM_REDO},
-        {FVIRTKEY, VK_F1, IDM_HOTKEYS},
-    };
-    return CreateAcceleratorTableW(acc, static_cast<int>(sizeof(acc) / sizeof(acc[0])));
+    ensure_hotkeys_initialized();
+    std::vector<ACCEL> acc;
+    acc.reserve(g.hotkeys.size());
+    for (const auto& hk : g.hotkeys) {
+        if (hk.key == 0) continue;
+        ACCEL a = {};
+        a.fVirt = hk.fvirt;
+        a.key = hk.key;
+        a.cmd = static_cast<WORD>(hk.command);
+        acc.push_back(a);
+    }
+    if (acc.empty()) return nullptr;
+    return CreateAcceleratorTableW(acc.data(), static_cast<int>(acc.size()));
+}
+
+void rebuild_accelerators() {
+    HACCEL fresh = make_accelerators();
+    if (g.accel) DestroyAcceleratorTable(g.accel);
+    g.accel = fresh;
+}
+
+bool should_bypass_accelerators() {
+    HWND focus = GetFocus();
+    if (!focus) return false;
+    if (g.channel_edit && (focus == g.channel_edit || IsChild(g.channel_edit, focus) != FALSE)) return true;
+    if (g.settings_wnd && (focus == g.settings_wnd || IsChild(g.settings_wnd, focus) != FALSE)) return true;
+    return false;
 }
 
 }  // namespace
@@ -3284,15 +4231,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
         show_welcome(inst);   // start screen when launched without a file
     }
 
-    HACCEL accel = make_accelerators();
+    ensure_hotkeys_initialized();
+    rebuild_accelerators();
     MSG m;
     while (GetMessage(&m, nullptr, 0, 0) > 0) {
-        if (!TranslateAcceleratorW(g.main, accel, &m)) {
+        if (should_bypass_accelerators() || !g.accel || !TranslateAcceleratorW(g.main, g.accel, &m)) {
             TranslateMessage(&m);
             DispatchMessage(&m);
         }
     }
-    if (accel) DestroyAcceleratorTable(accel);
+    if (g.accel) DestroyAcceleratorTable(g.accel);
     Gdiplus::GdiplusShutdown(g_gdiplus_token);
     return 0;
 }

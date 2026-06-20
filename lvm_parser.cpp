@@ -207,7 +207,7 @@ void make_monotonic(std::vector<double>& time) {
     double offset = 0.0;
     for (std::size_t i = 1; i < time.size(); ++i) {
         double candidate = raw[i] + offset;
-        if (candidate < time[i - 1]) {
+        if (candidate <= time[i - 1]) {
             offset = time[i - 1] + fallback_step - raw[i];
             candidate = raw[i] + offset;
         }

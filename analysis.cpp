@@ -42,6 +42,10 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples) {
     // Choose sample indices, optionally decimating to the cap.
     const std::vector<std::size_t> idx = decimated_indices(rows, max_samples);
     const int n = static_cast<int>(idx.size());
+    if (n < 4) {
+        spec.error = "FFT sample cap leaves fewer than 4 samples.";
+        return spec;
+    }
 
     // Sample spacing from the median positive time step.
     std::vector<double> positive_dt;
@@ -94,8 +98,12 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples) {
 
         const std::vector<std::complex<double>> spectrum = dft(sig);
         std::vector<double> amp(half + 1);
-        const double scale = 2.0 / static_cast<double>(n);
-        for (int k = 0; k <= half; ++k) amp[k] = scale * std::abs(spectrum[k]);
+        const double interior_scale = 2.0 / static_cast<double>(n);
+        const double edge_scale = 1.0 / static_cast<double>(n);
+        for (int k = 0; k <= half; ++k) {
+            const bool is_edge_bin = (k == 0) || (n % 2 == 0 && k == half);
+            amp[k] = (is_edge_bin ? edge_scale : interior_scale) * std::abs(spectrum[k]);
+        }
 
         spec.names.push_back(ds.names[c]);
         spec.amp.push_back(std::move(amp));

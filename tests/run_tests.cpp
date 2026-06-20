@@ -131,6 +131,17 @@ void test_multi_header() {
     check(increasing, "make_monotonic yields strictly increasing time");
 }
 
+void test_make_monotonic_equal_times() {
+    std::printf("test_make_monotonic_equal_times\n");
+    std::vector<double> t = {0.0, 0.1, 0.1, 0.2};
+    lvm::make_monotonic(t);
+
+    bool increasing = true;
+    for (std::size_t i = 1; i < t.size(); ++i) increasing = increasing && (t[i] > t[i - 1]);
+    check(increasing, "equal timestamps are pushed forward to stay strictly increasing");
+    check_near(t[2], 0.2, 1e-12, "duplicate timestamp advanced by the fallback step");
+}
+
 void test_drop_duplicate_time() {
     std::printf("test_drop_duplicate_time\n");
     // Channel_1 duplicates time exactly; Channel_2 is real data.
@@ -178,6 +189,45 @@ void test_fft_peak() {
     }
 }
 
+void test_fft_nyquist_amplitude() {
+    std::printf("test_fft_nyquist_amplitude\n");
+    lvm::Dataset ds;
+    ds.names.push_back("Channel_1");
+    ds.channels.resize(1);
+    const int n = 8;
+    const double fs = 8.0;
+    for (int i = 0; i < n; ++i) {
+        const double t = static_cast<double>(i) / fs;
+        ds.time.push_back(t);
+        ds.channels[0].push_back((i % 2 == 0) ? 1.0 : -1.0);
+    }
+    ds.ok = true;
+
+    const lvm::Spectrum spec = lvm::compute_spectrum(ds, 0);
+    check(spec.ok, "nyquist spectrum ok");
+    check(spec.amp.size() == 1, "one channel in nyquist spectrum");
+    if (spec.ok && spec.amp.size() == 1) {
+        check_near(spec.freqs.back(), fs / 2.0, 1e-12, "nyquist frequency bin");
+        check_near(spec.amp[0].back(), 1.0, 1e-12, "nyquist amplitude is not doubled");
+    }
+}
+
+void test_fft_sample_cap_too_small() {
+    std::printf("test_fft_sample_cap_too_small\n");
+    lvm::Dataset ds;
+    ds.names.push_back("Channel_1");
+    ds.channels.resize(1);
+    for (int i = 0; i < 16; ++i) {
+        ds.time.push_back(static_cast<double>(i));
+        ds.channels[0].push_back(static_cast<double>(i));
+    }
+    ds.ok = true;
+
+    const lvm::Spectrum spec = lvm::compute_spectrum(ds, 3);
+    check(!spec.ok, "tiny fft sample cap is rejected");
+    check(!spec.error.empty(), "tiny fft sample cap reports an error");
+}
+
 void test_missing_file() {
     std::printf("test_missing_file\n");
     lvm::Dataset ds = lvm::read_lvm_file("tests/_does_not_exist.lvm");
@@ -192,8 +242,11 @@ int main() {
     test_metadata_and_nan();
     test_decimal_comma();
     test_multi_header();
+    test_make_monotonic_equal_times();
     test_drop_duplicate_time();
     test_fft_peak();
+    test_fft_nyquist_amplitude();
+    test_fft_sample_cap_too_small();
     test_missing_file();
 
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);

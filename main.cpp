@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <cerrno>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -210,21 +211,56 @@ bool export_fft_csv(const lvm::Spectrum& spec, const std::string& path) {
     return true;
 }
 
-std::vector<int> parse_channel_list(const std::string& text) {
-    std::vector<int> out;
+bool parse_int_arg(const std::string& text, int min_value, int& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    const long value = std::strtol(text.c_str(), &end, 10);
+    if (errno != 0 || end == text.c_str() || *end != '\0') return false;
+    if (value < min_value || value > std::numeric_limits<int>::max()) return false;
+    out = static_cast<int>(value);
+    return true;
+}
+
+bool parse_long_long_arg(const std::string& text, long long min_value, long long& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    const long long value = std::strtoll(text.c_str(), &end, 10);
+    if (errno != 0 || end == text.c_str() || *end != '\0') return false;
+    if (value < min_value) return false;
+    out = value;
+    return true;
+}
+
+bool parse_double_arg(const std::string& text, double& out) {
+    if (text.empty()) return false;
+    char* end = nullptr;
+    errno = 0;
+    const double value = std::strtod(text.c_str(), &end);
+    if (errno != 0 || end == text.c_str() || *end != '\0' || !std::isfinite(value)) return false;
+    out = value;
+    return true;
+}
+
+bool parse_channel_list(const std::string& text, std::vector<int>& out) {
+    out.clear();
     std::stringstream ss(text);
     std::string token;
     while (std::getline(ss, token, ',')) {
         if (token.empty()) continue;
-        out.push_back(std::stoi(token));
+        int value = 0;
+        if (!parse_int_arg(token, 1, value)) return false;
+        out.push_back(value);
     }
-    return out;
+    return true;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
     std::string file;
+    std::string parse_error;
     bool want_info = false, want_stats = false, want_monotonic = false;
     bool keep_dup_time = false, verbose = false, want_fft = false;
     long long head_n = -1;
@@ -249,14 +285,42 @@ int main(int argc, char** argv) {
         else if (a == "-m" || a == "--monotonic") want_monotonic = true;
         else if (a == "--keep-dup-time") keep_dup_time = true;
         else if (a == "-v" || a == "--verbose") verbose = true;
-        else if (a == "-H" || a == "--head") head_n = std::stoll(next("--head"));
+        else if (a == "-H" || a == "--head") {
+            if (!parse_long_long_arg(next("--head"), 0, head_n)) {
+                parse_error = "Invalid value for --head (expected an integer >= 0).";
+                break;
+            }
+        }
         else if (a == "-c" || a == "--csv") csv_path = next("--csv");
         else if (a == "--fft") want_fft = true;
-        else if (a == "--peaks") { peak_count = std::stoi(next("--peaks")); want_fft = true; }
+        else if (a == "--peaks") {
+            if (!parse_int_arg(next("--peaks"), 1, peak_count)) {
+                parse_error = "Invalid value for --peaks (expected an integer >= 1).";
+                break;
+            }
+            want_fft = true;
+        }
         else if (a == "--fft-csv") fft_csv_path = next("--fft-csv");
-        else if (a == "--fft-samples") fft_samples = std::stoi(next("--fft-samples"));
-        else if (a == "--start") start = std::stod(next("--start"));
-        else if (a == "--end") end = std::stod(next("--end"));
+        else if (a == "--fft-samples") {
+            if (!parse_int_arg(next("--fft-samples"), 0, fft_samples) ||
+                (fft_samples > 0 && fft_samples < 4)) {
+                parse_error =
+                    "Invalid value for --fft-samples (expected 0 or an integer >= 4).";
+                break;
+            }
+        }
+        else if (a == "--start") {
+            if (!parse_double_arg(next("--start"), start)) {
+                parse_error = "Invalid value for --start (expected a finite number).";
+                break;
+            }
+        }
+        else if (a == "--end") {
+            if (!parse_double_arg(next("--end"), end)) {
+                parse_error = "Invalid value for --end (expected a finite number).";
+                break;
+            }
+        }
         else if (a == "--channels") channels_text = next("--channels");
         else if (!a.empty() && a[0] == '-') {
             std::cerr << "Unknown option: " << a << "\n";
@@ -267,6 +331,11 @@ int main(int argc, char** argv) {
             std::cerr << "Unexpected extra argument: " << a << "\n";
             return 2;
         }
+    }
+
+    if (!parse_error.empty()) {
+        std::cerr << "Error: " << parse_error << "\n";
+        return 2;
     }
 
     if (file.empty()) {
@@ -294,7 +363,12 @@ int main(int argc, char** argv) {
 
     // Apply time-range / channel selection.
     std::vector<int> channel_pos;
-    if (!channels_text.empty()) channel_pos = parse_channel_list(channels_text);
+    if (!channels_text.empty()) {
+        if (!parse_channel_list(channels_text, channel_pos)) {
+            std::cerr << "Error: invalid --channels list (expected comma-separated integers >= 1).\n";
+            return 2;
+        }
+    }
     lvm::Dataset view;
     std::string sel_error;
     if (!apply_selection(ds, start, end, channel_pos, view, sel_error)) {

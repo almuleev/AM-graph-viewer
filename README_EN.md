@@ -19,7 +19,7 @@ The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT m
 
 ## GUI Viewer
 
-A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs). Latest version: **v0.5.0**.
+A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs). Latest version: **v0.5.1**.
 
 ### Start Screen
 
@@ -195,6 +195,12 @@ Behaviour mirrors the Python viewer:
 - `Makefile` — build helper
 
 ## Changelog
+
+### v0.5.1
+- **Strict monotonic rebuild** — `--monotonic` now also advances equal neighbouring timestamps, guaranteeing a strictly increasing time axis for downstream processing.
+- **Correct FFT edge amplitudes** — DC/Nyquist bins now use the proper scaling, so the Nyquist amplitude is no longer doubled.
+- **Safer FFT sample caps** — invalidly small `--fft-samples` values are rejected explicitly instead of producing a degenerate FFT.
+- **Robust CLI parsing** — invalid values for `--channels`, `--head`, `--peaks`, `--fft-samples`, `--start`, and `--end` now produce clear user-facing errors instead of uncaught exceptions.
 
 ### v0.5.0
 - **Drag & Drop** — drag a .lvm / .txt file into the app window to open it.

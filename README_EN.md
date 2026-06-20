@@ -2,50 +2,86 @@
 
 ![Banner](banner.png)
 
-A dependency-free C++ desktop application for viewing LabVIEW `.lvm` / `.txt` signal files.
+**[Русский](README_RU.md)** | **[English](README_EN.md)**
 
-**[🇷🇺 Русский](README_RU.md)** | **[🇬🇧 English](README_EN.md)**
+Native C++ toolkit for viewing and analysing LabVIEW signal files `.lvm` / `.txt`.
 
-## Overview
+It combines:
 
-Two front ends share one parser/FFT library:
+- `lvm_viewer_gui.exe` — a dependency-free Win32 desktop viewer;
+- `lvm_reader.exe` — a CLI tool for inspection, statistics, FFT, and export.
 
-- **`lvm_viewer_gui.exe`** — a native Win32 desktop viewer (window, buttons, interactive plot). See [GUI viewer](#gui-viewer).
-- **`lvm_reader.exe`** — a command-line tool (structure, statistics, FFT peaks, CSV export). See [CLI usage](#cli-usage).
+The project shares one parser + FFT + analysis core across both front ends, so GUI and CLI behaviour stay consistent.
 
-The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT matches numpy's `rfft` (to ~1e-13). Results match the Python reference on the bundled sample files (verified on a 1 GB / 6.8 M-sample file too).
+## At A Glance
 
----
+| Item | Value |
+|------|-------|
+| Version | `v0.5.1` |
+| Language | `C++17` |
+| GUI stack | Win32 API + GDI / GDI+ |
+| Build | `MSYS2/MinGW g++` |
+| FFT | Radix-2 + Bluestein |
+| Export | PNG, CSV |
+| Languages | English, Russian |
+| Validation | Checked against the Python reference and `numpy.rfft` |
+
+## Why It Is Useful
+
+| Use case | What you get |
+|----------|--------------|
+| Interactive review | Time plots, FFT mode, zoom/pan, playhead playback, interactive legend |
+| Measurement work | Snapped points, `X`, `Y`, `Δx`, `Δy`, `1/Δt`, distance, coloured markers |
+| Visual context | Dark theme, minor grid, guide lines, markers, welcome screen, RU/EN UI |
+| Signal export | Visible-segment CSV export and PNG screenshots |
+| Batch / terminal work | File info, per-channel stats, head output, FFT peaks, FFT CSV |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[".lvm / .txt file"] --> B["lvm_parser.cpp"]
+    B --> C["Dataset"]
+    C --> D["gui_main.cpp<br/>Win32 viewer"]
+    C --> E["main.cpp<br/>CLI reader"]
+    C --> F["analysis.cpp + fft.cpp"]
+    F --> D
+    F --> E
+```
 
 ## GUI Viewer
 
-A self-contained desktop app drawn with the Win32 API + GDI (no Qt, no DLLs). Latest version: **v0.5.1**.
+The GUI is a native Win32 application with no Qt and no extra runtime dependencies.
 
-### Start Screen
+### Main Features
 
-On launch (with no file) a welcome window shows the app name, a short how-to, and buttons to open a file, open the point settings, or view the shortcuts.
+- Time-domain and FFT views in the same window.
+- Interactive multi-channel legend: click to toggle, `Ctrl+Click` to solo.
+- Channel panel with visibility checkboxes.
+- Zoom and pan on both axes.
+- Real-time playback with a moving playhead.
+- Measurement mode with on-chart read-outs.
+- Vertical / horizontal guide lines and labelled markers.
+- Drag & drop file opening.
+- Channel rename dialog.
+- Dark theme and live RU/EN language switching.
+- PNG export and CSV export.
 
-### Main Interface
+### Measurement Options
 
-- **Main menu** (File / View / Measurements / Lines / Help) alongside the toolbar, a modern Segoe UI look, and a status bar.
-- **Dark theme** — toggle with `T` or via the View menu. Full dark mode including toolbar, menu bar, panel, and settings window.
-- **Language** — switch between English and Russian via the View menu.
-- **Open file** — open a `.lvm`/`.txt` via the file dialog (or pass a path on the command line / drag a file onto the exe).
-- Multi-channel plot with a colored **interactive legend** — click a legend item to toggle the channel, `Ctrl+Click` to solo (show only that channel).
-- **Channels** panel — checkboxes to show/hide each channel.
-- **Time / Hz** — switch between the time plot and the FFT spectrum.
-- **Save PNG / Save CSV** — export the current view: PNG image (GDI+), or CSV of the **visible segment** (the time window in Time mode, or the visible spectrum band in Hz mode). Default names reflect the mode (`…_plot.png` / `…_spectrum.png`, `…_segment.csv` / `…_spectrum.csv`).
-- **▶ Play / ⏸ Pause** — play back the time signal in **real time** (1 s of signal per 1 s of wall clock); a red playhead sweeps across the plot and, once it passes the middle, the window scrolls smoothly to follow it.
-- **Measure** — measurement tool. Click points on the plot to drop markers; the read-outs are drawn right on the chart and in the status bar. A dedicated **«Measurement point settings»** panel (toolbar button or *Measurements → Settings…*) has checkboxes to choose what is shown — point number, X, Y, distance along X (Δx) and/or Y (Δy), 1/Δt, straight-line distance d — to **snap markers to the graph**, and a button to **change the marker colour**. Right-click (or `Delete`) clears the points.
-- **Lines** — drop **vertical** and **horizontal** reference lines on the plot. Pick *Add vertical/horizontal line*, then click where it goes (vertical lines snap to a sample when snapping is on); *Clear lines* removes them. Lines are remembered per view (Time vs Hz).
-- **Auto zoom** — by default the vertical scale auto-fits the visible data; this toggle freezes it at the current range so the height stops readjusting (handy during playback / panning).
-- **Visual smoothing (spline)** — a *purely visual* Catmull-Rom curve drawn between samples. It smooths the **line** without moving the underlying data points (measurements/snapping still hit the true samples); when zoomed in the real samples are shown as dots so the distinction is clear.
-- **Minor grid** — fine grid lines between the major axis ticks for easier reading.
-- **Reset view** plus mouse-wheel zoom (under the cursor) and left-drag panning. Zoom/pan work on **both** axes — time in Time mode and the **frequency axis in Hz mode** — so you can drill into a narrow band. A status bar shows the current window and sample count.
+The measurement settings panel can show any combination of:
+
+- point number;
+- `X` coordinate;
+- `Y` coordinate;
+- `Δx`;
+- `Δy`;
+- `1/Δt`;
+- straight-line distance.
+
+Markers can also snap to real samples, which is especially useful on dense traces.
 
 ### Keyboard Shortcuts
-
-The full list also lives in-app under **Help → Keyboard shortcuts** (or press `F1`).
 
 | Key | Action |
 |-----|--------|
@@ -54,28 +90,96 @@ The full list also lives in-app under **Help → Keyboard shortcuts** (or press 
 | `E` / `Ctrl+E` | Save CSV |
 | `M` | Toggle Time / Hz |
 | `Space` | Play / Pause |
-| `V` | Measure tool on/off |
-| `C` | Visual (spline) smoothing on/off |
-| `+` / `↑` | Zoom in |
-| `−` / `↓` | Zoom out |
-| `←` / `→` | Pan left / right |
+| `V` | Toggle measurement mode |
+| `C` | Toggle spline smoothing |
+| `+` / `Up` | Zoom in |
+| `-` / `Down` | Zoom out |
+| `Left` / `Right` | Pan left / right |
 | `Home` | Reset view |
+| `Ctrl+Home` | Go to start |
+| `Ctrl+End` | Go to end |
+| `P` | Toggle vertical panning |
 | `Delete` | Clear measurement points |
-| `Esc` | Cancel adding a guide line |
-| `F1` | Keyboard-shortcuts help |
-| `T` | Toggle dark/light theme |
+| `Esc` | Cancel pending line / marker placement |
+| `T` | Toggle theme |
+| `F1` | Show shortcuts help |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z` | Redo |
 
-Mouse: wheel zooms under the cursor, left-drag pans, left-click drops a measurement point or guide line (in the matching mode), right-click clears measurement points. Click the legend to toggle channels, Ctrl+Click to solo.
+Mouse:
 
-### Build (Windows)
+- wheel — zoom under cursor;
+- `Shift + wheel` — pan horizontally;
+- `Ctrl + wheel` — zoom vertically;
+- `Alt + wheel` — pan vertically;
+- left-drag — pan;
+- left-click — place point / line / marker in the current mode;
+- right-click — clear measurement points.
+
+## CLI Usage
+
+The CLI is useful when you want quick inspection or scripted export without opening the GUI.
+
+### Build
+
+Using the Makefile:
+
+```bash
+make
+make test
+```
+
+Or directly:
+
+```bash
+g++ -std=c++17 -O2 -static -o lvm_reader.exe \
+    main.cpp lvm_parser.cpp fft.cpp analysis.cpp
+```
+
+### Example Commands
+
+```bash
+# Default: file structure + per-channel statistics
+./lvm_reader.exe lvm_files_for_tests/test.lvm
+
+# First 5 rows
+./lvm_reader.exe lvm_files_for_tests/test.lvm --head 5
+
+# CSV export for a selected time window
+./lvm_reader.exe lvm_files_for_tests/test.lvm --start 0 --end 0.5 --channels 1 --csv window.csv
+
+# Strongest FFT peaks
+./lvm_reader.exe lvm_files_for_tests/test.lvm --fft --peaks 3
+
+# Rebuild a monotonic timeline for multi-section files
+./lvm_reader.exe lvm_files_for_tests/test1.lvm --info --monotonic
+```
+
+### Supported Actions
+
+| Flag | Meaning |
+|------|---------|
+| `--info` | Show file structure and parser statistics |
+| `--stats` | Show min / max / mean / count per channel |
+| `--head N` | Print the first `N` rows |
+| `--csv FILE` | Export selected data to CSV |
+| `--fft` | Show strongest spectral peaks |
+| `--fft-csv FILE` | Export the magnitude spectrum |
+| `--channels LIST` | Select 1-based channel positions |
+| `--start T`, `--end T` | Restrict the time window |
+| `--monotonic` | Rebuild a strictly increasing time axis |
+| `--keep-dup-time` | Keep channels that duplicate the time axis |
+| `--fft-samples N` | Cap FFT input size by uniform decimation |
+
+## Build The GUI
+
+Recommended helper:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build_gui.ps1
 ```
 
-or with the Makefile target `make gui`, or directly:
+Direct command:
 
 ```bash
 g++ -std=c++17 -O2 -municode -static -mwindows -o lvm_viewer_gui.exe \
@@ -83,134 +187,60 @@ g++ -std=c++17 -O2 -municode -static -mwindows -o lvm_viewer_gui.exe \
     -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 ```
 
-Then double-click `lvm_viewer_gui.exe`. (Close the app before rebuilding — a running exe can't be overwritten by the linker.)
+## Project Layout
 
----
+| File | Purpose |
+|------|---------|
+| `gui_main.cpp` | Entire Win32 GUI viewer |
+| `main.cpp` | CLI front-end |
+| `lvm_parser.cpp` / `lvm_parser.hpp` | File parser |
+| `analysis.cpp` / `analysis.hpp` | Spectrum + peak detection |
+| `fft.cpp` / `fft.hpp` | FFT implementation |
+| `tests/run_tests.cpp` | Regression tests |
+| `build_gui.ps1` | PowerShell GUI build helper |
+| `Makefile` | Build targets for CLI, tests, and GUI |
 
-## CLI Usage
+<details>
+<summary>Parsing and spectrum behaviour</summary>
 
-Requires a C++17 compiler. Tested with MSYS2/MinGW `g++ 14.2`.
+### Parsing
 
-Using the Makefile:
+- Metadata lines and `***` separators are ignored.
+- Decimal commas are normalised to dots.
+- A row needs at least two numeric values to count as data.
+- Invalid / missing cells become `NaN`, so channel alignment is preserved.
+- The first column is treated as time / X.
+- Duplicate time-axis channels are removed by default.
 
-```bash
-make          # build lvm_reader(.exe)
-make test     # build and run the unit tests
-```
+### Spectrum
 
-Or directly with g++ (static linking keeps the binary self-contained — no `libstdc++`/`libgcc` DLLs needed at runtime):
+- Sample spacing is derived from the median positive time step.
+- Signals are mean-removed before FFT.
+- Bluestein FFT allows arbitrary lengths.
+- `--fft-samples` uses uniform decimation to keep the frequency axis meaningful.
+- `v0.5.1` fixes the scaling of FFT edge bins such as Nyquist.
 
-```bash
-g++ -std=c++17 -O2 -static -o lvm_reader.exe \
-    main.cpp lvm_parser.cpp fft.cpp analysis.cpp
-```
-
-> Note: on this MSYS2 toolchain the dynamic link step fails (`ld returned 116`); `-static` both works around it and produces a portable binary.
-
-```text
-lvm_reader <file.lvm|file.txt> [options]
-
-Actions:
-  -i, --info          Show file structure / header info
-  -s, --stats         Show per-channel statistics (min/max/mean/count)
-  -H, --head N        Print the first N data rows
-  -c, --csv FILE      Export the (selected) data to a CSV file
-      --fft           Show the strongest spectral peaks per channel
-      --peaks N       Number of peaks to show (default 5; implies --fft)
-      --fft-csv FILE  Export the magnitude spectrum to a CSV file
-
-Selection (applied to stats / head / csv / fft):
-      --start T       Keep rows with time >= T
-      --end T         Keep rows with time <= T
-      --channels LIST Comma-separated 1-based channel positions, e.g. 1,3
-
-Parsing / spectrum options:
-  -m, --monotonic     Rebuild a monotonic timeline (for sectioned files)
-      --keep-dup-time Keep channels that duplicate the time axis
-      --fft-samples N Decimate to at most N samples for FFT (0 = use all)
-  -v, --verbose       Verbose parser output
-  -h, --help          Show this help
-```
-
-With no action flag, `--info` and `--stats` are shown.
-
-### Quick run on Windows (double-click)
-
-`run.bat` is a convenience launcher: double-click it and type/paste a file path, or drag a `.lvm`/`.txt` file onto it. It runs `--info --stats --fft` and keeps the window open until you press a key. (The batch calls the exe by its full path, so it also works on machines where running programs from the current directory is disabled.)
-
-### Examples
-
-```bash
-# Structure + statistics (default)
-./lvm_reader.exe lvm_files_for_tests/test.lvm
-
-# First 5 rows
-./lvm_reader.exe lvm_files_for_tests/test.lvm --head 5
-
-# Export to CSV
-./lvm_reader.exe lvm_files_for_tests/test.lvm --csv out.csv
-
-# Spectral peaks per channel
-./lvm_reader.exe lvm_files_for_tests/test.lvm --fft --peaks 3
-
-# Export the spectrum for channel 1 only
-./lvm_reader.exe lvm_files_for_tests/test.lvm --channels 1 --fft-csv spec.csv
-
-# A time window of the first channel
-./lvm_reader.exe lvm_files_for_tests/test.lvm --start 0 --end 0.5 --channels 1 --csv window.csv
-
-# Multi-header file with a rebuilt monotonic timeline
-./lvm_reader.exe lvm_files_for_tests/test1.lvm --info --monotonic
-```
-
----
-
-## Parsing Notes
-
-Behaviour mirrors the Python viewer:
-
-- Lines starting with `***` and known metadata keys (e.g. `Separator`, `Multi_Headings`, `X0`) are skipped.
-- Decimal commas are normalised to dots; columns are split on tabs.
-- A row needs at least two numeric values to count as data; missing/invalid cells become `NaN` so channel alignment is preserved.
-- The first column is treated as time/X; remaining columns become `Channel_1`, `Channel_2`, … Channels with no real values are dropped.
-- Rows with a non-numeric time value are dropped.
-- Columns that merely duplicate the time axis are removed (disable with `--keep-dup-time`).
-- `--monotonic` flattens `Multi_Headings` sections that reset local time.
-
-## Spectrum Notes
-
-- The sample rate is derived from the median positive time step, the signal is mean-removed, and amplitude is `2/N * |rfft|` — matching the Python Hz mode.
-- By default the full selection is transformed (Bluestein FFT handles any N). For very large files, `--fft-samples N` uniformly decimates to keep the run fast; decimation keeps the frequency axis correct (the Nyquist limit drops).
-
-## Files
-
-- `lvm_parser.hpp` / `lvm_parser.cpp` — parser library
-- `fft.hpp` / `fft.cpp` — radix-2 + Bluestein FFT primitives
-- `analysis.hpp` / `analysis.cpp` — spectrum + peak detection
-- `gui_main.cpp` — native Win32 GUI viewer
-- `build_gui.ps1` — GUI build helper (Windows/PowerShell)
-- `main.cpp` — command-line front end
-- `run.bat` — double-click / drag-and-drop launcher for the CLI (Windows)
-- `tests/run_tests.cpp` — unit tests (`make test`)
-- `Makefile` — build helper
+</details>
 
 ## Changelog
 
 ### v0.5.1
-- **Strict monotonic rebuild** — `--monotonic` now also advances equal neighbouring timestamps, guaranteeing a strictly increasing time axis for downstream processing.
-- **Correct FFT edge amplitudes** — DC/Nyquist bins now use the proper scaling, so the Nyquist amplitude is no longer doubled.
-- **Safer FFT sample caps** — invalidly small `--fft-samples` values are rejected explicitly instead of producing a degenerate FFT.
-- **Robust CLI parsing** — invalid values for `--channels`, `--head`, `--peaks`, `--fft-samples`, `--start`, and `--end` now produce clear user-facing errors instead of uncaught exceptions.
+
+- Strict monotonic rebuild for equal neighbouring timestamps.
+- Correct FFT scaling on DC / Nyquist edge bins.
+- Explicit rejection of invalidly small `--fft-samples`.
+- Safer CLI parsing for numeric arguments.
 
 ### v0.5.0
-- **Drag & Drop** — drag a .lvm / .txt file into the app window to open it.
-- **Rename channels** — View → Rename channels… — dialog to set custom display names for each channel.
-- **Go to start/end** — Ctrl+Home (go to start) and Ctrl+End (go to end) for quick navigation.
-- **Vertical panning** — left-drag now moves the plot up/down too (toggle via View → Vertical panning, key P).
-- **Alt+wheel** — pan the graph up/down without dragging.
+
+- Drag & drop opening.
+- Channel rename dialog.
+- Go to start / end shortcuts.
+- Vertical panning and `Alt + wheel` support.
 
 ### v0.4.4
-- Deeper zoom — zoom in far enough to see individual samples.
-- Fixed measurement read-outs: values (X, Δx, Δy, 1/Δt, d) are shown next to points instead of the checkbox label text.
-- Measurement points now display filled dots in the chosen marker colour.
-- Visual smoothing (Catmull-Rom spline) now works in FFT (Hz) mode as well as Time mode.
+
+- Deeper zoom.
+- Fixed measurement read-outs.
+- Filled measurement dots.
+- FFT spline smoothing.

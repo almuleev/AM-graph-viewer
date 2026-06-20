@@ -2,39 +2,78 @@
 
 ![Banner](banner.png)
 
-**[🇷🇺 Русский](README_RU.md)** | **[🇬🇧 English](README_EN.md)**
+**[Русский](README_RU.md)** | **[English](README_EN.md)**
 
-A dependency-free C++ desktop application for viewing LabVIEW `.lvm` / `.txt` signal files.
+Native C++ toolkit for working with LabVIEW signal files `.lvm` / `.txt`.
 
-Two front ends share one parser/FFT library:
+- `lvm_viewer_gui.exe` — dependency-free Win32 desktop viewer with plots, FFT, measurements, markers, guide lines, playback, PNG export, and CSV export.
+- `lvm_reader.exe` — command-line companion for structure inspection, statistics, FFT peaks, and CSV export.
 
-- **`lvm_viewer_gui.exe`** — a native Win32 desktop viewer (window, buttons, interactive plot). Latest version: **v0.5.1**.
-- **`lvm_reader.exe`** — a command-line tool (structure, statistics, FFT peaks, CSV export).
+The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT matches `numpy.rfft` with reference-level precision.
 
-The parser is a faithful C++ port of the Python LVM Signal Viewer, and the FFT matches numpy's `rfft` (to ~1e-13). Results match the Python reference on the bundled sample files (verified on a 1 GB / 6.8 M-sample file too).
+## At A Glance
 
-## GUI Highlights (v0.5.1)
+| Item | Value |
+|------|-------|
+| Current version | `v0.5.1` |
+| Language | `C++17` |
+| GUI | Win32 API + GDI / GDI+ |
+| CLI | Standalone executable |
+| FFT | Radix-2 + Bluestein |
+| Main formats | `.lvm`, tab-separated `.txt`, CSV export, PNG export |
+| Build target | Windows (`MSYS2/MinGW g++`) |
 
-- **Monotonic timeline fix** — equal neighbouring timestamps are now pushed forward too, so `--monotonic` always produces a strictly increasing time axis.
-- **FFT amplitude fix** — the Nyquist bin is no longer doubled, so edge-bin amplitudes are computed correctly.
-- **Safer FFT decimation** — too-small `--fft-samples` values are rejected with a clear error instead of producing a degenerate transform.
-- **CLI validation** — invalid values for `--channels`, `--head`, `--peaks`, `--fft-samples`, `--start`, and `--end` now report readable errors instead of terminating via uncaught exceptions.
+## What The Project Gives You
 
-Full documentation: [README_EN.md](README_EN.md) | [README_RU.md](README_RU.md)
+| Area | Highlights |
+|------|------------|
+| GUI | Time-domain plots, FFT mode, zoom/pan, interactive legend, dark theme, RU/EN UI, drag & drop |
+| Measurements | Snap-to-data points, `X`, `Y`, `Δx`, `Δy`, `1/Δt`, distance, custom marker colour |
+| Analysis | Spectrum computation, peak search, duplicate time-axis channel removal, monotonic time rebuild |
+| Export | PNG image export and CSV export for visible data |
+| CLI | File info, per-channel stats, head output, channel/time selection, FFT peaks, FFT CSV |
 
-## Quick Build
+## Quick Start
 
-```bash
-g++ -std=c++17 -O2 -municode -static -mwindows -o lvm_viewer_gui.exe \
-    gui_main.cpp lvm_parser.cpp fft.cpp analysis.cpp \
-    -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
+### GUI
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_gui.ps1
 ```
 
-## CLI Quick Start
+### CLI
 
 ```bash
 make
 ./lvm_reader.exe lvm_files_for_tests/test.lvm --info --stats --fft
 ```
 
-See [README_EN.md](README_EN.md) or [README_RU.md](README_RU.md) for full details.
+## Documentation
+
+- [English documentation](README_EN.md)
+- [Русская документация](README_RU.md)
+
+## Latest Update
+
+`v0.5.1` focuses on correctness and reliability:
+
+- strict monotonic time rebuild for equal neighbouring timestamps;
+- correct FFT scaling on DC / Nyquist edge bins;
+- safer handling of small `--fft-samples` values;
+- graceful CLI errors for invalid numeric arguments.
+
+<details>
+<summary>Repository structure</summary>
+
+| File | Purpose |
+|------|---------|
+| `gui_main.cpp` | Native Win32 GUI viewer |
+| `main.cpp` | CLI front-end |
+| `lvm_parser.cpp` / `lvm_parser.hpp` | `.lvm` / `.txt` parser |
+| `analysis.cpp` / `analysis.hpp` | Spectrum computation and peak search |
+| `fft.cpp` / `fft.hpp` | FFT implementation |
+| `tests/run_tests.cpp` | Unit tests |
+| `build_gui.ps1` | GUI build helper |
+| `Makefile` | CLI, tests, and GUI build targets |
+
+</details>

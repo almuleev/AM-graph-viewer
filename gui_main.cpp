@@ -584,6 +584,7 @@ struct App {
     HMENU menu = nullptr;        // main menu bar
     HACCEL accel = nullptr;      // current accelerator table (rebuilt from hotkeys)
     HFONT ui_font = nullptr;     // Segoe UI for controls / labels
+    HFONT menu_font = nullptr;   // menu bar font sized for owner-drawn top menu
     HFONT bold_font = nullptr;   // semibold for headings
     HFONT title_font = nullptr;  // large font for the welcome title
     HFONT axis_font = nullptr;   // 11px for axis tick labels
@@ -795,6 +796,10 @@ bool current_fft_source_window(double& start, double& end, bool& from_selection)
     return end > start;
 }
 
+bool fft_window_contains_time(double t) {
+    return has_fft_window() && t >= g.fft_window_start && t <= g.fft_window_end;
+}
+
 bool last_fft_source_window(double& start, double& end, bool& from_selection) {
     if (!g.spec_source_valid || g.spec_source_end <= g.spec_source_start) return false;
     start = g.spec_source_start;
@@ -804,15 +809,15 @@ bool last_fft_source_window(double& start, double& end, bool& from_selection) {
 }
 
 std::wstring fft_window_status(double start, double end, bool from_selection) {
-    wchar_t buf[160];
+    wchar_t buf[220];
     if (g_str == &kEn) {
-        swprintf(buf, 160, from_selection
-            ? L"   |   FFT window: selected %.6g..%.6g s"
+        swprintf(buf, 220, from_selection
+            ? L"   |   FFT window: selected %.6g..%.6g s (Shift-click or right-click to clear)"
             : L"   |   FFT window: visible %.6g..%.6g s",
             start, end);
     } else {
-        swprintf(buf, 160, from_selection
-            ? L"   |   FFT окно: выбранный участок %.6g..%.6g c"
+        swprintf(buf, 220, from_selection
+            ? L"   |   FFT окно: выбранный участок %.6g..%.6g c (Shift-клик или ПКМ для сброса)"
             : L"   |   FFT окно: видимый участок %.6g..%.6g c",
             start, end);
     }
@@ -3072,6 +3077,12 @@ std::wstring hotkey_text_for_command(int command) {
     return hk ? hotkey_text(hk->fvirt, hk->key) : std::wstring();
 }
 
+std::wstring hotkey_display_text_for_command(int command) {
+    std::wstring text = hotkey_text_for_command(command);
+    if (!text.empty()) return text;
+    return (g_str == &kEn) ? L"Not assigned" : L"Не назначено";
+}
+
 std::wstring menu_text(const wchar_t* base, int command) {
     const HotkeyBinding* binding = find_hotkey_binding(command);
     if (!binding || binding->key == 0) return base;
@@ -3124,7 +3135,7 @@ std::vector<int> hotkey_command_order() {
 }
 
 std::wstring hotkey_list_item_text(int command) {
-    return command_name(command) + L"  [" + hotkey_text_for_command(command) + L"]";
+    return command_name(command) + L"  [" + hotkey_display_text_for_command(command) + L"]";
 }
 
 std::wstring welcome_intro_text() {
@@ -3248,10 +3259,11 @@ void layout_welcome_controls(HWND hwnd) {
 }
 
 void append_hotkey_line(std::wstring& out, int command) {
-    out += L"  " + hotkey_text_for_command(command) + L"\t— " + command_name(command) + L"\n";
+    out += L"  " + hotkey_display_text_for_command(command) + L"\t— " + command_name(command) + L"\n";
 }
 
 std::wstring hotkeys_body_text() {
+    ensure_hotkeys_initialized();
     const bool en = (g_str == &kEn);
     std::wstring out = en ? L"Files\n" : L"Файлы\n";
     append_hotkey_line(out, IDC_OPEN);
@@ -3368,7 +3380,9 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
     const std::wstring left = menu_item_left_text(text);
     const std::wstring right = menu_item_right_text(text);
     HDC dc = GetDC(g.main ? g.main : nullptr);
-    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT font = (entry && entry->top_level && g.menu_font)
+        ? g.menu_font
+        : (g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
     HGDIOBJ old_font = SelectObject(dc, font);
     SIZE left_sz{};
     SIZE right_sz{};
@@ -3417,12 +3431,13 @@ void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
     DeleteObject(bg_brush);
     SetBkMode(dis->hDC, TRANSPARENT);
     SetTextColor(dis->hDC, text_col);
-    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT font = (entry && entry->top_level && g.menu_font)
+        ? g.menu_font
+        : (g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
     HGDIOBJ old_font = SelectObject(dis->hDC, font);
     if (entry && entry->top_level) {
         RECT text_rect = r;
-        text_rect.top += 1;
-        text_rect.bottom -= 2;
+        text_rect.bottom -= 1;
         if (hot && !disabled) {
             RECT hi = r;
             hi.left += 1;
@@ -4329,10 +4344,17 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CREATE: {
             HINSTANCE inst = reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance;
             HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            auto is_settings_group = [](int id) {
+                return id == IDC_SET_GROUP_GENERAL ||
+                       id == IDC_SET_GROUP_TRANSFORM ||
+                       id == IDC_SET_GROUP_POINTS ||
+                       id == IDC_SET_GROUP_HOTKEYS;
+            };
             auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
                 HWND c = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style, x, y, w, h, hwnd,
                     id ? reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)) : nullptr, inst, nullptr);
                 if (c) SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                if (c && is_settings_group(id)) EnableWindow(c, FALSE);
                 return c;
             };
             const bool en = (g_str == &kEn);
@@ -4829,6 +4851,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.ui_font = CreateFontW(-15, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+            if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0)) {
+                g.menu_font = CreateFontIndirectW(&ncm.lfMenuFont);
+            }
+            if (!g.menu_font) {
+                g.menu_font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                          DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                          CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+            }
             g.bold_font = CreateFontW(-15, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
                                       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                       CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
@@ -5107,6 +5138,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDM_ADD_VLINE:
                     if (!has_data()) { MessageBoxW(hwnd, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return 0; }
+                    if (g.pending_line == 1) {
+                        g.pending_line = 0;
+                        set_status();
+                        sync_menu();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                     g.pending_line = 1;
                     g.pending_marker = false;
                     g.measure_mode = false;
@@ -5117,6 +5155,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDM_ADD_HLINE:
                     if (!has_data()) { MessageBoxW(hwnd, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return 0; }
+                    if (g.pending_line == 2) {
+                        g.pending_line = 0;
+                        set_status();
+                        sync_menu();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                     g.pending_line = 2;
                     g.pending_marker = false;
                     g.measure_mode = false;
@@ -5143,6 +5188,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDM_ADD_MARKER:
                     if (!has_data()) { MessageBoxW(hwnd, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return 0; }
+                    if (g.pending_marker) {
+                        g.pending_marker = false;
+                        set_status();
+                        sync_menu();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                     g.pending_marker = true;
                     g.pending_line = 0;
                     g.measure_mode = false;
@@ -5314,6 +5366,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     const int clamped_x = std::clamp(mx, static_cast<int>(p.left), static_cast<int>(p.right));
                     const double frac = static_cast<double>(clamped_x - p.left) / pw;
                     const double tt = g.win_start + frac * (g.win_end - g.win_start);
+                    if (fft_window_contains_time(tt)) {
+                        clear_fft_window();
+                        set_status();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
                     g.fft_selecting = true;
                     g.fft_select_anchor_x = clamped_x;
                     g.fft_select_current_x = clamped_x;
@@ -5362,7 +5420,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     UndoAction ua; ua.type = UndoAction::ADD_MARKER; ua.marker = mk;
                     push_undo(ua);
                 }
-                g.pending_marker = false;
                 set_status();
                 sync_menu();
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -5414,6 +5471,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_RBUTTONDOWN:
+            if (has_fft_window()) {
+                clear_fft_window();
+                set_status();
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
             if (!g.points.empty()) {
                 UndoAction ua; ua.type = UndoAction::CLEAR_POINTS; ua.saved_points = g.points;
                 push_undo(ua);
@@ -5533,6 +5596,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             KillTimer(hwnd, 2);
             if (g.ui_font && g.ui_font != reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)))
                 DeleteObject(g.ui_font);
+            if (g.menu_font) DeleteObject(g.menu_font);
             if (g.bold_font) DeleteObject(g.bold_font);
             if (g.title_font) DeleteObject(g.title_font);
             if (g.axis_font) DeleteObject(g.axis_font);

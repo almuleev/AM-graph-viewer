@@ -142,6 +142,11 @@ enum {
     IDC_SET_TRANSFORM_RESET_CHANNEL,
     IDC_SET_TRANSFORM_RESET_ALL,
 
+    IDC_SET_GROUP_GENERAL = 5150,
+    IDC_SET_GROUP_TRANSFORM,
+    IDC_SET_GROUP_POINTS,
+    IDC_SET_GROUP_HOTKEYS,
+
     IDW_TITLE = 5200,
     IDW_SUBTITLE,
     IDW_INTRO,
@@ -225,9 +230,11 @@ static const Theme kDarkTheme = {
 
 const Theme* g_theme = &kLightTheme;
 HBRUSH g_panel_brush = nullptr;
+HBRUSH g_input_brush = nullptr;
 HBRUSH g_welcome_brush = nullptr;
 HBRUSH g_welcome_hero_brush = nullptr;
 HBRUSH g_welcome_action_brush = nullptr;
+std::wstring g_config_path;
 
 struct OwnerDrawMenuEntry {
     std::wstring text;
@@ -250,12 +257,42 @@ SpeedPromptState g_speed_prompt;
 void update_theme_brushes() {
     if (g_panel_brush) DeleteObject(g_panel_brush);
     g_panel_brush = CreateSolidBrush(g_theme->bg_panel);
+    if (g_input_brush) DeleteObject(g_input_brush);
+    g_input_brush = CreateSolidBrush(g_theme->bg_plot);
     if (g_welcome_brush) DeleteObject(g_welcome_brush);
     g_welcome_brush = CreateSolidBrush(g_theme->bg_main);
     if (g_welcome_hero_brush) DeleteObject(g_welcome_hero_brush);
     g_welcome_hero_brush = CreateSolidBrush(g_theme->bg_panel);
     if (g_welcome_action_brush) DeleteObject(g_welcome_action_brush);
     g_welcome_action_brush = CreateSolidBrush(g_theme->btn_bg);
+}
+
+std::wstring app_config_path() {
+    wchar_t path[MAX_PATH]{};
+    DWORD len = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    std::wstring full = (len > 0) ? std::wstring(path, path + len) : L"LVM Viewer.exe";
+    std::size_t slash = full.find_last_of(L"\\/");
+    if (slash != std::wstring::npos) full.resize(slash + 1);
+    else full.clear();
+    full += L"lvm_viewer.ini";
+    return full;
+}
+
+void load_app_settings() {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    wchar_t theme_buf[32]{};
+    GetPrivateProfileStringW(L"ui", L"theme", L"light", theme_buf, 32, g_config_path.c_str());
+    if (lstrcmpiW(theme_buf, L"dark") == 0) g_theme = &kDarkTheme;
+    else g_theme = &kLightTheme;
+}
+
+void save_app_settings() {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    WritePrivateProfileStringW(
+        L"ui",
+        L"theme",
+        (g_theme == &kDarkTheme) ? L"dark" : L"light",
+        g_config_path.c_str());
 }
 
 const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup) {
@@ -1138,6 +1175,10 @@ HMENU make_menu();
 std::wstring hotkey_text_for_command(int command);
 std::wstring format_edit_number(double value);
 bool parse_wide_double_text(const wchar_t* text, double& out);
+void fill_rounded_rect(HDC dc, const RECT& r, COLORREF fill, COLORREF border, int radius);
+void load_runtime_settings();
+void save_runtime_settings();
+void draw_welcome_action_button(HDC dc, const RECT& r, const wchar_t* txt, bool pressed, bool primary, bool outlined);
 
 const wchar_t* speed_menu_text() {
     return (g_str == &kEn) ? L"Speed" : L"Скорость";
@@ -1184,6 +1225,7 @@ void set_play_speed(double speed) {
         g.play_anchor_qpc = now;
     }
     g.play_speed = speed;
+    save_runtime_settings();
     set_status();
 }
 
@@ -1203,13 +1245,13 @@ LRESULT CALLBACK SpeedPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", speed_prompt_apply_text(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 86, 82, 116, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_OK)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             HWND cancel = CreateWindowExW(
                 0, L"BUTTON", speed_prompt_cancel_text(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 214, 82, 122, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_CANCEL)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -1259,6 +1301,23 @@ LRESULT CALLBACK SpeedPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetBkMode(dc, TRANSPARENT);
             SetTextColor(dc, g_theme->text_primary);
             return reinterpret_cast<LRESULT>(g_panel_brush);
+        }
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+            if (!dis || !dis->hwndItem) break;
+            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
+            wchar_t txt[128]{};
+            GetWindowTextW(dis->hwndItem, txt, 128);
+            const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+            if (ctl_id == IDC_SPEED_PROMPT_OK) {
+                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, true, false);
+                return TRUE;
+            }
+            if (ctl_id == IDC_SPEED_PROMPT_CANCEL) {
+                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
+                return TRUE;
+            }
+            break;
         }
         case WM_CTLCOLOREDIT: {
             HDC dc = reinterpret_cast<HDC>(wp);
@@ -2587,6 +2646,7 @@ void on_signal_transform_changed() {
     sync_menu();
     set_status();
     InvalidateRect(g.main, nullptr, TRUE);
+    save_runtime_settings();
 }
 
 // Export the visible segment: time-domain rows (Time mode) or spectrum (Hz).
@@ -2880,6 +2940,101 @@ void ensure_hotkeys_initialized() {
     if (g.hotkeys.empty()) g.hotkeys = default_hotkeys();
 }
 
+int read_ini_int(const wchar_t* section, const wchar_t* key, int def_value) {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    return static_cast<int>(GetPrivateProfileIntW(section, key, def_value, g_config_path.c_str()));
+}
+
+double read_ini_double(const wchar_t* section, const wchar_t* key, double def_value) {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    wchar_t buf[64]{};
+    std::wstring def = format_edit_number(def_value);
+    GetPrivateProfileStringW(section, key, def.c_str(), buf, 64, g_config_path.c_str());
+    double value = def_value;
+    if (parse_wide_double_text(buf, value)) return value;
+    return def_value;
+}
+
+void write_ini_double(const wchar_t* section, const wchar_t* key, double value) {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    std::wstring text = format_edit_number(value);
+    WritePrivateProfileStringW(section, key, text.c_str(), g_config_path.c_str());
+}
+
+void load_runtime_settings() {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+
+    wchar_t lang_buf[16]{};
+    GetPrivateProfileStringW(L"ui", L"language", L"ru", lang_buf, 16, g_config_path.c_str());
+    g_str = (lstrcmpiW(lang_buf, L"en") == 0) ? &kEn : &kRu;
+
+    g.visual_smooth = read_ini_int(L"ui", L"smoothing", g.visual_smooth ? 1 : 0) != 0;
+    g.vertical_pan = read_ini_int(L"ui", L"vertical_pan", g.vertical_pan ? 1 : 0) != 0;
+    g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
+    g.play_speed = read_ini_double(L"ui", L"play_speed", g.play_speed);
+    if (!(g.play_speed > 0.0) || !std::isfinite(g.play_speed)) g.play_speed = 1.0;
+
+    g.pdisp.number = read_ini_int(L"points", L"number", g.pdisp.number ? 1 : 0) != 0;
+    g.pdisp.x = read_ini_int(L"points", L"x", g.pdisp.x ? 1 : 0) != 0;
+    g.pdisp.y = read_ini_int(L"points", L"y", g.pdisp.y ? 1 : 0) != 0;
+    g.pdisp.dx = read_ini_int(L"points", L"dx", g.pdisp.dx ? 1 : 0) != 0;
+    g.pdisp.dy = read_ini_int(L"points", L"dy", g.pdisp.dy ? 1 : 0) != 0;
+    g.pdisp.inv_dt = read_ini_int(L"points", L"inv_dt", g.pdisp.inv_dt ? 1 : 0) != 0;
+    g.pdisp.dist = read_ini_int(L"points", L"dist", g.pdisp.dist ? 1 : 0) != 0;
+
+    g.marker_color = static_cast<COLORREF>(read_ini_int(
+        L"ui", L"marker_color", static_cast<int>(g_theme->marker_color)));
+    g.global_value_mul = read_ini_double(L"transform", L"global_mul", g.global_value_mul);
+    g.global_value_add = read_ini_double(L"transform", L"global_add", g.global_value_add);
+
+    g.hotkeys = default_hotkeys();
+    for (auto& hk : g.hotkeys) {
+        wchar_t key_name[32]{};
+        swprintf(key_name, 32, L"cmd_%d", hk.command);
+        wchar_t value[64]{};
+        GetPrivateProfileStringW(L"hotkeys", key_name, L"", value, 64, g_config_path.c_str());
+        if (!value[0]) continue;
+        unsigned int fvirt = hk.fvirt;
+        unsigned int key = hk.key;
+        if (swscanf(value, L"%u,%u", &fvirt, &key) == 2) {
+            hk.fvirt = static_cast<BYTE>(fvirt);
+            hk.key = static_cast<WORD>(key);
+        }
+    }
+}
+
+void save_runtime_settings() {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+
+    WritePrivateProfileStringW(L"ui", L"language", (g_str == &kEn) ? L"en" : L"ru", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
+    write_ini_double(L"ui", L"play_speed", g.play_speed);
+
+    WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"x", g.pdisp.x ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"y", g.pdisp.y ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dx", g.pdisp.dx ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dy", g.pdisp.dy ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"inv_dt", g.pdisp.inv_dt ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dist", g.pdisp.dist ? L"1" : L"0", g_config_path.c_str());
+
+    wchar_t color_buf[32]{};
+    swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
+    WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
+    write_ini_double(L"transform", L"global_mul", g.global_value_mul);
+    write_ini_double(L"transform", L"global_add", g.global_value_add);
+
+    for (const auto& hk : g.hotkeys) {
+        wchar_t key_name[32]{};
+        wchar_t value[64]{};
+        swprintf(key_name, 32, L"cmd_%d", hk.command);
+        swprintf(value, 64, L"%u,%u", static_cast<unsigned int>(hk.fvirt), static_cast<unsigned int>(hk.key));
+        WritePrivateProfileStringW(L"hotkeys", key_name, value, g_config_path.c_str());
+    }
+}
+
 std::wstring key_name(WORD key) {
     switch (key) {
         case 0: return g_str == &kEn ? L"None" : L"Нет";
@@ -3064,7 +3219,7 @@ void layout_welcome_controls(HWND hwnd) {
     place(IDW_INTRO, hx, hy, hw, intro_h);
     hy += intro_h + 18;
 
-    const int footer_reserve = layout.stacked ? 76 : 64;
+    const int footer_reserve = layout.stacked ? 28 : 20;
     const int feature_bottom = layout.hero.bottom - hero_pad - footer_reserve;
     place(IDW_FEATURES, hx, hy, hw, max(72, feature_bottom - hy));
 
@@ -3222,8 +3377,8 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
     SelectObject(dc, old_font);
     ReleaseDC(g.main ? g.main : nullptr, dc);
     if (entry && entry->top_level) {
-        mis->itemWidth = left_sz.cx + 22;
-        mis->itemHeight = max(24u, static_cast<UINT>(left_sz.cy + 10));
+        mis->itemWidth = left_sz.cx + 24;
+        mis->itemHeight = max(34u, static_cast<UINT>(left_sz.cy + 18));
         return;
     }
 
@@ -3238,15 +3393,24 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
 
 void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
     if (!dis || dis->CtlType != ODT_MENU) return;
+    auto blend = [](COLORREF a, COLORREF b, int weight_b) {
+        weight_b = std::clamp(weight_b, 0, 255);
+        const int weight_a = 255 - weight_b;
+        return RGB(
+            (GetRValue(a) * weight_a + GetRValue(b) * weight_b) / 255,
+            (GetGValue(a) * weight_a + GetGValue(b) * weight_b) / 255,
+            (GetBValue(a) * weight_a + GetBValue(b) * weight_b) / 255);
+    };
     const OwnerDrawMenuEntry* entry = reinterpret_cast<const OwnerDrawMenuEntry*>(dis->itemData);
     const std::wstring text = entry ? entry->text : L"";
     const std::wstring left = menu_item_left_text(text);
     const std::wstring right = menu_item_right_text(text);
     RECT r = dis->rcItem;
     const bool selected = (dis->itemState & ODS_SELECTED) != 0;
+    const bool hot = selected || (dis->itemState & ODS_HOTLIGHT) != 0;
     const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
     const bool checked = (dis->itemState & ODS_CHECKED) != 0;
-    COLORREF bg = selected ? g_theme->btn_hover : g_theme->bg_toolbar;
+    COLORREF bg = hot ? g_theme->btn_hover : g_theme->bg_toolbar;
     COLORREF text_col = disabled ? g_theme->text_secondary : g_theme->text_primary;
     HBRUSH bg_brush = CreateSolidBrush(bg);
     FillRect(dis->hDC, &r, bg_brush);
@@ -3256,8 +3420,29 @@ void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
     HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     HGDIOBJ old_font = SelectObject(dis->hDC, font);
     if (entry && entry->top_level) {
+        RECT text_rect = r;
+        text_rect.top += 1;
+        text_rect.bottom -= 2;
+        if (hot && !disabled) {
+            RECT hi = r;
+            hi.left += 1;
+            hi.right -= 1;
+            hi.top += 1;
+            hi.bottom -= 1;
+            const int accent_weight = (g_theme == &kDarkTheme) ? 42 : 58;
+            const COLORREF hi_fill = blend(g_theme->bg_toolbar, g_theme->accent, accent_weight);
+            const COLORREF hi_border = blend(g_theme->btn_border, g_theme->accent, (g_theme == &kDarkTheme) ? 88 : 120);
+            fill_rounded_rect(dis->hDC, hi, hi_fill, hi_border, 4);
+            text_col = (g_theme == &kDarkTheme) ? RGB(255, 255, 255) : g_theme->accent_hover;
+            SetTextColor(dis->hDC, text_col);
+
+            RECT underline = { hi.left + 5, hi.bottom - 1, hi.right - 5, hi.bottom };
+            HBRUSH underline_brush = CreateSolidBrush(g_theme->accent);
+            FillRect(dis->hDC, &underline, underline_brush);
+            DeleteObject(underline_brush);
+        }
         DrawTextW(
-            dis->hDC, left.c_str(), -1, &r,
+            dis->hDC, left.c_str(), -1, &text_rect,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
         SelectObject(dis->hDC, old_font);
         return;
@@ -3318,6 +3503,97 @@ void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
         DeleteObject(arrow_brush);
     }
     SelectObject(dis->hDC, old_font);
+}
+
+void measure_settings_combo_item(MEASUREITEMSTRUCT* mis) {
+    if (!mis || mis->CtlType != ODT_COMBOBOX) return;
+    mis->itemHeight = 22;
+}
+
+void draw_settings_combo_item(const DRAWITEMSTRUCT* dis) {
+    if (!dis || dis->CtlType != ODT_COMBOBOX) return;
+    HWND combo = dis->hwndItem;
+    RECT r = dis->rcItem;
+    const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+    const bool selected = (dis->itemState & ODS_SELECTED) != 0;
+    const bool combo_edit = (dis->itemState & ODS_COMBOBOXEDIT) != 0;
+    COLORREF bg = combo_edit ? g_theme->bg_plot : (selected ? g_theme->btn_hover : g_theme->bg_plot);
+    COLORREF text_col = disabled ? g_theme->text_secondary : g_theme->text_primary;
+
+    HBRUSH bg_brush = CreateSolidBrush(bg);
+    FillRect(dis->hDC, &r, bg_brush);
+    DeleteObject(bg_brush);
+
+    if (combo_edit) {
+        HPEN border = CreatePen(PS_SOLID, 1, g_theme->btn_border);
+        HGDIOBJ old_pen = SelectObject(dis->hDC, border);
+        HGDIOBJ old_brush = SelectObject(dis->hDC, GetStockObject(NULL_BRUSH));
+        Rectangle(dis->hDC, r.left, r.top, r.right, r.bottom);
+        SelectObject(dis->hDC, old_brush);
+        SelectObject(dis->hDC, old_pen);
+        DeleteObject(border);
+    }
+
+    UINT item = dis->itemID;
+    if (item == static_cast<UINT>(-1) && combo) {
+        LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+        if (sel != CB_ERR) item = static_cast<UINT>(sel);
+    }
+
+    std::wstring text;
+    if (combo && item != static_cast<UINT>(-1)) {
+        LRESULT len = SendMessageW(combo, CB_GETLBTEXTLEN, item, 0);
+        if (len >= 0) {
+            text.resize(static_cast<std::size_t>(len));
+            SendMessageW(combo, CB_GETLBTEXT, item, reinterpret_cast<LPARAM>(text.data()));
+        }
+    }
+
+    RECT text_rect = r;
+    text_rect.left += 8;
+    if (combo_edit) text_rect.right -= 8;
+    SetBkMode(dis->hDC, TRANSPARENT);
+    SetTextColor(dis->hDC, text_col);
+    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ old_font = SelectObject(dis->hDC, font);
+    DrawTextW(dis->hDC, text.c_str(), -1, &text_rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dis->hDC, old_font);
+}
+
+void draw_settings_group_box(HDC dc, const RECT& r, const wchar_t* text) {
+    RECT text_rect = r;
+    text_rect.left += 10;
+    text_rect.right -= 10;
+    text_rect.top += 1;
+
+    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ old_font = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, g_theme->text_primary);
+
+    SIZE sz{};
+    const int text_len = lstrlenW(text);
+    GetTextExtentPoint32W(dc, text, text_len, &sz);
+
+    const int text_x = r.left + 12;
+    const int text_y = r.top + 1;
+    const int gap_left = text_x - 6;
+    const int gap_right = text_x + sz.cx + 6;
+    const int line_y = r.top + 10;
+
+    HPEN pen = CreatePen(PS_SOLID, 1, g_theme->btn_border);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    MoveToEx(dc, r.left, line_y, nullptr); LineTo(dc, static_cast<int>(max<LONG>(r.left, gap_left)), line_y);
+    MoveToEx(dc, static_cast<int>(min<LONG>(r.right, gap_right)), line_y, nullptr); LineTo(dc, r.right, line_y);
+    MoveToEx(dc, r.left, line_y, nullptr); LineTo(dc, r.left, r.bottom);
+    MoveToEx(dc, r.right - 1, line_y, nullptr); LineTo(dc, r.right - 1, r.bottom);
+    MoveToEx(dc, r.left, r.bottom - 1, nullptr); LineTo(dc, r.right, r.bottom - 1);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+
+    SetBkColor(dc, g_theme->bg_panel);
+    ExtTextOutW(dc, text_x, text_y, ETO_OPAQUE, nullptr, text, text_len, nullptr);
+    SelectObject(dc, old_font);
 }
 
 const wchar_t* settings_button_text() {
@@ -3383,6 +3659,63 @@ void draw_button_with_colors(HDC dc, const RECT& r, const wchar_t* txt,
     int ty = r.top + (r.bottom - r.top - sz.cy) / 2;
     if (pressed) { tx += 1; ty += 1; }
     TextOutW(dc, tx, ty, txt, lstrlenW(txt));
+}
+
+void draw_welcome_action_button(HDC dc, const RECT& r, const wchar_t* txt,
+                                bool pressed, bool primary, bool outlined) {
+    COLORREF bg_col = g_theme->btn_bg;
+    COLORREF border_col = g_theme->btn_border;
+    COLORREF text_col = g_theme->text_primary;
+
+    if (primary) {
+        bg_col = pressed ? g_theme->accent_hover : g_theme->accent;
+        border_col = pressed ? g_theme->accent_hover : g_theme->accent;
+        text_col = RGB(255, 255, 255);
+    } else if (outlined) {
+        if (g_theme == &kDarkTheme) {
+            bg_col = pressed ? mix_color(g_theme->btn_hover, g_theme->accent, 26)
+                             : mix_color(g_theme->btn_bg, g_theme->accent, 18);
+            border_col = mix_color(g_theme->btn_border, g_theme->accent, 72);
+            text_col = RGB(235, 240, 248);
+        } else {
+            bg_col = pressed ? g_theme->btn_hover : g_theme->bg_panel;
+            border_col = g_theme->accent;
+            text_col = g_theme->text_primary;
+        }
+    } else {
+        if (g_theme == &kDarkTheme) {
+            bg_col = pressed ? g_theme->btn_hover : mix_color(g_theme->btn_bg, g_theme->bg_panel, 70);
+            border_col = mix_color(g_theme->btn_border, g_theme->separator, 48);
+            text_col = g_theme->text_primary;
+        } else {
+            bg_col = pressed ? g_theme->btn_hover : g_theme->btn_bg;
+            border_col = g_theme->btn_border;
+            text_col = g_theme->text_primary;
+        }
+    }
+
+    fill_rounded_rect(dc, r, bg_col, border_col, 6);
+
+    if (g_theme != &kDarkTheme) {
+        RECT inner = { r.left + 1, r.top + 1, r.right - 1, r.top + 10 };
+        HBRUSH gloss = CreateSolidBrush(mix_color(bg_col, RGB(255, 255, 255), pressed ? 8 : 20));
+        FillRect(dc, &inner, gloss);
+        DeleteObject(gloss);
+    } else if (!primary) {
+        RECT inner = { r.left + 1, r.top + 1, r.right - 1, min(r.bottom - 1, r.top + 8) };
+        HBRUSH sheen = CreateSolidBrush(mix_color(bg_col, RGB(255, 255, 255), pressed ? 4 : 10));
+        FillRect(dc, &inner, sheen);
+        DeleteObject(sheen);
+    }
+
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, text_col);
+    HFONT f = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ old_font = SelectObject(dc, f);
+    RECT text_rect = r;
+    if (pressed) OffsetRect(&text_rect, 0, 1);
+    DrawTextW(dc, txt, -1, &text_rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, old_font);
 }
 
 void redraw_button(HWND btn) {
@@ -4003,11 +4336,11 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return c;
             };
             const bool en = (g_str == &kEn);
-            mk(L"BUTTON", en ? L"General" : L"Общие", BS_GROUPBOX, 12, 10, 510, 72, 0);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 72, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_AUTORADIOBUTTON, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_AUTORADIOBUTTON, 144, 36, 110, 22, IDC_SET_LANG_EN);
 
-            mk(L"BUTTON", transform_group_title_text(), BS_GROUPBOX, 12, 92, 510, 206, 0);
+            mk(L"BUTTON", transform_group_title_text(), BS_OWNERDRAW, 12, 92, 510, 206, IDC_SET_GROUP_TRANSFORM);
             mk(L"STATIC", transform_global_mul_text(), SS_LEFT, 24, 118, 148, 20, 0);
             mk(L"EDIT", format_edit_number(g.global_value_mul).c_str(), WS_BORDER | ES_AUTOHSCROLL, 176, 114, 70, 24, IDC_SET_GLOBAL_MUL);
             mk(L"STATIC", transform_global_add_text(), SS_LEFT, 258, 118, 150, 20, 0);
@@ -4022,7 +4355,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", transform_reset_channel_text(), BS_OWNERDRAW, 388, 246, 110, 28, IDC_SET_TRANSFORM_RESET_CHANNEL);
             mk(L"BUTTON", transform_reset_all_text(), BS_OWNERDRAW, 252, 278, 246, 28, IDC_SET_TRANSFORM_RESET_ALL);
 
-            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_GROUPBOX, 12, 310, 510, 238, 0);
+            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_OWNERDRAW, 12, 310, 510, 238, IDC_SET_GROUP_POINTS);
             struct Item { const wchar_t* text; int id; bool on; };
             const Item items[] = {
                 {g_str->pt_num,        IDM_PT_NUM,   g.pdisp.number},
@@ -4049,13 +4382,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDS_COLOR)), inst, nullptr);
             SendMessageW(col, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_GROUPBOX, 12, 558, 510, 188, 0);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 558, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 582, 240, 150, IDC_SET_HOTKEY_LIST);
             mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 590, 70, 22, IDC_SET_HOTKEY_CTRL);
             mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 590, 70, 22, IDC_SET_HOTKEY_SHIFT);
             mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 590, 70, 22, IDC_SET_HOTKEY_ALT);
             mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 622, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_VSCROLL | WS_BORDER, 284, 642, 214, 260, IDC_SET_HOTKEY_KEY);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 642, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
             mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 680, 100, 28, IDC_SET_HOTKEY_APPLY);
             mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 680, 100, 28, IDC_SET_HOTKEY_RESET);
@@ -4073,10 +4406,10 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             auto checked = [&]() { return SendMessageW(ctl, BM_GETCHECK, 0, 0) == BST_CHECKED; };
             switch (id) {
                 case IDC_SET_LANG_RU:
-                    if (HIWORD(wp) == BN_CLICKED && g_str != &kRu) { g_str = &kRu; rebuild_ui(); }
+                    if (HIWORD(wp) == BN_CLICKED && g_str != &kRu) { g_str = &kRu; save_runtime_settings(); rebuild_ui(); }
                     break;
                 case IDC_SET_LANG_EN:
-                    if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; rebuild_ui(); }
+                    if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); }
                     break;
                 case IDM_PT_NUM:   g.pdisp.number = checked(); break;
                 case IDM_PT_X:     g.pdisp.x = checked(); break;
@@ -4132,6 +4465,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     rebuild_menu_bar();
                     populate_hotkey_list(hwnd);
                     load_selected_hotkey_controls(hwnd);
+                    save_runtime_settings();
                     set_status();
                     InvalidateRect(g.main, nullptr, TRUE);
                     return 0;
@@ -4143,10 +4477,17 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     cc.lpCustColors = g_custom_colors;
                     cc.rgbResult = g.marker_color;
                     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-                    if (ChooseColorW(&cc)) g.marker_color = cc.rgbResult;
+                    if (ChooseColorW(&cc)) {
+                        g.marker_color = cc.rgbResult;
+                        save_runtime_settings();
+                    }
                     break;
                 }
                 default: return 0;
+            }
+            if (id == IDM_PT_NUM || id == IDM_PT_X || id == IDM_PT_Y || id == IDM_PT_DX ||
+                id == IDM_PT_DY || id == IDM_PT_INVDT || id == IDM_PT_DIST || id == IDM_SNAP) {
+                save_runtime_settings();
             }
             InvalidateRect(g.main, nullptr, FALSE);
             return 0;
@@ -4162,12 +4503,34 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_DRAWITEM: {
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+            if (dis && dis->CtlType == ODT_COMBOBOX && dis->CtlID == IDC_SET_HOTKEY_KEY) {
+                draw_settings_combo_item(dis);
+                return TRUE;
+            }
             if (!dis->hwndItem) break;
+            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
+            if (ctl_id == IDC_SET_GROUP_GENERAL ||
+                ctl_id == IDC_SET_GROUP_TRANSFORM ||
+                ctl_id == IDC_SET_GROUP_POINTS ||
+                ctl_id == IDC_SET_GROUP_HOTKEYS) {
+                wchar_t txt[128]{};
+                GetWindowTextW(dis->hwndItem, txt, 128);
+                draw_settings_group_box(dis->hDC, dis->rcItem, txt);
+                return TRUE;
+            }
             wchar_t txt[128];
             GetWindowTextW(dis->hwndItem, txt, 128);
             bool pressed = (dis->itemState & ODS_SELECTED) != 0;
             draw_themed_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
             return TRUE;
+        }
+        case WM_MEASUREITEM: {
+            MEASUREITEMSTRUCT* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lp);
+            if (mis && mis->CtlType == ODT_COMBOBOX && mis->CtlID == IDC_SET_HOTKEY_KEY) {
+                measure_settings_combo_item(mis);
+                return TRUE;
+            }
+            break;
         }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {
@@ -4176,11 +4539,17 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetTextColor(dc, g_theme->text_primary);
             return reinterpret_cast<LRESULT>(g_panel_brush);
         }
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetBkColor(dc, g_theme->bg_plot);
+            SetTextColor(dc, g_theme->text_primary);
+            return reinterpret_cast<LRESULT>(g_input_brush ? g_input_brush : g_panel_brush);
+        }
         case WM_CTLCOLORLISTBOX: {
             HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkColor(dc, g_theme->bg_panel);
+            SetBkColor(dc, g_theme->bg_plot);
             SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_panel_brush);
+            return reinterpret_cast<LRESULT>(g_input_brush ? g_input_brush : g_panel_brush);
         }
         case WM_CLOSE:
             ShowWindow(hwnd, SW_HIDE);   // keep state; reopen instantly
@@ -4299,17 +4668,17 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetBkMode(hdc, TRANSPARENT);
             SetTextColor(hdc, g_theme->text_secondary);
             RECT credit = {
-                rc.left + 24,
-                max(rc.top + 8, rc.bottom - 54),
+                max(rc.left + 220, layout.bounds.right - 420),
+                max(layout.bounds.bottom + 2, rc.bottom - 24),
                 rc.right - 24,
-                rc.bottom - 14
+                rc.bottom - 8
             };
             DrawTextW(
                 hdc,
-                L"Приложение разработал Алекссандр Мулеев\r\nal.meleev@gmail.com",
+                L"Приложение разработал Мулеев Александр  |  al.muleev@gmail.com",
                 -1,
                 &credit,
-                DT_CENTER | DT_VCENTER | DT_WORDBREAK | DT_NOPREFIX);
+                DT_RIGHT | DT_BOTTOM | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
             SelectObject(hdc, old_font);
             EndPaint(hwnd, &ps);
             return 0;
@@ -4322,8 +4691,8 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_PTSETTINGS: open_settings(); return 0;
                 case IDM_HOTKEYS: show_hotkeys(); return 0;
                 case IDW_START: ShowWindow(hwnd, SW_HIDE); show_ui_controls(); return 0;
-                case IDM_LANG_RU: if (g_str != &kRu) { g_str = &kRu; rebuild_ui(); } return 0;
-                case IDM_LANG_EN: if (g_str != &kEn) { g_str = &kEn; rebuild_ui(); } return 0;
+                case IDM_LANG_RU: if (g_str != &kRu) { g_str = &kRu; save_runtime_settings(); rebuild_ui(); } return 0;
+                case IDM_LANG_EN: if (g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); } return 0;
             }
             return 0;
         case WM_DRAWITEM: {
@@ -4340,18 +4709,15 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             GetWindowTextW(dis->hwndItem, txt, 128);
 
             if (ctl_id == IDW_START) {
-                COLORREF bg_col = pressed ? g_theme->accent_hover : g_theme->accent;
-                draw_button_with_colors(dc, r, txt, bg_col, bg_col, RGB(255, 255, 255), pressed);
+                draw_welcome_action_button(dc, r, txt, pressed, true, false);
                 return TRUE;
             }
             if (ctl_id == IDC_OPEN) {
-                COLORREF bg_col = pressed ? g_theme->btn_hover : g_theme->bg_panel;
-                draw_button_with_colors(dc, r, txt, bg_col, g_theme->accent, g_theme->text_primary, pressed);
+                draw_welcome_action_button(dc, r, txt, pressed, false, true);
                 return TRUE;
             }
             if (ctl_id == IDC_PTSETTINGS || ctl_id == IDM_HOTKEYS) {
-                COLORREF bg_col = pressed ? g_theme->btn_hover : g_theme->btn_bg;
-                draw_button_with_colors(dc, r, txt, bg_col, g_theme->btn_border, g_theme->text_primary, pressed);
+                draw_welcome_action_button(dc, r, txt, pressed, false, false);
                 return TRUE;
             }
             draw_themed_button(dc, r, txt, pressed, active, false);
@@ -4714,17 +5080,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDM_VISMOOTH:
                     g.visual_smooth = !g.visual_smooth;
+                    save_runtime_settings();
                     sync_menu();
                     set_status();
                     InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
                 case IDM_VPAN:
                     g.vertical_pan = !g.vertical_pan;
+                    save_runtime_settings();
                     sync_menu();
                     set_status();
                     return 0;
                 case IDM_THEME:
                     g_theme = (g_theme == &kLightTheme) ? &kDarkTheme : &kLightTheme;
+                    save_app_settings();
                     update_theme_brushes();
                     {
                         MENUINFO mi = { sizeof(mi) };
@@ -4824,8 +5193,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_PANRIGHT: pan_by(0.2); return 0;
                 case IDM_HOTKEYS: show_hotkeys(); return 0;
                 case IDM_ABOUT: show_about(); return 0;
-                case IDM_LANG_RU: g_str = &kRu; rebuild_ui(); return 0;
-                case IDM_LANG_EN: g_str = &kEn; rebuild_ui(); return 0;
+                case IDM_LANG_RU: g_str = &kRu; save_runtime_settings(); rebuild_ui(); return 0;
+                case IDM_LANG_EN: g_str = &kEn; save_runtime_settings(); rebuild_ui(); return 0;
                 default: break;
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
@@ -5158,6 +5527,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_DESTROY:
+            save_runtime_settings();
+            save_app_settings();
             stop_play();
             KillTimer(hwnd, 2);
             if (g.ui_font && g.ui_font != reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)))
@@ -5209,6 +5580,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
 
     INITCOMMONCONTROLSEX icc = {sizeof(icc), ICC_BAR_CLASSES};
     InitCommonControlsEx(&icc);
+    load_app_settings();
+    load_runtime_settings();
 
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);

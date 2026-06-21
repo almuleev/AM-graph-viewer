@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest an improvement for the GUI, CLI or workflow
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal / Что хочется получить
+      placeholder: Describe the user problem or workflow you want to improve.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal / Идея решения
+      placeholder: Describe the behaviour, UI idea or CLI improvement you want.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / Контекст
+      placeholder: Why is this important? What blocks your current workflow?

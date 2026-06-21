@@ -141,6 +141,11 @@ enum {
     IDC_SET_TRANSFORM_APPLY,
     IDC_SET_TRANSFORM_RESET_CHANNEL,
     IDC_SET_TRANSFORM_RESET_ALL,
+    IDC_SET_POINT_GROUP_LIST = 5120,
+    IDC_SET_POINT_GROUP_VISIBLE,
+    IDC_SET_POINT_COLOR_CURRENT,
+    IDC_SET_POINT_GROUP_COLOR,
+    IDC_SET_POINT_GROUP_NEW,
 
     IDC_SET_GROUP_GENERAL = 5150,
     IDC_SET_GROUP_TRANSFORM,
@@ -489,6 +494,12 @@ struct GuideLine {
     bool freq = false;
 };
 
+struct PointGroup {
+    COLORREF color = RGB(0, 120, 215);
+    bool visible = true;
+    std::vector<std::pair<double, double>> points;
+};
+
 struct HotkeyBinding {
     int command = 0;
     BYTE fvirt = FVIRTKEY;
@@ -525,7 +536,8 @@ struct App {
     bool snap_to_data = true;       // snap markers to the nearest real sample
     PointDisplay pdisp;             // which read-outs to draw at markers
     COLORREF marker_color = g_theme->marker_color;
-    std::vector<std::pair<double, double>> points;  // measurement points (data coords)
+    std::vector<PointGroup> point_groups;
+    int active_point_group = -1;
 
     std::vector<GuideLine> guides;  // vertical / horizontal reference lines
     int pending_line = 0;           // 0 none, 1 next click = vertical, 2 = horizontal
@@ -619,15 +631,165 @@ RECT g_legend_box = {0,0,0,0};
 struct UndoAction {
     enum Type { NONE, ADD_POINT, ADD_LINE, ADD_MARKER, CLEAR_POINTS, CLEAR_LINES, CLEAR_MARKERS } type = NONE;
     std::pair<double, double> point;
+    int point_group_index = -1;
+    bool point_group_created = false;
+    PointGroup point_group_state;
     GuideLine line;
     App::Marker marker;
-    std::vector<std::pair<double, double>> saved_points;
+    std::vector<PointGroup> saved_point_groups;
+    int saved_active_point_group = -1;
     std::vector<GuideLine> saved_lines;
     std::vector<App::Marker> saved_markers;
 };
 std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
 WNDPROC g_channel_edit_proc = nullptr;
+void populate_point_group_list(HWND hwnd);
+
+const wchar_t* point_group_list_title() {
+    return g_str == &kEn ? L"Point groups" : L"Группы точек";
+}
+
+const wchar_t* point_current_color_button_text() {
+    return g_str == &kEn ? L"Colour for new points…" : L"Цвет новых точек…";
+}
+
+const wchar_t* point_selected_group_color_button_text() {
+    return g_str == &kEn ? L"Selected group colour…" : L"Цвет выбранной группы…";
+}
+
+const wchar_t* point_group_visible_text() {
+    return g_str == &kEn ? L"Show selected group" : L"Показывать выбранную группу";
+}
+
+const wchar_t* point_group_new_button_text() {
+    return g_str == &kEn ? L"Start new group" : L"Новая группа";
+}
+
+const wchar_t* point_group_hint_text() {
+    return g_str == &kEn
+        ? L"Ctrl+click in point mode starts a new group with the current colour."
+        : L"Ctrl+клик в режиме точек начинает новую группу с текущим цветом.";
+}
+
+void normalize_active_point_group() {
+    if (g.point_groups.empty()) {
+        g.active_point_group = -1;
+        return;
+    }
+    if (g.active_point_group >= 0 &&
+        g.active_point_group < static_cast<int>(g.point_groups.size())) {
+        return;
+    }
+    g.active_point_group = static_cast<int>(g.point_groups.size()) - 1;
+}
+
+PointGroup* active_point_group() {
+    normalize_active_point_group();
+    if (g.active_point_group < 0) return nullptr;
+    return &g.point_groups[static_cast<std::size_t>(g.active_point_group)];
+}
+
+const PointGroup* active_point_group_readonly() {
+    normalize_active_point_group();
+    if (g.active_point_group < 0) return nullptr;
+    return &g.point_groups[static_cast<std::size_t>(g.active_point_group)];
+}
+
+std::size_t total_measure_point_count() {
+    std::size_t total = 0;
+    for (const auto& group : g.point_groups) total += group.points.size();
+    return total;
+}
+
+bool has_measure_points() {
+    return total_measure_point_count() != 0;
+}
+
+void clear_measure_point_groups() {
+    g.point_groups.clear();
+    g.active_point_group = -1;
+}
+
+void erase_point_group(std::size_t index) {
+    if (index >= g.point_groups.size()) return;
+    g.point_groups.erase(g.point_groups.begin() + static_cast<std::ptrdiff_t>(index));
+    if (g.point_groups.empty()) {
+        g.active_point_group = -1;
+        return;
+    }
+    if (g.active_point_group > static_cast<int>(index)) {
+        --g.active_point_group;
+    } else if (g.active_point_group == static_cast<int>(index)) {
+        g.active_point_group = static_cast<int>(std::min<std::size_t>(index, g.point_groups.size() - 1));
+    }
+}
+
+int create_point_group(COLORREF color) {
+    PointGroup group;
+    group.color = color;
+    group.visible = true;
+    g.point_groups.push_back(group);
+    g.active_point_group = static_cast<int>(g.point_groups.size()) - 1;
+    return g.active_point_group;
+}
+
+int ensure_point_group_for_measurement(bool force_new_group, bool* created_group = nullptr) {
+    bool created = false;
+    normalize_active_point_group();
+    PointGroup* group = active_point_group();
+    if (!group) {
+        create_point_group(g.marker_color);
+        created = true;
+        group = active_point_group();
+    } else {
+        const bool active_has_points = !group->points.empty();
+        if (force_new_group || (active_has_points && group->color != g.marker_color)) {
+            create_point_group(g.marker_color);
+            created = true;
+            group = active_point_group();
+        } else if (!active_has_points) {
+            group->color = g.marker_color;
+        }
+    }
+    if (group) group->visible = true;
+    if (created_group) *created_group = created;
+    return g.active_point_group;
+}
+
+std::wstring point_group_list_label(std::size_t index, const PointGroup& group) {
+    wchar_t buf[160];
+    const wchar_t* status = L"";
+    if (!group.visible) {
+        status = (g_str == &kEn) ? L" [hidden]" : L" [скрыта]";
+    } else if (static_cast<int>(index) == g.active_point_group) {
+        status = (g_str == &kEn) ? L" [active]" : L" [активна]";
+    }
+    if (g_str == &kEn) {
+        swprintf(buf, 160, L"Group %zu — %zu pts%s", index + 1, group.points.size(), status);
+    } else {
+        swprintf(buf, 160, L"Группа %zu — %zu тчк%s", index + 1, group.points.size(), status);
+    }
+    return buf;
+}
+
+std::wstring measure_points_status_text() {
+    const std::size_t total_points = total_measure_point_count();
+    if (!total_points) return L"";
+    std::size_t visible_groups = 0;
+    for (const auto& group : g.point_groups) {
+        if (group.visible && !group.points.empty()) ++visible_groups;
+    }
+    wchar_t buf[160];
+    if (g_str == &kEn) {
+        swprintf(buf, 160, L"   |   Points: %zu in %zu groups (%zu visible)",
+            total_points, g.point_groups.size(), visible_groups);
+    } else {
+        swprintf(buf, 160, L"   |   Точки: %zu в %zu группах (%zu видимых)",
+            total_points, g.point_groups.size(), visible_groups);
+    }
+    return buf;
+}
 
 void push_undo(const UndoAction& a) {
     g_undo.push_back(a);
@@ -639,9 +801,19 @@ void pop_undo() {
     g_undo.pop_back();
     switch (a.type) {
         case UndoAction::ADD_POINT:
-            if (!g.points.empty()) {
-                g_redo.push_back(a);
-                g.points.pop_back();
+            if (a.point_group_index >= 0 &&
+                a.point_group_index < static_cast<int>(g.point_groups.size())) {
+                auto& pts = g.point_groups[static_cast<std::size_t>(a.point_group_index)].points;
+                if (!pts.empty()) {
+                    g_redo.push_back(a);
+                    pts.pop_back();
+                    if (a.point_group_created && pts.empty()) {
+                        erase_point_group(static_cast<std::size_t>(a.point_group_index));
+                    } else {
+                        g.active_point_group = a.point_group_index;
+                    }
+                    if (PointGroup* group = active_point_group()) g.marker_color = group->color;
+                }
             }
             break;
         case UndoAction::ADD_LINE: {
@@ -666,7 +838,9 @@ void pop_undo() {
         }
         case UndoAction::CLEAR_POINTS:
             g_redo.push_back(a);
-            g.points = a.saved_points;
+            g.point_groups = a.saved_point_groups;
+            g.active_point_group = a.saved_active_point_group;
+            if (PointGroup* group = active_point_group()) g.marker_color = group->color;
             break;
         case UndoAction::CLEAR_LINES:
             g_redo.push_back(a);
@@ -678,6 +852,7 @@ void pop_undo() {
             break;
         default: break;
     }
+    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
 }
 void pop_redo() {
     if (g_redo.empty()) return;
@@ -685,8 +860,22 @@ void pop_redo() {
     g_redo.pop_back();
     switch (a.type) {
         case UndoAction::ADD_POINT:
-            g.points.push_back(a.point);
-            g_undo.push_back(a);
+            if (a.point_group_created) {
+                const std::size_t insert_at = (a.point_group_index >= 0 &&
+                                               a.point_group_index <= static_cast<int>(g.point_groups.size()))
+                    ? static_cast<std::size_t>(a.point_group_index)
+                    : g.point_groups.size();
+                PointGroup group = a.point_group_state;
+                group.points.clear();
+                g.point_groups.insert(g.point_groups.begin() + static_cast<std::ptrdiff_t>(insert_at), group);
+            }
+            if (a.point_group_index >= 0 &&
+                a.point_group_index < static_cast<int>(g.point_groups.size())) {
+                g.point_groups[static_cast<std::size_t>(a.point_group_index)].points.push_back(a.point);
+                g.active_point_group = a.point_group_index;
+                g.marker_color = g.point_groups[static_cast<std::size_t>(a.point_group_index)].color;
+                g_undo.push_back(a);
+            }
             break;
         case UndoAction::ADD_LINE:
             g.guides.push_back(a.line);
@@ -698,7 +887,7 @@ void pop_redo() {
             break;
         case UndoAction::CLEAR_POINTS:
             g_undo.push_back(a);
-            g.points.clear();
+            clear_measure_point_groups();
             break;
         case UndoAction::CLEAR_LINES:
             g_undo.push_back(a);
@@ -710,6 +899,7 @@ void pop_redo() {
             break;
         default: break;
     }
+    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
 }
 
 std::wstring to_w(const std::string& s) {
@@ -870,9 +1060,12 @@ void set_status() {
         swprintf(buf, 512, g_str->st_speed, g.play_speed);
         s += buf;
     }
-    if (g.points.size() >= 2) {
-        const auto& a = g.points[g.points.size() - 2];
-        const auto& b = g.points.back();
+    s += measure_points_status_text();
+    const PointGroup* active_group = active_point_group_readonly();
+    if (active_group && active_group->points.size() >= 2) {
+        const auto& pts = active_group->points;
+        const auto& a = pts[pts.size() - 2];
+        const auto& b = pts.back();
         const double dx = b.first - a.first, dy = b.second - a.second;
         if (g.freq_mode) {
             swprintf(buf, 512, g_str->msg_delta_f, dx, dy);
@@ -1629,7 +1822,7 @@ bool load_path(const std::wstring& wpath) {
     g.win_start = g.data_t0;
     g.win_end = g.data_t1;
     g.approx_dt = (g.data_t1 - g.data_t0) / static_cast<double>(g.ds.rows());
-    g.points.clear();
+    clear_measure_point_groups();
     g.guides.clear();
     g.markers.clear();
     g.active_marker = -1;
@@ -1649,6 +1842,7 @@ bool load_path(const std::wstring& wpath) {
     if (g.menu) CheckMenuItem(g.menu, IDC_AUTOY, MF_BYCOMMAND | MF_CHECKED);
 
     compute_spectrum_from_current_source();
+    if (g.settings_wnd) refresh_settings_controls();
     g.freq_start = 0.0;
     g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
 
@@ -2015,7 +2209,7 @@ void draw_markers(HDC dc) {
 // Draw measurement points / segments using the cached mapping. Which read-outs
 // appear is controlled by g.pdisp (the "Отображать у точек" settings menu).
 void draw_measure(HDC dc) {
-    if (g.points.empty() || !g.vvalid) return;
+    if (!has_measure_points() || !g.vvalid) return;
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
@@ -2029,84 +2223,87 @@ void draw_measure(HDC dc) {
     HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
     SelectClipRgn(dc, clip);
 
-    HPEN seg = CreatePen(PS_DASH, 1, g.marker_color);
-    HGDIOBJ old = SelectObject(dc, seg);
-    for (std::size_t i = 1; i < g.points.size(); ++i) {
-        MoveToEx(dc, mx(g.points[i - 1].first), my(g.points[i - 1].second), nullptr);
-        LineTo(dc, mx(g.points[i].first), my(g.points[i].second));
-    }
-    SelectObject(dc, old);
-    DeleteObject(seg);
-
-    HPEN pp = CreatePen(PS_SOLID, 2, g.marker_color);
-    old = SelectObject(dc, pp);
     HFONT mf = g.axis_font ? g.axis_font : g.ui_font;
     HGDIOBJ oldf = SelectObject(dc, mf);
     SetBkMode(dc, TRANSPARENT);
     wchar_t b[96];
     HBRUSH wb = CreateSolidBrush(g_theme->bg_plot);
     HPEN bp = CreatePen(PS_SOLID, 1, g_theme->frame);
-    HGDIOBJ prev_pen = SelectObject(dc, bp);
+    HGDIOBJ old = SelectObject(dc, bp);
     HGDIOBJ prev_brush = SelectObject(dc, wb);
-    for (std::size_t i = 0; i < g.points.size(); ++i) {
-        const int X = mx(g.points[i].first), Y = my(g.points[i].second);
-        MoveToEx(dc, X - 8, Y, nullptr); LineTo(dc, X + 9, Y);
-        MoveToEx(dc, X, Y - 8, nullptr); LineTo(dc, X, Y + 9);
+    for (const auto& group : g.point_groups) {
+        if (!group.visible || group.points.empty()) continue;
 
-        // Filled dot at the centre using the chosen marker colour.
-        HBRUSH dot_brush = CreateSolidBrush(g.marker_color);
-        HGDIOBJ old_br = SelectObject(dc, dot_brush);
-        HGDIOBJ old_pn = SelectObject(dc, GetStockObject(NULL_PEN));
-        Ellipse(dc, X - 3, Y - 3, X + 4, Y + 4);
-        SelectObject(dc, old_pn);
-        SelectObject(dc, old_br);
-        DeleteObject(dot_brush);
-
-        std::wstring lab;
-        if (g.pdisp.number) { swprintf(b, 96, L"#%zu ", i + 1); lab += b; }
-        if (g.pdisp.x) { swprintf(b, 96, g_str->fmt_pt_x, g.points[i].first); lab += b; lab += xunit; lab += L" "; }
-        if (g.pdisp.y) { swprintf(b, 96, g_str->fmt_y, g.points[i].second); lab += b; }
-        if (!lab.empty()) {
-            SetTextColor(dc, g.marker_color);
-            SetTextAlign(dc, TA_LEFT | TA_BOTTOM);
-            SIZE ts;
-            GetTextExtentPoint32W(dc, lab.c_str(), static_cast<int>(lab.size()), &ts);
-            RoundRect(dc, X + 6, Y - 4 - ts.cy, X + 12 + ts.cx, Y + 2, 3, 3);
-            TextOutW(dc, X + 8, Y - 2, lab.c_str(), static_cast<int>(lab.size()));
+        HPEN seg = CreatePen(PS_DASH, 1, group.color);
+        HGDIOBJ old_seg = SelectObject(dc, seg);
+        for (std::size_t i = 1; i < group.points.size(); ++i) {
+            MoveToEx(dc, mx(group.points[i - 1].first), my(group.points[i - 1].second), nullptr);
+            LineTo(dc, mx(group.points[i].first), my(group.points[i].second));
         }
+        SelectObject(dc, old_seg);
+        DeleteObject(seg);
 
-        if (i >= 1) {  // segment read-out at the midpoint
-            const double dx = g.points[i].first - g.points[i - 1].first;
-            const double dy = g.points[i].second - g.points[i - 1].second;
-            std::wstring dl;
-            if (g.pdisp.dx) { swprintf(b, 96, g_str->fmt_pt_dx, dx); dl += b; dl += xunit; dl += L" "; }
-            if (g.pdisp.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
-            if (g.pdisp.inv_dt && !g.freq_mode) {
-                const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
-                swprintf(b, 96, g_str->fmt_pt_invdt, inv); dl += b;
-            }
-            if (g.pdisp.dist) {
-                swprintf(b, 96, g_str->fmt_pt_dist, std::sqrt(dx * dx + dy * dy)); dl += b;
-            }
-            if (!dl.empty()) {
-                const int mxp = (mx(g.points[i].first) + mx(g.points[i - 1].first)) / 2;
-                const int myp = (my(g.points[i].second) + my(g.points[i - 1].second)) / 2;
-                SetTextColor(dc, g.marker_color);
-                SetTextAlign(dc, TA_CENTER | TA_BOTTOM);
+        HPEN pp = CreatePen(PS_SOLID, 2, group.color);
+        HGDIOBJ old_point_pen = SelectObject(dc, pp);
+        for (std::size_t i = 0; i < group.points.size(); ++i) {
+            const int X = mx(group.points[i].first), Y = my(group.points[i].second);
+            MoveToEx(dc, X - 8, Y, nullptr); LineTo(dc, X + 9, Y);
+            MoveToEx(dc, X, Y - 8, nullptr); LineTo(dc, X, Y + 9);
+
+            HBRUSH dot_brush = CreateSolidBrush(group.color);
+            HGDIOBJ old_br = SelectObject(dc, dot_brush);
+            HGDIOBJ old_pn = SelectObject(dc, GetStockObject(NULL_PEN));
+            Ellipse(dc, X - 3, Y - 3, X + 4, Y + 4);
+            SelectObject(dc, old_pn);
+            SelectObject(dc, old_br);
+            DeleteObject(dot_brush);
+
+            std::wstring lab;
+            if (g.pdisp.number) { swprintf(b, 96, L"#%zu ", i + 1); lab += b; }
+            if (g.pdisp.x) { swprintf(b, 96, g_str->fmt_pt_x, group.points[i].first); lab += b; lab += xunit; lab += L" "; }
+            if (g.pdisp.y) { swprintf(b, 96, g_str->fmt_y, group.points[i].second); lab += b; }
+            if (!lab.empty()) {
+                SetTextColor(dc, group.color);
+                SetTextAlign(dc, TA_LEFT | TA_BOTTOM);
                 SIZE ts;
-                GetTextExtentPoint32W(dc, dl.c_str(), static_cast<int>(dl.size()), &ts);
-                RoundRect(dc, mxp - ts.cx/2 - 4, myp - 4 - ts.cy, mxp + ts.cx/2 + 6, myp + 2, 3, 3);
-                TextOutW(dc, mxp, myp - 2, dl.c_str(), static_cast<int>(dl.size()));
+                GetTextExtentPoint32W(dc, lab.c_str(), static_cast<int>(lab.size()), &ts);
+                RoundRect(dc, X + 6, Y - 4 - ts.cy, X + 12 + ts.cx, Y + 2, 3, 3);
+                TextOutW(dc, X + 8, Y - 2, lab.c_str(), static_cast<int>(lab.size()));
+            }
+
+            if (i >= 1) {
+                const double dx = group.points[i].first - group.points[i - 1].first;
+                const double dy = group.points[i].second - group.points[i - 1].second;
+                std::wstring dl;
+                if (g.pdisp.dx) { swprintf(b, 96, g_str->fmt_pt_dx, dx); dl += b; dl += xunit; dl += L" "; }
+                if (g.pdisp.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
+                if (g.pdisp.inv_dt && !g.freq_mode) {
+                    const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
+                    swprintf(b, 96, g_str->fmt_pt_invdt, inv); dl += b;
+                }
+                if (g.pdisp.dist) {
+                    swprintf(b, 96, g_str->fmt_pt_dist, std::sqrt(dx * dx + dy * dy)); dl += b;
+                }
+                if (!dl.empty()) {
+                    const int mxp = (mx(group.points[i].first) + mx(group.points[i - 1].first)) / 2;
+                    const int myp = (my(group.points[i].second) + my(group.points[i - 1].second)) / 2;
+                    SetTextColor(dc, group.color);
+                    SetTextAlign(dc, TA_CENTER | TA_BOTTOM);
+                    SIZE ts;
+                    GetTextExtentPoint32W(dc, dl.c_str(), static_cast<int>(dl.size()), &ts);
+                    RoundRect(dc, mxp - ts.cx/2 - 4, myp - 4 - ts.cy, mxp + ts.cx/2 + 6, myp + 2, 3, 3);
+                    TextOutW(dc, mxp, myp - 2, dl.c_str(), static_cast<int>(dl.size()));
+                }
             }
         }
+        SelectObject(dc, old_point_pen);
+        DeleteObject(pp);
     }
-    SelectObject(dc, prev_pen);
+    SelectObject(dc, old);
     DeleteObject(bp);
     SelectObject(dc, prev_brush);
     DeleteObject(wb);
     SelectObject(dc, oldf);
-    SelectObject(dc, old);
-    DeleteObject(pp);
 
     SelectClipRgn(dc, nullptr);
     DeleteObject(clip);
@@ -2624,7 +2821,7 @@ void reset_channel_transform(std::size_t ci) {
 }
 
 void clear_transform_sensitive_overlays() {
-    g.points.clear();
+    clear_measure_point_groups();
     g.markers.clear();
     g.active_marker = -1;
     g.guides.erase(
@@ -4307,6 +4504,49 @@ bool apply_signal_transform_controls(HWND hwnd, bool reset_channel, bool reset_a
     return true;
 }
 
+int settings_selected_point_group(HWND hwnd) {
+    HWND list = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_LIST);
+    if (!list) return -1;
+    int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
+    if (sel == LB_ERR) return -1;
+    return static_cast<int>(SendMessageW(list, LB_GETITEMDATA, sel, 0));
+}
+
+void load_selected_point_group_controls(HWND hwnd) {
+    const int index = settings_selected_point_group(hwnd);
+    const bool valid = index >= 0 && index < static_cast<int>(g.point_groups.size());
+    HWND visible = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_VISIBLE);
+    HWND recolor = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_COLOR);
+    if (visible) {
+        SendMessageW(visible, BM_SETCHECK,
+            (valid && g.point_groups[static_cast<std::size_t>(index)].visible) ? BST_CHECKED : BST_UNCHECKED, 0);
+        EnableWindow(visible, valid);
+    }
+    if (recolor) EnableWindow(recolor, valid);
+    HWND current_color = GetDlgItem(hwnd, IDC_SET_POINT_COLOR_CURRENT);
+    if (current_color) SetWindowTextW(current_color, point_current_color_button_text());
+    if (recolor) SetWindowTextW(recolor, point_selected_group_color_button_text());
+    HWND create_new = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_NEW);
+    if (create_new) SetWindowTextW(create_new, point_group_new_button_text());
+}
+
+void populate_point_group_list(HWND hwnd) {
+    HWND list = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_LIST);
+    if (!list) return;
+    const int previous = settings_selected_point_group(hwnd);
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    normalize_active_point_group();
+    int selected_index = LB_ERR;
+    for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+        std::wstring label = point_group_list_label(i, g.point_groups[i]);
+        int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
+        SendMessageW(list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
+        if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+    }
+    if (selected_index != LB_ERR) SendMessageW(list, LB_SETCURSEL, selected_index, 0);
+    load_selected_point_group_controls(hwnd);
+}
+
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -4320,6 +4560,7 @@ void refresh_settings_controls() {
     SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_INVDT), BM_SETCHECK, g.pdisp.inv_dt ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DIST), BM_SETCHECK, g.pdisp.dist ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(GetDlgItem(g.settings_wnd, IDM_SNAP), BM_SETCHECK, g.snap_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
+    populate_point_group_list(g.settings_wnd);
     populate_hotkey_list(g.settings_wnd);
     load_selected_hotkey_controls(g.settings_wnd);
 }
@@ -4377,7 +4618,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", transform_reset_channel_text(), BS_OWNERDRAW, 388, 246, 110, 28, IDC_SET_TRANSFORM_RESET_CHANNEL);
             mk(L"BUTTON", transform_reset_all_text(), BS_OWNERDRAW, 252, 278, 246, 28, IDC_SET_TRANSFORM_RESET_ALL);
 
-            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_OWNERDRAW, 12, 310, 510, 238, IDC_SET_GROUP_POINTS);
+            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_OWNERDRAW, 12, 310, 510, 280, IDC_SET_GROUP_POINTS);
             struct Item { const wchar_t* text; int id; bool on; };
             const Item items[] = {
                 {g_str->pt_num,        IDM_PT_NUM,   g.pdisp.number},
@@ -4389,34 +4630,50 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 {g_str->pt_dist,       IDM_PT_DIST,  g.pdisp.dist},
                 {g_str->pt_snap,       IDM_SNAP,     g.snap_to_data},
             };
-            int y = 312;
+            int y = 334;
             for (const auto& it : items) {
                 HWND c = CreateWindowExW(0, L"BUTTON", it.text,
-                    WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y, 300, 22, hwnd,
+                    WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y, 228, 22, hwnd,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(it.id)), inst, nullptr);
                 SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
                 SendMessageW(c, BM_SETCHECK, it.on ? BST_CHECKED : BST_UNCHECKED, 0);
                 y += 26;
             }
-            y += 8;
-            HWND col = CreateWindowExW(0, L"BUTTON", g_str->dlg_color,
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 16, y, 180, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDS_COLOR)), inst, nullptr);
-            SendMessageW(col, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            HWND current_color = CreateWindowExW(0, L"BUTTON", point_current_color_button_text(),
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 16, 544, 210, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_COLOR_CURRENT)), inst, nullptr);
+            SendMessageW(current_color, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 558, 510, 188, IDC_SET_GROUP_HOTKEYS);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 582, 240, 150, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 590, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 590, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 590, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 622, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 642, 214, 260, IDC_SET_HOTKEY_KEY);
+            mk(L"STATIC", point_group_list_title(), SS_LEFT, 260, 334, 180, 20, 0);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 260, 358, 238, 112, IDC_SET_POINT_GROUP_LIST);
+            HWND group_visible = CreateWindowExW(0, L"BUTTON", point_group_visible_text(),
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 260, 478, 238, 22, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_VISIBLE)), inst, nullptr);
+            SendMessageW(group_visible, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            HWND group_color = CreateWindowExW(0, L"BUTTON", point_selected_group_color_button_text(),
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 260, 508, 238, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_COLOR)), inst, nullptr);
+            SendMessageW(group_color, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            HWND group_new = CreateWindowExW(0, L"BUTTON", point_group_new_button_text(),
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 260, 544, 238, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_NEW)), inst, nullptr);
+            SendMessageW(group_new, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            mk(L"STATIC", point_group_hint_text(), SS_LEFT, 260, 574, 238, 16, 0);
+
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 600, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 624, 240, 150, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 632, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 632, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 632, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 664, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 684, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 680, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 680, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 714, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 722, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 722, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 756, 100, 28, IDC_SET_HOTKEY_CLEAR);
             populate_transform_channel_list(hwnd);
             load_selected_transform_controls(hwnd);
+            populate_point_group_list(hwnd);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -4443,6 +4700,37 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDM_SNAP:     g.snap_to_data = checked(); break;
                 case IDC_SET_TRANSFORM_LIST:
                     if (HIWORD(wp) == LBN_SELCHANGE) load_selected_transform_controls(hwnd);
+                    return 0;
+                case IDC_SET_POINT_GROUP_LIST:
+                    if (HIWORD(wp) == LBN_SELCHANGE) {
+                        const int index = settings_selected_point_group(hwnd);
+                        if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                            g.active_point_group = index;
+                            g.marker_color = g.point_groups[static_cast<std::size_t>(index)].color;
+                            save_runtime_settings();
+                        }
+                        load_selected_point_group_controls(hwnd);
+                        set_status();
+                        InvalidateRect(g.main, nullptr, FALSE);
+                    }
+                    return 0;
+                case IDC_SET_POINT_GROUP_VISIBLE: {
+                    const int index = settings_selected_point_group(hwnd);
+                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        g.point_groups[static_cast<std::size_t>(index)].visible = checked();
+                        populate_point_group_list(hwnd);
+                        save_runtime_settings();
+                        set_status();
+                        InvalidateRect(g.main, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SET_POINT_GROUP_NEW:
+                    create_point_group(g.marker_color);
+                    populate_point_group_list(hwnd);
+                    save_runtime_settings();
+                    set_status();
+                    InvalidateRect(g.main, nullptr, FALSE);
                     return 0;
                 case IDC_SET_TRANSFORM_APPLY:
                     apply_signal_transform_controls(hwnd, false, false);
@@ -4492,7 +4780,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     InvalidateRect(g.main, nullptr, TRUE);
                     return 0;
                 }
-                case IDS_COLOR: {
+                case IDC_SET_POINT_COLOR_CURRENT: {
                     CHOOSECOLORW cc = {};
                     cc.lStructSize = sizeof(cc);
                     cc.hwndOwner = hwnd;
@@ -4501,9 +4789,32 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
                     if (ChooseColorW(&cc)) {
                         g.marker_color = cc.rgbResult;
+                        PointGroup* group = active_point_group();
+                        if (group && group->points.empty()) group->color = g.marker_color;
+                        populate_point_group_list(hwnd);
+                        InvalidateRect(g.main, nullptr, FALSE);
                         save_runtime_settings();
                     }
                     break;
+                }
+                case IDC_SET_POINT_GROUP_COLOR: {
+                    const int index = settings_selected_point_group(hwnd);
+                    if (index < 0 || index >= static_cast<int>(g.point_groups.size())) return 0;
+                    CHOOSECOLORW cc = {};
+                    cc.lStructSize = sizeof(cc);
+                    cc.hwndOwner = hwnd;
+                    cc.lpCustColors = g_custom_colors;
+                    cc.rgbResult = g.point_groups[static_cast<std::size_t>(index)].color;
+                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                    if (ChooseColorW(&cc)) {
+                        g.point_groups[static_cast<std::size_t>(index)].color = cc.rgbResult;
+                        g.active_point_group = index;
+                        g.marker_color = cc.rgbResult;
+                        populate_point_group_list(hwnd);
+                        InvalidateRect(g.main, nullptr, FALSE);
+                        save_runtime_settings();
+                    }
+                    return 0;
                 }
                 default: return 0;
             }
@@ -4588,7 +4899,7 @@ void open_settings() {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
         g.settings_wnd = CreateWindowExW(
             WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 800,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 850,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;
@@ -5179,10 +5490,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     set_status();
                     return 0;
                 case IDM_CLEAR_POINTS:
-                    if (!g.points.empty()) {
-                        UndoAction ua; ua.type = UndoAction::CLEAR_POINTS; ua.saved_points = g.points;
+                    if (has_measure_points()) {
+                        UndoAction ua;
+                        ua.type = UndoAction::CLEAR_POINTS;
+                        ua.saved_point_groups = g.point_groups;
+                        ua.saved_active_point_group = g.active_point_group;
                         push_undo(ua);
-                        g.points.clear(); InvalidateRect(hwnd, nullptr, FALSE);
+                        clear_measure_point_groups();
+                        if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+                        InvalidateRect(hwnd, nullptr, FALSE);
                     }
                     set_status();
                     return 0;
@@ -5428,10 +5744,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (g.measure_mode) {
                 double dx, dy;
                 if (px_to_data(mx, my, dx, dy)) {
+                    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                     if (g.snap_to_data) snap_to_nearest(dx, dy);
-                    g.points.push_back({dx, dy});
-                    UndoAction ua; ua.type = UndoAction::ADD_POINT; ua.point = {dx, dy};
+                    bool created_group = false;
+                    const int group_index = ensure_point_group_for_measurement(ctrl, &created_group);
+                    if (group_index < 0 || group_index >= static_cast<int>(g.point_groups.size())) return 0;
+                    g.point_groups[static_cast<std::size_t>(group_index)].points.push_back({dx, dy});
+                    UndoAction ua;
+                    ua.type = UndoAction::ADD_POINT;
+                    ua.point = {dx, dy};
+                    ua.point_group_index = group_index;
+                    ua.point_group_created = created_group;
+                    ua.point_group_state = g.point_groups[static_cast<std::size_t>(group_index)];
+                    ua.point_group_state.points.clear();
                     push_undo(ua);
+                    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
                 }
@@ -5477,10 +5804,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             }
-            if (!g.points.empty()) {
-                UndoAction ua; ua.type = UndoAction::CLEAR_POINTS; ua.saved_points = g.points;
+            if (has_measure_points()) {
+                UndoAction ua;
+                ua.type = UndoAction::CLEAR_POINTS;
+                ua.saved_point_groups = g.point_groups;
+                ua.saved_active_point_group = g.active_point_group;
                 push_undo(ua);
-                g.points.clear(); set_status(); InvalidateRect(hwnd, nullptr, FALSE);
+                clear_measure_point_groups();
+                if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+                set_status();
+                InvalidateRect(hwnd, nullptr, FALSE);
             }
             return 0;
         case WM_MOUSEMOVE: {

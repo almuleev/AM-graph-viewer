@@ -31,3 +31,9 @@ build_out.txt
 check_rel.json
 curl_err*.txt
 rel_*.json
+
+# Local app/runtime files
+LVM-graph-viewer-v*-win-x64.exe
+lvm_viewer.ini
+gcm-diagnose.log
+release_notes_*.md

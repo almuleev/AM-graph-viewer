@@ -1,6 +1,6 @@
 # LVM Graph Viewer — Project Context for AI Assistants
 
-> **Version:** v0.8.1 (latest)  
+> **Version:** v0.9.0 (latest)  
 > **Language:** C++17 (Win32 API)  
 > **Build system:** MSYS2/MinGW g++ (UCRT64)  
 > **Repository:** `https://github.com/almuleev/LVM-graph-viewer.git`  
@@ -43,7 +43,7 @@ LVM-graph-viewer/
 ├── Makefile               Build CLI + tests + GUI
 ├── build_gui.ps1          PowerShell script to build GUI (adds UCRT64 to PATH)
 ├── README.md / README_EN.md / README_RU.md
-├── banner.png             Banner image for README
+├── docs/assets/           GitHub banner and visual preview assets
 ├── lvm_files_for_tests/   Sample .lvm files
 ├── tests/                 Unit tests
 ├── .gitignore

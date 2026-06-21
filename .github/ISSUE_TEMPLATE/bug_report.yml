@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible problem in the viewer or CLI
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary / Кратко
+      description: What is broken?
+      placeholder: Describe the bug and the expected behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / Как повторить
+      description: Provide a minimal sequence that reproduces the issue.
+      placeholder: |
+        1. Open ...
+        2. Switch to ...
+        3. Click ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment / Окружение
+      placeholder: Windows version, release tag, compiler/build method if relevant
+  - type: textarea
+    id: notes
+    attributes:
+      label: Extra notes / Дополнительно
+      description: Screenshots, file samples, logs or anything else useful

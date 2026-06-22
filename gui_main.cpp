@@ -70,6 +70,7 @@ enum {
     IDC_GOTO_END,
     IDC_AUTOY,          // toolbar: auto-fit vertical scale (was lock_y)
     IDC_PTSETTINGS,     // toolbar: open the measurement-point settings panel
+    IDC_SIDEPANEL,      // toolbar: show / hide the docked side panel
     IDC_SHOW_ALL,
     IDC_HIDE_ALL,
 
@@ -124,6 +125,33 @@ enum {
     IDC_CHAN_LABEL_BASE = 3000,
     IDC_CHAN_EDIT = 4000,
 
+    IDC_SIDE_TAB_CHANNELS = 4200,
+    IDC_SIDE_TAB_POINTS,
+    IDC_SIDE_CHANNEL_COLOR,
+    IDC_SIDE_CHANNEL_HINT,
+    IDC_SIDE_GLOBAL_MUL,
+    IDC_SIDE_GLOBAL_ADD,
+    IDC_SIDE_CHANNEL_MUL,
+    IDC_SIDE_CHANNEL_ADD,
+    IDC_SIDE_TRANSFORM_APPLY,
+    IDC_SIDE_TRANSFORM_RESET_CHANNEL,
+    IDC_SIDE_POINT_GROUP_LIST,
+    IDC_SIDE_POINT_GROUP_VISIBLE,
+    IDC_SIDE_POINT_GROUP_NEW,
+    IDC_SIDE_POINT_GROUP_DELETE,
+    IDC_SIDE_POINT_GROUP_NAME,
+    IDC_SIDE_POINT_GROUP_RENAME,
+    IDC_SIDE_POINT_COLOR_CURRENT,
+    IDC_SIDE_POINT_GROUP_COLOR,
+    IDC_SIDE_PT_NUM,
+    IDC_SIDE_PT_X,
+    IDC_SIDE_PT_Y,
+    IDC_SIDE_PT_DX,
+    IDC_SIDE_PT_DY,
+    IDC_SIDE_PT_INVDT,
+    IDC_SIDE_PT_DIST,
+    IDC_SIDE_PT_SNAP,
+
     IDC_SET_LANG_RU = 5000,
     IDC_SET_LANG_EN,
     IDC_SET_HOTKEY_LIST,
@@ -164,7 +192,7 @@ enum {
 };
 
 const int kTopBar = 72;        // two-row compact toolbar
-const int kRightPanel = 180;
+const int kRightPanel = 312;
 const int kBottomBar = 28;     // status-bar strip at the very bottom
 const int kAxisBottom = 38;    // room under the plot for the X tick labels + title
 const int kAxisLeft = 70;
@@ -174,7 +202,11 @@ const COLORREF kPalette[] = {
     RGB(148, 103, 189), RGB(140, 86, 75), RGB(227, 119, 194), RGB(127, 127, 127),
     RGB(188, 189, 34), RGB(23, 190, 207),
 };
-COLORREF channel_color(std::size_t i) { return kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))]; }
+std::vector<COLORREF> g_channel_colors;
+COLORREF channel_color(std::size_t i) {
+    if (i < g_channel_colors.size()) return g_channel_colors[i];
+    return kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))];
+}
 
 struct Theme {
     COLORREF bg_main, bg_toolbar, bg_panel, bg_plot, bg_status;
@@ -503,6 +535,7 @@ struct GuideLine {
 };
 
 struct PointGroup {
+    std::wstring name;
     COLORREF color = RGB(0, 120, 215);
     bool visible = true;
     std::vector<std::pair<double, double>> points;
@@ -583,7 +616,7 @@ struct App {
     HWND mode_time = nullptr, mode_freq = nullptr;
     HWND play = nullptr, measure = nullptr, marker_btn = nullptr;
     HWND vline_btn = nullptr, hline_btn = nullptr;
-    HWND reset = nullptr, autoy = nullptr, ptsettings = nullptr;
+    HWND reset = nullptr, autoy = nullptr, ptsettings = nullptr, sidepanel_btn = nullptr;
     HWND show_all_btn = nullptr, hide_all_btn = nullptr;
     HWND status = nullptr;
     std::vector<HWND> checks;
@@ -597,6 +630,30 @@ struct App {
     COLORREF status_detail_color = RGB(0, 0, 0);
     std::wstring hover_status_text;  // shown in status bar when hovering toolbar buttons
     std::vector<int> toolbar_seps;
+
+    bool side_panel_visible = true;
+    int side_panel_tab = 0; // 0 = channels, 1 = points
+    int side_selected_channel = -1;
+    HWND side_tab_channels = nullptr;
+    HWND side_tab_points = nullptr;
+    HWND side_channel_hint = nullptr;
+    HWND side_global_mul = nullptr;
+    HWND side_global_add = nullptr;
+    HWND side_channel_mul = nullptr;
+    HWND side_channel_add = nullptr;
+    HWND side_transform_apply = nullptr;
+    HWND side_transform_reset_channel = nullptr;
+    HWND side_point_group_list = nullptr;
+    HWND side_point_group_visible = nullptr;
+    HWND side_point_group_new = nullptr;
+    HWND side_point_group_delete = nullptr;
+    HWND side_point_group_name = nullptr;
+    HWND side_point_group_rename = nullptr;
+    HWND side_point_color_current = nullptr;
+    HWND side_point_group_color = nullptr;
+    HWND side_point_label_groups = nullptr;
+    std::vector<HWND> side_channel_controls;
+    std::vector<HWND> side_point_controls;
 
     HWND settings_wnd = nullptr; // measurement-point settings panel (modeless)
     HWND welcome_wnd = nullptr;  // start screen
@@ -653,6 +710,14 @@ std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
 WNDPROC g_channel_edit_proc = nullptr;
 void populate_point_group_list(HWND hwnd);
+void populate_transform_channel_list(HWND hwnd);
+void refresh_side_panel_controls();
+void apply_side_panel_visibility();
+void set_side_panel_tab(int tab);
+int side_panel_width();
+void load_side_transform_controls();
+std::wstring format_edit_number(double value);
+COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
 
 const wchar_t* point_group_list_title() {
     return g_str == &kEn ? L"Point groups" : L"Группы точек";
@@ -678,6 +743,44 @@ const wchar_t* point_group_hint_text() {
     return g_str == &kEn
         ? L"Ctrl+click in point mode starts a new group with the current colour."
         : L"Ctrl+клик в режиме точек начинает новую группу с текущим цветом.";
+}
+
+const wchar_t* side_panel_button_text() {
+    return (g_str == &kEn) ? L"Panel" : L"Панель";
+}
+
+const wchar_t* side_tab_channels_text() {
+    return (g_str == &kEn) ? L"Channels" : L"Каналы";
+}
+
+const wchar_t* side_tab_points_text() {
+    return (g_str == &kEn) ? L"Points" : L"Точки";
+}
+
+const wchar_t* side_channel_color_button_text() {
+    return (g_str == &kEn) ? L"Channel colour…" : L"Цвет канала…";
+}
+
+const wchar_t* side_channel_hint_text() {
+    return (g_str == &kEn)
+        ? L"Click a channel name to rename it. Click the colour square to recolour it."
+        : L"Клик по имени канала переименовывает его. Клик по цветному квадрату меняет цвет.";
+}
+
+const wchar_t* side_transform_apply_text() {
+    return (g_str == &kEn) ? L"Apply coeffs" : L"Применить коэф.";
+}
+
+const wchar_t* side_transform_reset_channel_text() {
+    return (g_str == &kEn) ? L"Reset channel" : L"Сбросить канал";
+}
+
+const wchar_t* side_point_group_delete_text() {
+    return (g_str == &kEn) ? L"Delete group" : L"Удалить группу";
+}
+
+const wchar_t* side_point_group_rename_text() {
+    return (g_str == &kEn) ? L"Rename" : L"Переименовать";
 }
 
 void normalize_active_point_group() {
@@ -735,6 +838,9 @@ void erase_point_group(std::size_t index) {
 
 int create_point_group(COLORREF color) {
     PointGroup group;
+    const std::size_t index = g.point_groups.size();
+    if (g_str == &kEn) group.name = L"Group " + std::to_wstring(index + 1);
+    else group.name = L"Группа " + std::to_wstring(index + 1);
     group.color = color;
     group.visible = true;
     g.point_groups.push_back(group);
@@ -767,6 +873,9 @@ int ensure_point_group_for_measurement(bool force_new_group, bool* created_group
 
 std::wstring point_group_list_label(std::size_t index, const PointGroup& group) {
     wchar_t buf[160];
+    const std::wstring base_name = group.name.empty()
+        ? ((g_str == &kEn) ? (L"Group " + std::to_wstring(index + 1)) : (L"Группа " + std::to_wstring(index + 1)))
+        : group.name;
     const wchar_t* status = L"";
     if (!group.visible) {
         status = (g_str == &kEn) ? L" [hidden]" : L" [скрыта]";
@@ -774,9 +883,9 @@ std::wstring point_group_list_label(std::size_t index, const PointGroup& group) 
         status = (g_str == &kEn) ? L" [active]" : L" [активна]";
     }
     if (g_str == &kEn) {
-        swprintf(buf, 160, L"Group %zu — %zu pts%s", index + 1, group.points.size(), status);
+        swprintf(buf, 160, L"%ls — %zu pts%s", base_name.c_str(), group.points.size(), status);
     } else {
-        swprintf(buf, 160, L"Группа %zu — %zu тчк%s", index + 1, group.points.size(), status);
+        swprintf(buf, 160, L"%ls — %zu тчк%s", base_name.c_str(), group.points.size(), status);
     }
     return buf;
 }
@@ -861,6 +970,7 @@ void pop_undo() {
         default: break;
     }
     if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+    refresh_side_panel_controls();
 }
 void pop_redo() {
     if (g_redo.empty()) return;
@@ -908,6 +1018,7 @@ void pop_redo() {
         default: break;
     }
     if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+    refresh_side_panel_controls();
 }
 
 std::wstring to_w(const std::string& s) {
@@ -1172,6 +1283,9 @@ void finish_channel_rename(bool apply) {
     }
     g_channel_edit_proc = nullptr;
     g.editing_channel = -1;
+    if (g.settings_wnd) populate_transform_channel_list(g.settings_wnd);
+    set_status();
+    InvalidateRect(g.main, nullptr, FALSE);
 }
 
 LRESULT CALLBACK ChannelEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -1232,6 +1346,7 @@ void destroy_checks() {
 void rebuild_checks() {
     destroy_checks();
     if (!has_data()) return;
+    if (g.side_selected_channel < 0 || g.side_selected_channel >= static_cast<int>(g.ds.channel_count())) g.side_selected_channel = 0;
     HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
@@ -1257,20 +1372,142 @@ void hide_ui_controls() {
     for (HWND b : g.buttons) ShowWindow(b, SW_HIDE);
     for (HWND c : g.checks) ShowWindow(c, SW_HIDE);
     for (HWND c : g.check_labels) ShowWindow(c, SW_HIDE);
+    for (HWND c : g.side_channel_controls) ShowWindow(c, SW_HIDE);
+    for (HWND c : g.side_point_controls) ShowWindow(c, SW_HIDE);
     if (g.channel_edit) ShowWindow(g.channel_edit, SW_HIDE);
     if (g.status) ShowWindow(g.status, SW_HIDE);
 }
 
 void show_ui_controls() {
     for (HWND b : g.buttons) ShowWindow(b, SW_SHOW);
-    for (HWND c : g.checks) ShowWindow(c, SW_SHOW);
-    for (HWND c : g.check_labels) ShowWindow(c, SW_SHOW);
-    if (g.channel_edit) ShowWindow(g.channel_edit, SW_SHOW);
+    apply_side_panel_visibility();
+    if (g.channel_edit && g.side_panel_visible && g.side_panel_tab == 0) ShowWindow(g.channel_edit, SW_SHOW);
     if (g.status) ShowWindow(g.status, SW_SHOW);
 }
 
 bool welcome_visible() {
     return g.welcome_wnd && IsWindow(g.welcome_wnd) && IsWindowVisible(g.welcome_wnd);
+}
+
+int side_panel_width() {
+    return (!welcome_visible() && g.side_panel_visible) ? kRightPanel : 0;
+}
+
+int side_selected_point_group() {
+    if (!g.side_point_group_list) return -1;
+    int sel = static_cast<int>(SendMessageW(g.side_point_group_list, LB_GETCURSEL, 0, 0));
+    if (sel == LB_ERR) return -1;
+    return static_cast<int>(SendMessageW(g.side_point_group_list, LB_GETITEMDATA, sel, 0));
+}
+
+void load_side_transform_controls() {
+    ensure_channel_transform_vectors();
+    if (g.side_global_mul) SetWindowTextW(g.side_global_mul, format_edit_number(g.global_value_mul).c_str());
+    if (g.side_global_add) SetWindowTextW(g.side_global_add, format_edit_number(g.global_value_add).c_str());
+
+    const int ci = g.side_selected_channel;
+    const bool valid = ci >= 0 && ci < static_cast<int>(g.channel_value_mul.size());
+    if (g.side_channel_mul) {
+        SetWindowTextW(g.side_channel_mul, valid ? format_edit_number(g.channel_value_mul[static_cast<std::size_t>(ci)]).c_str() : L"1");
+        EnableWindow(g.side_channel_mul, valid);
+    }
+    if (g.side_channel_add) {
+        SetWindowTextW(g.side_channel_add, valid ? format_edit_number(g.channel_value_add[static_cast<std::size_t>(ci)]).c_str() : L"0");
+        EnableWindow(g.side_channel_add, valid);
+    }
+    if (g.side_transform_reset_channel) EnableWindow(g.side_transform_reset_channel, valid);
+}
+
+void load_side_point_group_controls() {
+    const int index = side_selected_point_group();
+    const bool valid = index >= 0 && index < static_cast<int>(g.point_groups.size());
+    if (g.side_point_group_visible) {
+        SendMessageW(g.side_point_group_visible, BM_SETCHECK,
+            (valid && g.point_groups[static_cast<std::size_t>(index)].visible) ? BST_CHECKED : BST_UNCHECKED, 0);
+        EnableWindow(g.side_point_group_visible, valid);
+    }
+    if (g.side_point_group_color) EnableWindow(g.side_point_group_color, valid);
+    if (g.side_point_group_delete) EnableWindow(g.side_point_group_delete, valid);
+    if (g.side_point_group_name) {
+        SetWindowTextW(g.side_point_group_name,
+            valid ? g.point_groups[static_cast<std::size_t>(index)].name.c_str() : L"");
+        EnableWindow(g.side_point_group_name, valid);
+    }
+    if (g.side_point_group_rename) EnableWindow(g.side_point_group_rename, valid);
+}
+
+void populate_side_point_group_list() {
+    if (!g.side_point_group_list) return;
+    const int previous = side_selected_point_group();
+    SendMessageW(g.side_point_group_list, LB_RESETCONTENT, 0, 0);
+    normalize_active_point_group();
+    int selected_index = LB_ERR;
+    for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+        std::wstring label = point_group_list_label(i, g.point_groups[i]);
+        int idx = static_cast<int>(SendMessageW(g.side_point_group_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
+        SendMessageW(g.side_point_group_list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
+        if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+    }
+    if (selected_index != LB_ERR) SendMessageW(g.side_point_group_list, LB_SETCURSEL, selected_index, 0);
+    load_side_point_group_controls();
+}
+
+void set_side_panel_tab(int tab) {
+    g.side_panel_tab = (tab == 1) ? 1 : 0;
+    const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
+    if (g.show_all_btn) ShowWindow(g.show_all_btn, show_channels ? SW_SHOW : SW_HIDE);
+    if (g.hide_all_btn) ShowWindow(g.hide_all_btn, show_channels ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.side_channel_controls) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.side_point_controls) if (h) ShowWindow(h, show_points ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.checks) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.check_labels) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
+    if (!show_channels && g.channel_edit) ShowWindow(g.channel_edit, SW_HIDE);
+    if (g.side_tab_channels) InvalidateRect(g.side_tab_channels, nullptr, FALSE);
+    if (g.side_tab_points) InvalidateRect(g.side_tab_points, nullptr, FALSE);
+}
+
+void apply_side_panel_visibility() {
+    const bool show = g.side_panel_visible && !welcome_visible();
+    if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_points) ShowWindow(g.side_tab_points, show ? SW_SHOW : SW_HIDE);
+    set_side_panel_tab(g.side_panel_tab);
+}
+
+void refresh_side_panel_controls() {
+    if (g.sidepanel_btn) SetWindowTextW(g.sidepanel_btn, side_panel_button_text());
+    if (g.side_tab_channels) SetWindowTextW(g.side_tab_channels, side_tab_channels_text());
+    if (g.side_tab_points) SetWindowTextW(g.side_tab_points, side_tab_points_text());
+    if (g.side_channel_hint) SetWindowTextW(g.side_channel_hint, side_channel_hint_text());
+    if (g.side_point_group_visible) SetWindowTextW(g.side_point_group_visible, point_group_visible_text());
+    if (g.side_point_group_new) SetWindowTextW(g.side_point_group_new, point_group_new_button_text());
+    if (g.side_point_group_delete) SetWindowTextW(g.side_point_group_delete, side_point_group_delete_text());
+    if (g.side_point_group_rename) SetWindowTextW(g.side_point_group_rename, side_point_group_rename_text());
+    if (g.side_point_color_current) SetWindowTextW(g.side_point_color_current, point_current_color_button_text());
+    if (g.side_point_group_color) SetWindowTextW(g.side_point_group_color, point_selected_group_color_button_text());
+    if (g.side_point_label_groups) SetWindowTextW(g.side_point_label_groups, point_group_list_title());
+    if (g.side_transform_apply) SetWindowTextW(g.side_transform_apply, side_transform_apply_text());
+    if (g.side_transform_reset_channel) SetWindowTextW(g.side_transform_reset_channel, side_transform_reset_channel_text());
+
+    const struct ToggleMap { int id; bool value; const wchar_t* text; } point_toggles[] = {
+        {IDC_SIDE_PT_NUM, g.pdisp.number, g_str->pt_num},
+        {IDC_SIDE_PT_X, g.pdisp.x, g_str->pt_x},
+        {IDC_SIDE_PT_Y, g.pdisp.y, g_str->pt_y},
+        {IDC_SIDE_PT_DX, g.pdisp.dx, g_str->pt_dx},
+        {IDC_SIDE_PT_DY, g.pdisp.dy, g_str->pt_dy},
+        {IDC_SIDE_PT_INVDT, g.pdisp.inv_dt, g_str->pt_invdt},
+        {IDC_SIDE_PT_DIST, g.pdisp.dist, g_str->pt_dist},
+        {IDC_SIDE_PT_SNAP, g.snap_to_data, g_str->pt_snap},
+    };
+    for (const auto& item : point_toggles) {
+        HWND ctl = GetDlgItem(g.main, item.id);
+        if (!ctl) continue;
+        SetWindowTextW(ctl, item.text);
+        SendMessageW(ctl, BM_SETCHECK, item.value ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    load_side_transform_controls();
+    populate_side_point_group_list();
+    apply_side_panel_visibility();
 }
 
 void redraw_button(HWND btn);
@@ -1305,16 +1542,23 @@ void layout() {
     place(g.hline_btn, 92, 40);
     sep();
     place(g.ptsettings, 110, 40);
+    place(g.sidepanel_btn, 86, 40);
 
-    const int panel_x = cw - kRightPanel + 12;
-    MoveWindow(g.show_all_btn, panel_x, kTopBar + 28, 66, 24, TRUE);
-    MoveWindow(g.hide_all_btn, panel_x + 72, kTopBar + 28, 82, 24, TRUE);
+    const int panel_w = side_panel_width();
+    const int panel_left = cw - panel_w;
+    const int panel_x = panel_left + 12;
 
-    int y = kTopBar + 58;
+    MoveWindow(g.show_all_btn, panel_x, kTopBar + 42, 86, 28, TRUE);
+    MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, TRUE);
+    if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, 132, 28, TRUE);
+    if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + 136, kTopBar + 8, 132, 28, TRUE);
+    if (g.side_channel_hint) MoveWindow(g.side_channel_hint, panel_x, kTopBar + 76, panel_w - 24, 36, TRUE);
+
+    int y = kTopBar + 118;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
         MoveWindow(g.checks[i], panel_x, y + 2, 18, 20, TRUE);
         if (i < g.check_labels.size()) {
-            MoveWindow(g.check_labels[i], panel_x + 22, y, kRightPanel - 24 - 22, 24, TRUE);
+            MoveWindow(g.check_labels[i], panel_x + 24, y, max(60, panel_w - 24 - 32), 24, TRUE);
         }
         y += 26;
     }
@@ -1325,7 +1569,65 @@ void layout() {
         MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
     }
 
+    if (g.side_channel_controls.size() >= 11) {
+        int cy = max(y + 8, kTopBar + 136);
+        const int label_w = 126;
+        const int edit_w = max(70, panel_w - 24 - label_w);
+        MoveWindow(g.side_channel_controls[1], panel_x, cy, label_w, 20, TRUE);
+        MoveWindow(g.side_global_mul, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
+        cy += 28;
+        MoveWindow(g.side_channel_controls[3], panel_x, cy, label_w, 20, TRUE);
+        MoveWindow(g.side_global_add, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
+        cy += 28;
+        MoveWindow(g.side_channel_controls[5], panel_x, cy, label_w, 20, TRUE);
+        MoveWindow(g.side_channel_mul, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
+        cy += 28;
+        MoveWindow(g.side_channel_controls[7], panel_x, cy, label_w, 20, TRUE);
+        MoveWindow(g.side_channel_add, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
+        cy += 34;
+        MoveWindow(g.side_transform_apply, panel_x, cy, (panel_w - 30) / 2, 28, TRUE);
+        MoveWindow(g.side_transform_reset_channel, panel_x + (panel_w - 30) / 2 + 6, cy, (panel_w - 30) / 2, 28, TRUE);
+    }
+
+    const int points_left = panel_x;
+    const int col_gap = 6;
+    const int checkbox_col_w = max(110, (panel_w - 24 - col_gap) / 2);
+    const int checkbox_col2_x = points_left + checkbox_col_w + col_gap;
+    int py = kTopBar + 48;
+    auto place_side = [&](int id, int x0, int y0, int w, int h) {
+        HWND ctl = GetDlgItem(g.main, id);
+        if (ctl) MoveWindow(ctl, x0, y0, w, h, TRUE);
+    };
+    place_side(IDC_SIDE_PT_NUM, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_X, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_Y, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_DX, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_DY, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_INVDT, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_DIST, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_SNAP, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 30;
+    place_side(IDC_SIDE_POINT_COLOR_CURRENT, points_left, py, panel_w - 24, 28);
+    py += 38;
+    if (g.side_point_label_groups) MoveWindow(g.side_point_label_groups, points_left, py, panel_w - 24, 20, TRUE);
+    py += 24;
+    if (g.side_point_group_list) MoveWindow(g.side_point_group_list, points_left, py, panel_w - 24, 122, TRUE);
+    py += 130;
+    if (g.side_point_group_visible) MoveWindow(g.side_point_group_visible, points_left, py, panel_w - 24, 22, TRUE);
+    py += 30;
+    if (g.side_point_group_color) MoveWindow(g.side_point_group_color, points_left, py, panel_w - 24, 28, TRUE);
+    py += 36;
+    if (g.side_point_group_name) MoveWindow(g.side_point_group_name, points_left, py, panel_w - 114, 24, TRUE);
+    if (g.side_point_group_rename) MoveWindow(g.side_point_group_rename, points_left + panel_w - 108, py - 2, 96, 28, TRUE);
+    py += 34;
+    if (g.side_point_group_new) MoveWindow(g.side_point_group_new, points_left, py, (panel_w - 30) / 2, 28, TRUE);
+    if (g.side_point_group_delete) MoveWindow(g.side_point_group_delete, points_left + (panel_w - 30) / 2 + 6, py, (panel_w - 30) / 2, 28, TRUE);
+
     MoveWindow(g.status, 8, ch - kBottomBar + 4, cw - 16, 20, TRUE);
+    apply_side_panel_visibility();
 }
 
 RECT plot_rect() {
@@ -1334,7 +1636,7 @@ RECT plot_rect() {
     RECT p;
     p.left = kAxisLeft;
     p.top = kTopBar + 6;
-    p.right = rc.right - kRightPanel;
+    p.right = rc.right - side_panel_width();
     p.bottom = rc.bottom - kBottomBar - kAxisBottom;
     if (p.right < p.left + 20) p.right = p.left + 20;
     if (p.bottom < p.top + 20) p.bottom = p.top + 20;
@@ -1379,6 +1681,10 @@ void refresh_settings_controls();
 void compute_spectrum_from_current_source();
 void ensure_channel_transform_vectors();
 double transform_channel_value(std::size_t ci, double raw);
+void refresh_side_panel_controls();
+void apply_side_panel_visibility();
+void set_side_panel_tab(int tab);
+int side_panel_width();
 HMENU make_menu();
 std::wstring hotkey_text_for_command(int command);
 std::wstring format_edit_number(double value);
@@ -1924,6 +2230,10 @@ bool load_path(const std::wstring& wpath) {
     g.visible.assign(g.ds.channel_count(), 1);
     g.channel_labels.clear();
     for (const auto& n : g.ds.names) g.channel_labels.push_back(to_w(n));
+    g_channel_colors.clear();
+    g_channel_colors.reserve(g.ds.channel_count());
+    for (std::size_t i = 0; i < g.ds.channel_count(); ++i) g_channel_colors.push_back(kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))]);
+    g.side_selected_channel = g.ds.channel_count() > 0 ? 0 : -1;
     g.channel_value_mul.assign(g.ds.channel_count(), 1.0);
     g.channel_value_add.assign(g.ds.channel_count(), 0.0);
     g.data_t0 = g.ds.time.front();
@@ -1962,6 +2272,7 @@ bool load_path(const std::wstring& wpath) {
     if (g.welcome_wnd) { ShowWindow(g.welcome_wnd, SW_HIDE); show_ui_controls(); }
 
     rebuild_checks();
+    refresh_side_panel_controls();
     refresh_settings_controls();
     layout();
     set_status();
@@ -2942,17 +3253,22 @@ void on_paint(HDC hdc) {
     FillRect(mem, &topbar, tbb);
     DeleteObject(tbb);
 
-    // Right-side channels panel.
-    RECT panel = {cw - kRightPanel, kTopBar, cw, ch - kBottomBar};
-    HBRUSH pbg = CreateSolidBrush(g_theme->bg_panel);
-    FillRect(mem, &panel, pbg);
-    DeleteObject(pbg);
+    const int panel_w = side_panel_width();
+    const int panel_left = cw - panel_w;
+    if (panel_w > 0) {
+        RECT panel = {panel_left, kTopBar, cw, ch - kBottomBar};
+        HBRUSH pbg = CreateSolidBrush(g_theme->bg_panel);
+        FillRect(mem, &panel, pbg);
+        DeleteObject(pbg);
+    }
 
     // Hairline separators (under the toolbar, left of the panel, above status bar).
     HPEN sep = CreatePen(PS_SOLID, 1, g_theme->separator);
     HGDIOBJ oldpen = SelectObject(mem, sep);
     MoveToEx(mem, 0, kTopBar - 1, nullptr); LineTo(mem, cw, kTopBar - 1);
-    MoveToEx(mem, cw - kRightPanel, kTopBar, nullptr); LineTo(mem, cw - kRightPanel, ch - kBottomBar);
+    if (panel_w > 0) {
+        MoveToEx(mem, panel_left, kTopBar, nullptr); LineTo(mem, panel_left, ch - kBottomBar);
+    }
     MoveToEx(mem, 0, ch - kBottomBar, nullptr); LineTo(mem, cw, ch - kBottomBar);
     SelectObject(mem, oldpen);
     DeleteObject(sep);
@@ -2970,21 +3286,37 @@ void on_paint(HDC hdc) {
     SetTextColor(mem, g_theme->text_primary);
     SetTextAlign(mem, TA_LEFT | TA_TOP);
     SelectObject(mem, g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
-    TextOutW(mem, cw - kRightPanel + 12, kTopBar + 10, g_str->panel_channels, lstrlenW(g_str->panel_channels));
-
     // Draw colored channel indicators next to checkboxes
-    for (std::size_t i = 0; i < g.checks.size(); ++i) {
-        HWND c = g.checks[i];
-        if (!IsWindowVisible(c)) continue;
-        RECT cr;
-        GetWindowRect(c, &cr);
-        MapWindowPoints(nullptr, g.main, (LPPOINT)&cr, 2);
-        int sq_y = cr.top + (cr.bottom - cr.top - 10) / 2;
-        int sq_x = cr.left - 16;
-        HBRUSH sq = CreateSolidBrush(channel_color(i));
-        RECT sr = {sq_x, sq_y, sq_x + 10, sq_y + 10};
-        FillRect(mem, &sr, sq);
-        DeleteObject(sq);
+    if (panel_w > 0 && g.side_panel_tab == 0) {
+        for (std::size_t i = 0; i < g.checks.size(); ++i) {
+            HWND c = g.checks[i];
+            if (!IsWindowVisible(c)) continue;
+            RECT cr;
+            GetWindowRect(c, &cr);
+            MapWindowPoints(nullptr, g.main, (LPPOINT)&cr, 2);
+            if (static_cast<int>(i) == g.side_selected_channel && i < g.check_labels.size() && g.check_labels[i]) {
+                RECT lr;
+                GetWindowRect(g.check_labels[i], &lr);
+                MapWindowPoints(nullptr, g.main, reinterpret_cast<LPPOINT>(&lr), 2);
+                RECT hi = {cr.left - 22, lr.top - 2, lr.right + 4, lr.bottom + 2};
+                fill_rounded_rect(mem, hi,
+                    mix_color(g_theme->bg_panel, g_theme->accent, (g_theme == &kDarkTheme) ? 20 : 12),
+                    mix_color(g_theme->btn_border, g_theme->accent, (g_theme == &kDarkTheme) ? 52 : 44), 8);
+            }
+            int sq_y = cr.top + (cr.bottom - cr.top - 12) / 2;
+            int sq_x = cr.left - 18;
+            HBRUSH sq = CreateSolidBrush(channel_color(i));
+            RECT sr = {sq_x, sq_y, sq_x + 12, sq_y + 12};
+            FillRect(mem, &sr, sq);
+            DeleteObject(sq);
+            HPEN border = CreatePen(PS_SOLID, 1, g_theme->btn_border);
+            HGDIOBJ old_sq_pen = SelectObject(mem, border);
+            HGDIOBJ old_sq_brush = SelectObject(mem, GetStockObject(HOLLOW_BRUSH));
+            Rectangle(mem, sr.left, sr.top, sr.right, sr.bottom);
+            SelectObject(mem, old_sq_brush);
+            SelectObject(mem, old_sq_pen);
+            DeleteObject(border);
+        }
     }
 
     SelectObject(mem, g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
@@ -3488,6 +3820,9 @@ void load_runtime_settings() {
     g.visual_smooth = read_ini_int(L"ui", L"smoothing", g.visual_smooth ? 1 : 0) != 0;
     g.vertical_pan = read_ini_int(L"ui", L"vertical_pan", g.vertical_pan ? 1 : 0) != 0;
     g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
+    g.side_panel_visible = read_ini_int(L"ui", L"side_panel_visible", g.side_panel_visible ? 1 : 0) != 0;
+    g.side_panel_tab = read_ini_int(L"ui", L"side_panel_tab", g.side_panel_tab);
+    if (g.side_panel_tab != 1) g.side_panel_tab = 0;
     g.play_speed = read_ini_double(L"ui", L"play_speed", g.play_speed);
     if (!(g.play_speed > 0.0) || !std::isfinite(g.play_speed)) g.play_speed = 1.0;
 
@@ -3527,6 +3862,8 @@ void save_runtime_settings() {
     WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"side_panel_visible", g.side_panel_visible ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"side_panel_tab", g.side_panel_tab == 1 ? L"1" : L"0", g_config_path.c_str());
     write_ini_double(L"ui", L"play_speed", g.play_speed);
 
     WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
@@ -3832,6 +4169,7 @@ std::wstring toolbar_hover_text(HWND btn) {
     if (btn == g.reset) return g_str->hover_reset;
     if (btn == g.autoy) return g_str->hover_autoy;
     if (btn == g.ptsettings) return en ? L"Open general settings" : L"Открыть общие настройки";
+    if (btn == g.sidepanel_btn) return en ? L"Show or hide the right-side work panel" : L"Показать или скрыть рабочую панель справа";
     if (btn == g.mode_time) return en ? L"Switch to Time view" : L"Переключить в режим времени";
     if (btn == g.mode_freq) return en ? L"Switch to FFT spectrum" : L"Переключить в режим спектра БПФ";
     if (btn == g.marker_btn) return en ? L"Place a marker on the plot" : L"Поставить маркер на график";
@@ -4872,24 +5210,15 @@ void populate_point_group_list(HWND hwnd) {
     }
     if (selected_index != LB_ERR) SendMessageW(list, LB_SETCURSEL, selected_index, 0);
     load_selected_point_group_controls(hwnd);
+    refresh_side_panel_controls();
 }
 
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
-    populate_transform_channel_list(g.settings_wnd);
-    load_selected_transform_controls(g.settings_wnd);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_NUM), BM_SETCHECK, g.pdisp.number ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_X), BM_SETCHECK, g.pdisp.x ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_Y), BM_SETCHECK, g.pdisp.y ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DX), BM_SETCHECK, g.pdisp.dx ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DY), BM_SETCHECK, g.pdisp.dy ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_INVDT), BM_SETCHECK, g.pdisp.inv_dt ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_PT_DIST), BM_SETCHECK, g.pdisp.dist ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(GetDlgItem(g.settings_wnd, IDM_SNAP), BM_SETCHECK, g.snap_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
-    populate_point_group_list(g.settings_wnd);
     populate_hotkey_list(g.settings_wnd);
     load_selected_hotkey_controls(g.settings_wnd);
+    refresh_side_panel_controls();
 }
 
 void rebuild_menu_bar() {
@@ -4914,8 +5243,6 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             auto is_settings_group = [](int id) {
                 return id == IDC_SET_GROUP_GENERAL ||
-                       id == IDC_SET_GROUP_TRANSFORM ||
-                       id == IDC_SET_GROUP_POINTS ||
                        id == IDC_SET_GROUP_HOTKEYS;
             };
             auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int w, int h, int id) {
@@ -4930,77 +5257,17 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", g_str->lang_ru, BS_AUTORADIOBUTTON, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_AUTORADIOBUTTON, 144, 36, 110, 22, IDC_SET_LANG_EN);
 
-            mk(L"BUTTON", transform_group_title_text(), BS_OWNERDRAW, 12, 92, 510, 206, IDC_SET_GROUP_TRANSFORM);
-            mk(L"STATIC", transform_global_mul_text(), SS_LEFT, 24, 118, 148, 20, 0);
-            mk(L"EDIT", format_edit_number(g.global_value_mul).c_str(), WS_BORDER | ES_AUTOHSCROLL, 176, 114, 70, 24, IDC_SET_GLOBAL_MUL);
-            mk(L"STATIC", transform_global_add_text(), SS_LEFT, 258, 118, 150, 20, 0);
-            mk(L"EDIT", format_edit_number(g.global_value_add).c_str(), WS_BORDER | ES_AUTOHSCROLL, 410, 114, 88, 24, IDC_SET_GLOBAL_ADD);
-            mk(L"STATIC", transform_hint_text(), SS_LEFT, 24, 146, 474, 18, 0);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 172, 206, 108, IDC_SET_TRANSFORM_LIST);
-            mk(L"STATIC", transform_channel_mul_text(), SS_LEFT, 252, 176, 136, 20, 0);
-            mk(L"EDIT", L"1", WS_BORDER | ES_AUTOHSCROLL, 394, 172, 104, 24, IDC_SET_CHANNEL_MUL);
-            mk(L"STATIC", transform_channel_add_text(), SS_LEFT, 252, 210, 136, 20, 0);
-            mk(L"EDIT", L"0", WS_BORDER | ES_AUTOHSCROLL, 394, 206, 104, 24, IDC_SET_CHANNEL_ADD);
-            mk(L"BUTTON", transform_apply_text(), BS_OWNERDRAW, 252, 246, 110, 28, IDC_SET_TRANSFORM_APPLY);
-            mk(L"BUTTON", transform_reset_channel_text(), BS_OWNERDRAW, 388, 246, 110, 28, IDC_SET_TRANSFORM_RESET_CHANNEL);
-            mk(L"BUTTON", transform_reset_all_text(), BS_OWNERDRAW, 252, 278, 246, 28, IDC_SET_TRANSFORM_RESET_ALL);
-
-            mk(L"BUTTON", en ? L"Markers and points" : L"Маркеры и точки", BS_OWNERDRAW, 12, 310, 510, 280, IDC_SET_GROUP_POINTS);
-            struct Item { const wchar_t* text; int id; bool on; };
-            const Item items[] = {
-                {g_str->pt_num,        IDM_PT_NUM,   g.pdisp.number},
-                {g_str->pt_x,          IDM_PT_X,     g.pdisp.x},
-                {g_str->pt_y,          IDM_PT_Y,     g.pdisp.y},
-                {g_str->pt_dx,         IDM_PT_DX,    g.pdisp.dx},
-                {g_str->pt_dy,         IDM_PT_DY,    g.pdisp.dy},
-                {g_str->pt_invdt,      IDM_PT_INVDT, g.pdisp.inv_dt},
-                {g_str->pt_dist,       IDM_PT_DIST,  g.pdisp.dist},
-                {g_str->pt_snap,       IDM_SNAP,     g.snap_to_data},
-            };
-            int y = 334;
-            for (const auto& it : items) {
-                HWND c = CreateWindowExW(0, L"BUTTON", it.text,
-                    WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 16, y, 228, 22, hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(it.id)), inst, nullptr);
-                SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                SendMessageW(c, BM_SETCHECK, it.on ? BST_CHECKED : BST_UNCHECKED, 0);
-                y += 26;
-            }
-            HWND current_color = CreateWindowExW(0, L"BUTTON", point_current_color_button_text(),
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 16, 544, 210, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_COLOR_CURRENT)), inst, nullptr);
-            SendMessageW(current_color, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-
-            mk(L"STATIC", point_group_list_title(), SS_LEFT, 260, 334, 180, 20, 0);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 260, 358, 238, 112, IDC_SET_POINT_GROUP_LIST);
-            HWND group_visible = CreateWindowExW(0, L"BUTTON", point_group_visible_text(),
-                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 260, 478, 238, 22, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_VISIBLE)), inst, nullptr);
-            SendMessageW(group_visible, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            HWND group_color = CreateWindowExW(0, L"BUTTON", point_selected_group_color_button_text(),
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 260, 508, 238, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_COLOR)), inst, nullptr);
-            SendMessageW(group_color, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            HWND group_new = CreateWindowExW(0, L"BUTTON", point_group_new_button_text(),
-                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 260, 544, 238, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SET_POINT_GROUP_NEW)), inst, nullptr);
-            SendMessageW(group_new, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            mk(L"STATIC", point_group_hint_text(), SS_LEFT, 260, 574, 238, 16, 0);
-
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 600, 510, 188, IDC_SET_GROUP_HOTKEYS);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 624, 240, 150, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 632, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 632, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 632, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 664, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 684, 214, 260, IDC_SET_HOTKEY_KEY);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 96, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 120, 240, 150, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 128, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 128, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 128, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 160, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 180, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 722, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 722, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 756, 100, 28, IDC_SET_HOTKEY_CLEAR);
-            populate_transform_channel_list(hwnd);
-            load_selected_transform_controls(hwnd);
-            populate_point_group_list(hwnd);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 218, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 218, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 252, 100, 28, IDC_SET_HOTKEY_CLEAR);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -5017,57 +5284,6 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SET_LANG_EN:
                     if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); }
                     break;
-                case IDM_PT_NUM:   g.pdisp.number = checked(); break;
-                case IDM_PT_X:     g.pdisp.x = checked(); break;
-                case IDM_PT_Y:     g.pdisp.y = checked(); break;
-                case IDM_PT_DX:    g.pdisp.dx = checked(); break;
-                case IDM_PT_DY:    g.pdisp.dy = checked(); break;
-                case IDM_PT_INVDT: g.pdisp.inv_dt = checked(); break;
-                case IDM_PT_DIST:  g.pdisp.dist = checked(); break;
-                case IDM_SNAP:     g.snap_to_data = checked(); break;
-                case IDC_SET_TRANSFORM_LIST:
-                    if (HIWORD(wp) == LBN_SELCHANGE) load_selected_transform_controls(hwnd);
-                    return 0;
-                case IDC_SET_POINT_GROUP_LIST:
-                    if (HIWORD(wp) == LBN_SELCHANGE) {
-                        const int index = settings_selected_point_group(hwnd);
-                        if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
-                            g.active_point_group = index;
-                            g.marker_color = g.point_groups[static_cast<std::size_t>(index)].color;
-                            save_runtime_settings();
-                        }
-                        load_selected_point_group_controls(hwnd);
-                        set_status();
-                        InvalidateRect(g.main, nullptr, FALSE);
-                    }
-                    return 0;
-                case IDC_SET_POINT_GROUP_VISIBLE: {
-                    const int index = settings_selected_point_group(hwnd);
-                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
-                        g.point_groups[static_cast<std::size_t>(index)].visible = checked();
-                        populate_point_group_list(hwnd);
-                        save_runtime_settings();
-                        set_status();
-                        InvalidateRect(g.main, nullptr, FALSE);
-                    }
-                    return 0;
-                }
-                case IDC_SET_POINT_GROUP_NEW:
-                    create_point_group(g.marker_color);
-                    populate_point_group_list(hwnd);
-                    save_runtime_settings();
-                    set_status();
-                    InvalidateRect(g.main, nullptr, FALSE);
-                    return 0;
-                case IDC_SET_TRANSFORM_APPLY:
-                    apply_signal_transform_controls(hwnd, false, false);
-                    return 0;
-                case IDC_SET_TRANSFORM_RESET_CHANNEL:
-                    apply_signal_transform_controls(hwnd, true, false);
-                    return 0;
-                case IDC_SET_TRANSFORM_RESET_ALL:
-                    apply_signal_transform_controls(hwnd, false, true);
-                    return 0;
                 case IDC_SET_HOTKEY_LIST:
                     if (HIWORD(wp) == LBN_SELCHANGE) load_selected_hotkey_controls(hwnd);
                     return 0;
@@ -5107,47 +5323,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     InvalidateRect(g.main, nullptr, TRUE);
                     return 0;
                 }
-                case IDC_SET_POINT_COLOR_CURRENT: {
-                    CHOOSECOLORW cc = {};
-                    cc.lStructSize = sizeof(cc);
-                    cc.hwndOwner = hwnd;
-                    cc.lpCustColors = g_custom_colors;
-                    cc.rgbResult = g.marker_color;
-                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-                    if (ChooseColorW(&cc)) {
-                        g.marker_color = cc.rgbResult;
-                        PointGroup* group = active_point_group();
-                        if (group && group->points.empty()) group->color = g.marker_color;
-                        populate_point_group_list(hwnd);
-                        InvalidateRect(g.main, nullptr, FALSE);
-                        save_runtime_settings();
-                    }
-                    break;
-                }
-                case IDC_SET_POINT_GROUP_COLOR: {
-                    const int index = settings_selected_point_group(hwnd);
-                    if (index < 0 || index >= static_cast<int>(g.point_groups.size())) return 0;
-                    CHOOSECOLORW cc = {};
-                    cc.lStructSize = sizeof(cc);
-                    cc.hwndOwner = hwnd;
-                    cc.lpCustColors = g_custom_colors;
-                    cc.rgbResult = g.point_groups[static_cast<std::size_t>(index)].color;
-                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
-                    if (ChooseColorW(&cc)) {
-                        g.point_groups[static_cast<std::size_t>(index)].color = cc.rgbResult;
-                        g.active_point_group = index;
-                        g.marker_color = cc.rgbResult;
-                        populate_point_group_list(hwnd);
-                        InvalidateRect(g.main, nullptr, FALSE);
-                        save_runtime_settings();
-                    }
-                    return 0;
-                }
                 default: return 0;
-            }
-            if (id == IDM_PT_NUM || id == IDM_PT_X || id == IDM_PT_Y || id == IDM_PT_DX ||
-                id == IDM_PT_DY || id == IDM_PT_INVDT || id == IDM_PT_DIST || id == IDM_SNAP) {
-                save_runtime_settings();
             }
             InvalidateRect(g.main, nullptr, FALSE);
             return 0;
@@ -5170,8 +5346,6 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!dis->hwndItem) break;
             const int ctl_id = GetDlgCtrlID(dis->hwndItem);
             if (ctl_id == IDC_SET_GROUP_GENERAL ||
-                ctl_id == IDC_SET_GROUP_TRANSFORM ||
-                ctl_id == IDC_SET_GROUP_POINTS ||
                 ctl_id == IDC_SET_GROUP_HOTKEYS) {
                 wchar_t txt[128]{};
                 GetWindowTextW(dis->hwndItem, txt, 128);
@@ -5226,7 +5400,7 @@ void open_settings() {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
         g.settings_wnd = CreateWindowExW(
             WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 850,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 340,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;
@@ -5449,8 +5623,10 @@ void rebuild_ui() {
     SetWindowTextW(g.reset, g_str->btn_reset);
     SetWindowTextW(g.autoy, g_str->btn_autoy);
     SetWindowTextW(g.ptsettings, settings_button_text());
+    SetWindowTextW(g.sidepanel_btn, side_panel_button_text());
     SetWindowTextW(g.show_all_btn, channel_show_all_text());
     SetWindowTextW(g.hide_all_btn, channel_hide_all_text());
+    refresh_side_panel_controls();
     
     // Update welcome window if visible
     if (g.welcome_wnd && IsWindowVisible(g.welcome_wnd)) {
@@ -5536,8 +5712,64 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.reset = mk(g_str->btn_reset, IDC_RESET, 0);
             g.autoy = mk(g_str->btn_autoy, IDC_AUTOY, 0);
             g.ptsettings = mk(settings_button_text(), IDC_PTSETTINGS, 0);
+            g.sidepanel_btn = mk(side_panel_button_text(), IDC_SIDEPANEL, 0);
             g.show_all_btn = mk(channel_show_all_text(), IDC_SHOW_ALL, 0);
             g.hide_all_btn = mk(channel_hide_all_text(), IDC_HIDE_ALL, 0);
+
+            auto mk_panel_btn = [&](const wchar_t* text, int id, std::vector<HWND>& bucket) {
+                HWND b = mk(text, id, 0);
+                bucket.push_back(b);
+                return b;
+            };
+            auto mk_panel_ctl = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int id, std::vector<HWND>& bucket) {
+                HWND c = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | style,
+                                         0, 0, 10, 10, hwnd,
+                                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), inst, nullptr);
+                if (c) {
+                    SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                    bucket.push_back(c);
+                }
+                return c;
+            };
+
+            g.side_tab_channels = mk(side_tab_channels_text(), IDC_SIDE_TAB_CHANNELS, 0);
+            g.side_tab_points = mk(side_tab_points_text(), IDC_SIDE_TAB_POINTS, 0);
+            g.side_channel_hint = mk_panel_ctl(L"STATIC", side_channel_hint_text(),
+                                               SS_LEFT | SS_NOPREFIX, IDC_SIDE_CHANNEL_HINT, g.side_channel_controls);
+            mk_panel_ctl(L"STATIC", transform_global_mul_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_global_mul = mk_panel_ctl(L"EDIT", format_edit_number(g.global_value_mul).c_str(), WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_MUL, g.side_channel_controls);
+            mk_panel_ctl(L"STATIC", transform_global_add_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_global_add = mk_panel_ctl(L"EDIT", format_edit_number(g.global_value_add).c_str(), WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_ADD, g.side_channel_controls);
+            mk_panel_ctl(L"STATIC", transform_channel_mul_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_channel_mul = mk_panel_ctl(L"EDIT", L"1", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_CHANNEL_MUL, g.side_channel_controls);
+            mk_panel_ctl(L"STATIC", transform_channel_add_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_channel_add = mk_panel_ctl(L"EDIT", L"0", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_CHANNEL_ADD, g.side_channel_controls);
+            g.side_transform_apply = mk_panel_btn(side_transform_apply_text(), IDC_SIDE_TRANSFORM_APPLY, g.side_channel_controls);
+            g.side_transform_reset_channel = mk_panel_btn(side_transform_reset_channel_text(), IDC_SIDE_TRANSFORM_RESET_CHANNEL, g.side_channel_controls);
+
+            const struct PointToggleSeed { int id; const wchar_t* text; bool on; } point_toggle_seeds[] = {
+                {IDC_SIDE_PT_NUM, g_str->pt_num, g.pdisp.number},
+                {IDC_SIDE_PT_X, g_str->pt_x, g.pdisp.x},
+                {IDC_SIDE_PT_Y, g_str->pt_y, g.pdisp.y},
+                {IDC_SIDE_PT_DX, g_str->pt_dx, g.pdisp.dx},
+                {IDC_SIDE_PT_DY, g_str->pt_dy, g.pdisp.dy},
+                {IDC_SIDE_PT_INVDT, g_str->pt_invdt, g.pdisp.inv_dt},
+                {IDC_SIDE_PT_DIST, g_str->pt_dist, g.pdisp.dist},
+                {IDC_SIDE_PT_SNAP, g_str->pt_snap, g.snap_to_data},
+            };
+            for (const auto& seed : point_toggle_seeds) {
+                HWND c = mk_panel_ctl(L"BUTTON", seed.text, BS_AUTOCHECKBOX, seed.id, g.side_point_controls);
+                if (c) SendMessageW(c, BM_SETCHECK, seed.on ? BST_CHECKED : BST_UNCHECKED, 0);
+            }
+            g.side_point_color_current = mk_panel_btn(point_current_color_button_text(), IDC_SIDE_POINT_COLOR_CURRENT, g.side_point_controls);
+            g.side_point_label_groups = mk_panel_ctl(L"STATIC", point_group_list_title(), SS_LEFT, 0, g.side_point_controls);
+            g.side_point_group_list = mk_panel_ctl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, IDC_SIDE_POINT_GROUP_LIST, g.side_point_controls);
+            g.side_point_group_visible = mk_panel_ctl(L"BUTTON", point_group_visible_text(), BS_AUTOCHECKBOX, IDC_SIDE_POINT_GROUP_VISIBLE, g.side_point_controls);
+            g.side_point_group_color = mk_panel_btn(point_selected_group_color_button_text(), IDC_SIDE_POINT_GROUP_COLOR, g.side_point_controls);
+            g.side_point_group_new = mk_panel_btn(point_group_new_button_text(), IDC_SIDE_POINT_GROUP_NEW, g.side_point_controls);
+            g.side_point_group_delete = mk_panel_btn(side_point_group_delete_text(), IDC_SIDE_POINT_GROUP_DELETE, g.side_point_controls);
+            g.side_point_group_name = mk_panel_ctl(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_POINT_GROUP_NAME, g.side_point_controls);
+            g.side_point_group_rename = mk_panel_btn(side_point_group_rename_text(), IDC_SIDE_POINT_GROUP_RENAME, g.side_point_controls);
 
             g.status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                        0, 0, 10, 10, hwnd, nullptr, inst, nullptr);
@@ -5550,6 +5782,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetTimer(hwnd, 2, 50, nullptr);   // hover tracking timer
             update_theme_brushes();
             sync_menu();
+            refresh_side_panel_controls();
             set_status();
             return 0;
         }
@@ -5566,8 +5799,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_GETMINMAXINFO: {
             MINMAXINFO* m = reinterpret_cast<MINMAXINFO*>(lp);
-            m->ptMinTrackSize.x = 820;
-            m->ptMinTrackSize.y = 520;
+            m->ptMinTrackSize.x = 980;
+            m->ptMinTrackSize.y = 560;
             return 0;
         }
         case WM_ERASEBKGND:
@@ -5638,6 +5871,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 active = g.pending_line == 1;
             } else if (btn == g.hline_btn) {
                 active = g.pending_line == 2;
+            } else if (btn == g.sidepanel_btn) {
+                active = g.side_panel_visible;
+            } else if (btn == g.side_tab_channels) {
+                active = g.side_panel_tab == 0;
+            } else if (btn == g.side_tab_points) {
+                active = g.side_panel_tab == 1;
             }
             bool hover = (btn == g.hovered_btn);
             wchar_t txt[128];
@@ -5737,6 +5976,66 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
                 case IDC_PTSETTINGS: open_settings(); return 0;
+                case IDC_SIDEPANEL:
+                    g.side_panel_visible = !g.side_panel_visible;
+                    save_runtime_settings();
+                    layout();
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, TRUE);
+                    return 0;
+                case IDC_SIDE_TAB_CHANNELS:
+                    set_side_panel_tab(0);
+                    save_runtime_settings();
+                    layout();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                case IDC_SIDE_TAB_POINTS:
+                    set_side_panel_tab(1);
+                    save_runtime_settings();
+                    layout();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                case IDC_SIDE_TRANSFORM_APPLY: {
+                    double global_mul = g.global_value_mul;
+                    double global_add = g.global_value_add;
+                    if (!read_edit_double(hwnd, IDC_SIDE_GLOBAL_MUL, global_mul) ||
+                        !read_edit_double(hwnd, IDC_SIDE_GLOBAL_ADD, global_add)) {
+                        MessageBoxW(hwnd,
+                            g_str == &kEn ? L"Enter valid numbers for the global transform." : L"Введите корректные числа для общего преобразования.",
+                            settings_window_title(), MB_OK | MB_ICONWARNING);
+                        return 0;
+                    }
+                    g.global_value_mul = global_mul;
+                    g.global_value_add = global_add;
+                    ensure_channel_transform_vectors();
+                    if (g.side_selected_channel >= 0 && g.side_selected_channel < static_cast<int>(g.channel_value_mul.size())) {
+                        double channel_mul = 1.0;
+                        double channel_add = 0.0;
+                        if (!read_edit_double(hwnd, IDC_SIDE_CHANNEL_MUL, channel_mul) ||
+                            !read_edit_double(hwnd, IDC_SIDE_CHANNEL_ADD, channel_add)) {
+                            MessageBoxW(hwnd,
+                                g_str == &kEn ? L"Enter valid numbers for the selected channel." : L"Введите корректные числа для выбранного канала.",
+                                settings_window_title(), MB_OK | MB_ICONWARNING);
+                            return 0;
+                        }
+                        g.channel_value_mul[static_cast<std::size_t>(g.side_selected_channel)] = channel_mul;
+                        g.channel_value_add[static_cast<std::size_t>(g.side_selected_channel)] = channel_add;
+                    }
+                    save_runtime_settings();
+                    if (g.settings_wnd) refresh_settings_controls();
+                    load_side_transform_controls();
+                    on_signal_transform_changed();
+                    return 0;
+                }
+                case IDC_SIDE_TRANSFORM_RESET_CHANNEL:
+                    if (g.side_selected_channel >= 0) {
+                        reset_channel_transform(static_cast<std::size_t>(g.side_selected_channel));
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        load_side_transform_controls();
+                        on_signal_transform_changed();
+                    }
+                    return 0;
                 case IDC_AUTOY:
                     g.auto_y = !g.auto_y;
                     if (!g.auto_y) current_time_yrange(g.y_lock_min, g.y_lock_max);
@@ -5839,6 +6138,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         push_undo(ua);
                         clear_measure_point_groups();
                         if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+                        refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
                     set_status();
@@ -5904,16 +6204,150 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDM_ABOUT: show_about(); return 0;
                 case IDM_LANG_RU: g_str = &kRu; save_runtime_settings(); rebuild_ui(); return 0;
                 case IDM_LANG_EN: g_str = &kEn; save_runtime_settings(); rebuild_ui(); return 0;
+                case IDC_SIDE_POINT_GROUP_LIST:
+                    if (HIWORD(wp) == LBN_SELCHANGE) {
+                        const int index = side_selected_point_group();
+                        if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                            g.active_point_group = index;
+                            g.marker_color = g.point_groups[static_cast<std::size_t>(index)].color;
+                            save_runtime_settings();
+                            if (g.settings_wnd) refresh_settings_controls();
+                            load_side_point_group_controls();
+                            set_status();
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                        }
+                    }
+                    return 0;
+                case IDC_SIDE_POINT_GROUP_VISIBLE: {
+                    const int index = side_selected_point_group();
+                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        const bool checked = SendMessageW(g.side_point_group_visible, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                        g.point_groups[static_cast<std::size_t>(index)].visible = checked;
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        load_side_point_group_controls();
+                        set_status();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_POINT_GROUP_NEW:
+                    create_point_group(g.marker_color);
+                    save_runtime_settings();
+                    if (g.settings_wnd) refresh_settings_controls();
+                    refresh_side_panel_controls();
+                    set_status();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                case IDC_SIDE_POINT_GROUP_DELETE: {
+                    const int index = side_selected_point_group();
+                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        erase_point_group(static_cast<std::size_t>(index));
+                        if (PointGroup* group = active_point_group()) g.marker_color = group->color;
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_side_panel_controls();
+                        set_status();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_POINT_GROUP_RENAME: {
+                    const int index = side_selected_point_group();
+                    if (index >= 0 && index < static_cast<int>(g.point_groups.size()) && g.side_point_group_name) {
+                        wchar_t buf[256]{};
+                        GetWindowTextW(g.side_point_group_name, buf, 256);
+                        std::wstring name = buf;
+                        if (name.empty()) {
+                            name = (g_str == &kEn) ? (L"Group " + std::to_wstring(index + 1)) : (L"Группа " + std::to_wstring(index + 1));
+                        }
+                        g.point_groups[static_cast<std::size_t>(index)].name = name;
+                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_side_panel_controls();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_POINT_COLOR_CURRENT: {
+                    CHOOSECOLORW cc = {};
+                    cc.lStructSize = sizeof(cc);
+                    cc.hwndOwner = hwnd;
+                    cc.lpCustColors = g_custom_colors;
+                    cc.rgbResult = g.marker_color;
+                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                    if (ChooseColorW(&cc)) {
+                        g.marker_color = cc.rgbResult;
+                        PointGroup* group = active_point_group();
+                        if (group && group->points.empty()) group->color = g.marker_color;
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_side_panel_controls();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_POINT_GROUP_COLOR: {
+                    const int index = side_selected_point_group();
+                    if (index < 0 || index >= static_cast<int>(g.point_groups.size())) return 0;
+                    CHOOSECOLORW cc = {};
+                    cc.lStructSize = sizeof(cc);
+                    cc.hwndOwner = hwnd;
+                    cc.lpCustColors = g_custom_colors;
+                    cc.rgbResult = g.point_groups[static_cast<std::size_t>(index)].color;
+                    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                    if (ChooseColorW(&cc)) {
+                        g.point_groups[static_cast<std::size_t>(index)].color = cc.rgbResult;
+                        g.active_point_group = index;
+                        g.marker_color = cc.rgbResult;
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_side_panel_controls();
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_PT_NUM:
+                case IDC_SIDE_PT_X:
+                case IDC_SIDE_PT_Y:
+                case IDC_SIDE_PT_DX:
+                case IDC_SIDE_PT_DY:
+                case IDC_SIDE_PT_INVDT:
+                case IDC_SIDE_PT_DIST:
+                case IDC_SIDE_PT_SNAP: {
+                    auto checked = [&](int ctl_id) {
+                        return SendMessageW(GetDlgItem(hwnd, ctl_id), BM_GETCHECK, 0, 0) == BST_CHECKED;
+                    };
+                    g.pdisp.number = checked(IDC_SIDE_PT_NUM);
+                    g.pdisp.x = checked(IDC_SIDE_PT_X);
+                    g.pdisp.y = checked(IDC_SIDE_PT_Y);
+                    g.pdisp.dx = checked(IDC_SIDE_PT_DX);
+                    g.pdisp.dy = checked(IDC_SIDE_PT_DY);
+                    g.pdisp.inv_dt = checked(IDC_SIDE_PT_INVDT);
+                    g.pdisp.dist = checked(IDC_SIDE_PT_DIST);
+                    g.snap_to_data = checked(IDC_SIDE_PT_SNAP);
+                    save_runtime_settings();
+                    if (g.settings_wnd) refresh_settings_controls();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
                 default: break;
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
                 const int ci = id - IDC_CHAN_BASE;
+                g.side_selected_channel = ci;
                 g.visible[ci] = (SendMessageW(g.checks[ci], BM_GETCHECK, 0, 0) == BST_CHECKED);
+                load_side_transform_controls();
                 InvalidateRect(hwnd, nullptr, TRUE);
             } else if (id >= IDC_CHAN_LABEL_BASE &&
-                       id < IDC_CHAN_LABEL_BASE + static_cast<int>(g.channel_labels.size()) &&
-                       HIWORD(wp) == STN_CLICKED) {
-                start_channel_rename(id - IDC_CHAN_LABEL_BASE);
+                       id < IDC_CHAN_LABEL_BASE + static_cast<int>(g.channel_labels.size())) {
+                const int ci = id - IDC_CHAN_LABEL_BASE;
+                g.side_selected_channel = ci;
+                load_side_transform_controls();
+                if (HIWORD(wp) == STN_DBLCLK) {
+                    start_channel_rename(ci);
+                } else {
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                }
             }
             return 0;
         }
@@ -6015,6 +6449,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
             }
 
+            if (g.side_panel_visible && g.side_panel_tab == 0) {
+                for (std::size_t i = 0; i < g.checks.size(); ++i) {
+                    HWND c = g.checks[i];
+                    if (!c || !IsWindowVisible(c)) continue;
+                    RECT cr;
+                    GetWindowRect(c, &cr);
+                    MapWindowPoints(nullptr, g.main, reinterpret_cast<LPPOINT>(&cr), 2);
+                    RECT sr = {cr.left - 18, cr.top + (cr.bottom - cr.top - 12) / 2, cr.left - 6, cr.top + (cr.bottom - cr.top - 12) / 2 + 12};
+                    if (mx >= sr.left && mx < sr.right && my >= sr.top && my < sr.bottom) {
+                        CHOOSECOLORW cc = {};
+                        cc.lStructSize = sizeof(cc);
+                        cc.hwndOwner = hwnd;
+                        cc.lpCustColors = g_custom_colors;
+                        cc.rgbResult = channel_color(i);
+                        cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                        if (ChooseColorW(&cc)) {
+                            if (i >= g_channel_colors.size()) g_channel_colors.resize(g.ds.channel_count());
+                            g_channel_colors[i] = cc.rgbResult;
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                        }
+                        return 0;
+                    }
+                }
+            }
+
             if (mx < p.left || mx > p.right || my < p.top || my > p.bottom) return 0;
             const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             if (!g.freq_mode && shift && !g.pending_line && !g.pending_marker && !g.measure_mode) {
@@ -6100,6 +6559,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     ua.point_group_state.points.clear();
                     push_undo(ua);
                     if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+                    refresh_side_panel_controls();
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
                 }

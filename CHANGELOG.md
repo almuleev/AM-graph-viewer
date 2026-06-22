@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.0-rc1
+
+- Добавлена встроенная правая рабочая панель с вкладками для каналов и точек.
+- Added a docked right-side work panel with separate tabs for channels and points.
+- В панель каналов вынесены быстрые коэффициенты: общий множитель, общее слагаемое и коэффициенты выбранного канала.
+- The channel panel now exposes quick transform coefficients: global multiplier, global offset, and per-channel coefficients for the selected channel.
+- В панель точек добавлено переименование групп, а отдельное окно настроек очищено от дублирующих блоков каналов и точек.
+- Point groups can now be renamed from the panel, while the separate settings window has been reduced to non-duplicated general settings and hotkeys.
+
 ## v0.9.3
 
 - Исправлено поведение выделенного диапазона при приближении: индикация больше не пропадает, если текущий экран смещён относительно выделенного окна.

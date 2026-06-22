@@ -49,7 +49,7 @@
 
 | Основное рабочее окно | Группы точек в работе |
 |---|---|
-| ![Основное рабочее окно](docs/assets/ui-overview-dark.jpg) | ![Группы точек в работе](docs/assets/ui-measurement-groups-dark.jpg) |
+| ![Основное рабочее окно](docs/assets/ui-overview-dark.png) | ![Группы точек в работе](docs/assets/ui-measurement-groups-dark.png) |
 
 ## Превью данных
 

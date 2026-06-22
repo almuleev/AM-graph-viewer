@@ -49,7 +49,7 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 
 | Main workspace | Measurement groups in action |
 |---|---|
-| ![Main workspace](docs/assets/ui-overview-dark.jpg) | ![Measurement groups in action](docs/assets/ui-measurement-groups-dark.jpg) |
+| ![Main workspace](docs/assets/ui-overview-dark.png) | ![Measurement groups in action](docs/assets/ui-measurement-groups-dark.png) |
 
 ## Data Previews
 

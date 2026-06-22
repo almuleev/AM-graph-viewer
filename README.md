@@ -49,7 +49,7 @@ The project includes two front ends built on one shared parsing and analysis cor
 
 | Main workspace | Measurement groups in action |
 |---|---|
-| ![Main workspace](docs/assets/ui-overview-dark.jpg) | ![Measurement groups in action](docs/assets/ui-measurement-groups-dark.jpg) |
+| ![Main workspace](docs/assets/ui-overview-dark.png) | ![Measurement groups in action](docs/assets/ui-measurement-groups-dark.png) |
 
 ## Data Previews
 

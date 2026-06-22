@@ -2,34 +2,38 @@
 chcp 1251 >nul
 setlocal
 cd /d "%~dp0"
-title LVM Reader
+title LVM Graph Viewer CLI
+
+echo This is the command-line analyzer.
+echo For the graphical viewer, launch "Start GUI.bat" or "LVM-graph-viewer-win-x64.exe".
+echo.
 
 set "EXE=%~dp0lvm_reader.exe"
 
 if not exist "%EXE%" (
-  echo [!] lvm_reader.exe не найден в этой папке.
-  echo     Сначала соберите программу ^(см. README.md^):
+  echo [!] CLI version of LVM Graph Viewer is not found in this folder.
+  echo     Build the CLI first (see README.md):
   echo     g++ -std=c++17 -O2 -static -o lvm_reader.exe main.cpp lvm_parser.cpp fft.cpp analysis.cpp
   echo.
   pause
   exit /b 1
 )
 
-rem Файл можно перетащить на этот .bat (придёт как %1) либо ввести вручную.
+rem Drag a .lvm or .txt file onto this .bat (arrives as %%1) or enter a path.
 set "FILE=%~1"
 if "%FILE%"=="" (
-  echo Перетащите .lvm / .txt файл на run.bat,
-  echo либо введите путь к файлу и нажмите Enter:
+  echo Drag a .lvm / .txt file onto run.bat for CLI analysis,
+  echo or type a path and press Enter:
   echo.
-  set /p "FILE=Файл: "
+  set /p "FILE=File: "
 )
 
-rem Убрать кавычки, если путь вставлен в кавычках.
+rem Remove quotes if the path was pasted with them.
 set "FILE=%FILE:"=%"
 
 if "%FILE%"=="" (
   echo.
-  echo [!] Файл не указан.
+  echo [!] File not specified.
   echo.
   pause
   exit /b 1
@@ -37,7 +41,7 @@ if "%FILE%"=="" (
 
 if not exist "%FILE%" (
   echo.
-  echo [!] Файл не найден: %FILE%
+  echo [!] File not found: %FILE%
   echo.
   pause
   exit /b 1
@@ -45,14 +49,15 @@ if not exist "%FILE%" (
 
 echo.
 echo ============================================================
-echo  Анализ файла: %FILE%
+echo  Analyzing file: %FILE%
 echo ============================================================
 echo.
 "%EXE%" "%FILE%" --info --stats --fft
 echo.
 echo ------------------------------------------------------------
-echo  Готово. Все опции: запустите  lvm_reader.exe --help
-echo  (экспорт в CSV: добавьте  --csv result.csv)
+echo  Done. All CLI options: run lvm_reader.exe --help
+echo  CSV export: add --csv result.csv
+echo  Graphical mode: Start GUI.bat
 echo ------------------------------------------------------------
 echo.
 pause

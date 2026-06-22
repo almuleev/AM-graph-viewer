@@ -31,6 +31,7 @@
 The project includes two front ends built on one shared parsing and analysis core:
 
 - `LVM-graph-viewer-<version>-win-x64.exe` - native desktop viewer for interactive work
+- `Start GUI.bat` - obvious double-click launcher for the GUI in a release folder
 - `lvm_reader.exe` - CLI utility for inspection, FFT and export scenarios
 
 ## What It Does Well
@@ -68,8 +69,12 @@ The graph previews below were generated from the bundled sample dataset in [`lvm
 ### For end users
 
 1. Open the [latest release](https://github.com/almuleev/LVM-graph-viewer/releases/latest).
-2. Download `LVM-graph-viewer-<version>-win-x64.exe`.
-3. Launch the executable and open your `.lvm` or `.txt` file.
+2. Download the release archive.
+3. Double-click `Start GUI.bat` or `LVM-graph-viewer-win-x64.exe`.
+4. Use `run.bat` only if you want the command-line analyzer.
+
+The GUI is the main entry point for first-time users. The CLI helper is useful
+for scripted inspection, FFT and CSV export.
 
 ### Build the GUI
 
@@ -98,6 +103,9 @@ make test
 | `lvm_parser.cpp/.hpp` | LabVIEW file parser |
 | `analysis.cpp/.hpp` | Spectrum helpers and analysis |
 | `fft.cpp/.hpp` | FFT implementation |
+| `Start GUI.bat` | Main double-click launcher for the GUI |
+| `run.bat` | CLI helper launcher |
+| `package_release.ps1` | Builds a release folder and optional zip archive |
 | `tests/run_tests.cpp` | Regression tests |
 | `lvm_files_for_tests/` | Bundled sample input files |
 | `docs/assets/` | GitHub visuals and preview images |

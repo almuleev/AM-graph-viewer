@@ -11,6 +11,9 @@ and coding agents working on this repository.
   - `lvm_reader.exe`: CLI tool for inspection, stats, FFT, selection, and CSV
     export.
   - `LVM-graph-viewer-win-x64.exe`: native Win32 GUI viewer.
+- `Start GUI.bat`: obvious double-click launcher for the GUI in a release
+  folder.
+- `run.bat`: CLI helper that launches `lvm_reader.exe`.
 
 ## Core Pipeline
 
@@ -59,6 +62,7 @@ and coding agents working on this repository.
 ## Notes For Future Changes
 
 - `run.bat` depends on `lvm_reader.exe`.
+- `Start GUI.bat` should stay the most obvious entry point for first-time users.
 - Build artifacts should stay out of source changes unless the user requests
   them.
 - If you need a quick sanity check, the regression test target is the fastest

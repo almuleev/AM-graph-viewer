@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.0
+
+- Добавлена формульная система преобразования сигналов: общая формула для всех графиков и отдельная формула для выбранного канала.
+- Added formula-based signal transforms with a shared formula for all charts and a separate formula for the selected channel.
+- В правой рабочей панели появились подсказки по формулам, объяснение переменной `x` и примеры выражений.
+- Added inline formula help, an explanation for the `x` variable, and ready-to-use expression examples in the right-side work panel.
+- Пункт `About` теперь открывает стартовый welcome-экран, а сам экран показывает версию текущей сборки.
+- The About action now opens the start welcome screen, which also shows the current build version.
+
 ## v0.10.0-rc1
 
 - Добавлена встроенная правая рабочая панель с вкладками для каналов и точек.

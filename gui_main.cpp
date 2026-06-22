@@ -32,11 +32,14 @@
 #include <commdlg.h>
 #include <shellapi.h>
 
+#include "build_version.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwctype>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -129,12 +132,13 @@ enum {
     IDC_SIDE_TAB_POINTS,
     IDC_SIDE_CHANNEL_COLOR,
     IDC_SIDE_CHANNEL_HINT,
-    IDC_SIDE_GLOBAL_MUL,
-    IDC_SIDE_GLOBAL_ADD,
-    IDC_SIDE_CHANNEL_MUL,
-    IDC_SIDE_CHANNEL_ADD,
-    IDC_SIDE_TRANSFORM_APPLY,
-    IDC_SIDE_TRANSFORM_RESET_CHANNEL,
+    IDC_SIDE_GLOBAL_FORMULA_EDIT,
+    IDC_SIDE_GLOBAL_FORMULA_APPLY,
+    IDC_SIDE_FORMULA_HELP,
+    IDC_SIDE_FORMULA_EDIT,
+    IDC_SIDE_FORMULA_APPLY_SELECTED,
+    IDC_SIDE_FORMULA_APPLY_VISIBLE,
+    IDC_SIDE_FORMULA_RESET_SELECTED,
     IDC_SIDE_POINT_GROUP_LIST,
     IDC_SIDE_POINT_GROUP_VISIBLE,
     IDC_SIDE_POINT_GROUP_NEW,
@@ -184,6 +188,7 @@ enum {
 
     IDW_TITLE = 5200,
     IDW_SUBTITLE,
+    IDW_VERSION,
     IDW_INTRO,
     IDW_FEATURES,
     IDW_ACTIONS_TITLE,
@@ -541,6 +546,28 @@ struct PointGroup {
     std::vector<std::pair<double, double>> points;
 };
 
+enum class FormulaOp {
+    Number,
+    Variable,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Neg,
+    FuncAbs,
+    FuncSqrt,
+    FuncSin,
+    FuncCos,
+    FuncTan,
+    FuncLog,
+    FuncExp
+};
+
+struct FormulaToken {
+    FormulaOp op = FormulaOp::Number;
+    double value = 0.0;
+};
+
 struct HotkeyBinding {
     int command = 0;
     BYTE fvirt = FVIRTKEY;
@@ -551,10 +578,10 @@ struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
     std::vector<std::wstring> channel_labels;  // user-editable display names
-    double global_value_mul = 1.0;
-    double global_value_add = 0.0;
-    std::vector<double> channel_value_mul;
-    std::vector<double> channel_value_add;
+    std::wstring global_formula = L"x";
+    std::vector<FormulaToken> global_formula_rpn;
+    std::vector<std::wstring> channel_formulas;
+    std::vector<std::vector<FormulaToken>> channel_formula_rpn;
     bool freq_mode = false;
 
     double data_t0 = 0.0, data_t1 = 1.0;
@@ -637,12 +664,15 @@ struct App {
     HWND side_tab_channels = nullptr;
     HWND side_tab_points = nullptr;
     HWND side_channel_hint = nullptr;
-    HWND side_global_mul = nullptr;
-    HWND side_global_add = nullptr;
-    HWND side_channel_mul = nullptr;
-    HWND side_channel_add = nullptr;
-    HWND side_transform_apply = nullptr;
-    HWND side_transform_reset_channel = nullptr;
+    HWND side_global_formula_label = nullptr;
+    HWND side_global_formula_edit = nullptr;
+    HWND side_global_formula_apply = nullptr;
+    HWND side_formula_help = nullptr;
+    HWND side_channel_formula_label = nullptr;
+    HWND side_formula_edit = nullptr;
+    HWND side_formula_apply_selected = nullptr;
+    HWND side_formula_apply_visible = nullptr;
+    HWND side_formula_reset_selected = nullptr;
     HWND side_point_group_list = nullptr;
     HWND side_point_group_visible = nullptr;
     HWND side_point_group_new = nullptr;
@@ -710,14 +740,28 @@ std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
 WNDPROC g_channel_edit_proc = nullptr;
 void populate_point_group_list(HWND hwnd);
-void populate_transform_channel_list(HWND hwnd);
 void refresh_side_panel_controls();
+void refresh_settings_controls();
 void apply_side_panel_visibility();
 void set_side_panel_tab(int tab);
 int side_panel_width();
 void load_side_transform_controls();
 std::wstring format_edit_number(double value);
 COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
+void ensure_channel_formula_vectors();
+void load_channel_formulas_from_ini();
+
+const wchar_t* side_global_formula_label_text() {
+    return (g_str == &kEn) ? L"Global formula for all charts:" : L"Общая формула для всех графиков:";
+}
+
+const wchar_t* side_global_formula_apply_text() {
+    return (g_str == &kEn) ? L"Apply to all charts" : L"Применить ко всем графикам";
+}
+
+const wchar_t* side_channel_formula_label_text() {
+    return (g_str == &kEn) ? L"Formula for the selected channel:" : L"Формула выбранного канала:";
+}
 
 const wchar_t* point_group_list_title() {
     return g_str == &kEn ? L"Point groups" : L"Группы точек";
@@ -767,12 +811,22 @@ const wchar_t* side_channel_hint_text() {
         : L"Клик по имени канала переименовывает его. Клик по цветному квадрату меняет цвет.";
 }
 
-const wchar_t* side_transform_apply_text() {
-    return (g_str == &kEn) ? L"Apply coeffs" : L"Применить коэф.";
+std::wstring side_formula_help_text() {
+    return (g_str == &kEn)
+        ? L"x = the original point value.\r\nExamples: x*1000, x+2, abs(x), (x-1)/5.\r\nThe global formula runs first for all channels, then the selected-channel formula runs on that result."
+        : L"x = исходное значение точки.\r\nПримеры: x*1000, x+2, abs(x), (x-1)/5.\r\nСначала общая формула применяется ко всем каналам, затем формула выбранного канала применяется к результату.";
 }
 
-const wchar_t* side_transform_reset_channel_text() {
-    return (g_str == &kEn) ? L"Reset channel" : L"Сбросить канал";
+const wchar_t* side_formula_apply_selected_text() {
+    return (g_str == &kEn) ? L"Apply to selected" : L"К выбранному";
+}
+
+const wchar_t* side_formula_apply_visible_text() {
+    return (g_str == &kEn) ? L"Apply to visible" : L"К видимым";
+}
+
+const wchar_t* side_formula_reset_selected_text() {
+    return (g_str == &kEn) ? L"Reset selected" : L"Сбросить канал";
 }
 
 const wchar_t* side_point_group_delete_text() {
@@ -781,6 +835,249 @@ const wchar_t* side_point_group_delete_text() {
 
 const wchar_t* side_point_group_rename_text() {
     return (g_str == &kEn) ? L"Rename" : L"Переименовать";
+}
+
+std::wstring default_channel_formula_text() {
+    return L"x";
+}
+
+std::wstring normalize_formula_text(const std::wstring& text) {
+    std::wstring out;
+    out.reserve(text.size());
+    for (wchar_t ch : text) {
+        if (ch == L',') out.push_back(L'.');
+        else out.push_back(ch);
+    }
+    std::size_t first = 0;
+    while (first < out.size() && iswspace(out[first])) ++first;
+    std::size_t last = out.size();
+    while (last > first && iswspace(out[last - 1])) --last;
+    out = out.substr(first, last - first);
+    if (out.empty()) out = default_channel_formula_text();
+    return out;
+}
+
+int formula_precedence(FormulaOp op) {
+    switch (op) {
+        case FormulaOp::Neg: return 3;
+        case FormulaOp::Mul:
+        case FormulaOp::Div: return 2;
+        case FormulaOp::Add:
+        case FormulaOp::Sub: return 1;
+        default: return 0;
+    }
+}
+
+bool formula_is_right_associative(FormulaOp op) {
+    return op == FormulaOp::Neg;
+}
+
+bool formula_is_function(FormulaOp op) {
+    return op == FormulaOp::FuncAbs || op == FormulaOp::FuncSqrt || op == FormulaOp::FuncSin ||
+           op == FormulaOp::FuncCos || op == FormulaOp::FuncTan || op == FormulaOp::FuncLog ||
+           op == FormulaOp::FuncExp;
+}
+
+bool formula_is_operator(FormulaOp op) {
+    return op == FormulaOp::Add || op == FormulaOp::Sub || op == FormulaOp::Mul ||
+           op == FormulaOp::Div || op == FormulaOp::Neg;
+}
+
+bool formula_function_from_name(const std::wstring& name, FormulaOp& out) {
+    if (name == L"abs") { out = FormulaOp::FuncAbs; return true; }
+    if (name == L"sqrt") { out = FormulaOp::FuncSqrt; return true; }
+    if (name == L"sin") { out = FormulaOp::FuncSin; return true; }
+    if (name == L"cos") { out = FormulaOp::FuncCos; return true; }
+    if (name == L"tan") { out = FormulaOp::FuncTan; return true; }
+    if (name == L"log") { out = FormulaOp::FuncLog; return true; }
+    if (name == L"exp") { out = FormulaOp::FuncExp; return true; }
+    return false;
+}
+
+bool compile_formula_rpn(const std::wstring& raw_text, std::vector<FormulaToken>& out, std::wstring& error) {
+    const std::wstring text = normalize_formula_text(raw_text);
+    struct StackEntry {
+        FormulaOp op = FormulaOp::Add;
+        bool is_lparen = false;
+    };
+    out.clear();
+    std::vector<StackEntry> ops;
+    bool expect_value = true;
+
+    auto push_operator = [&](FormulaOp op) {
+        while (!ops.empty() && !ops.back().is_lparen && formula_is_operator(ops.back().op)) {
+            const int top_prec = formula_precedence(ops.back().op);
+            const int cur_prec = formula_precedence(op);
+            if (top_prec > cur_prec || (top_prec == cur_prec && !formula_is_right_associative(op))) {
+                out.push_back({ops.back().op, 0.0});
+                ops.pop_back();
+            } else {
+                break;
+            }
+        }
+        ops.push_back({op, false});
+    };
+
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const wchar_t ch = text[i];
+        if (iswspace(ch)) { ++i; continue; }
+
+        if ((ch >= L'0' && ch <= L'9') || ch == L'.') {
+            const wchar_t* begin = text.c_str() + i;
+            wchar_t* end = nullptr;
+            double value = wcstod(begin, &end);
+            if (begin == end) {
+                error = (g_str == &kEn) ? L"Invalid number in formula." : L"Некорректное число в формуле.";
+                return false;
+            }
+            i = static_cast<std::size_t>(end - text.c_str());
+            out.push_back({FormulaOp::Number, value});
+            expect_value = false;
+            continue;
+        }
+
+        if (iswalpha(ch)) {
+            std::size_t j = i;
+            while (j < text.size() && (iswalpha(text[j]) || iswdigit(text[j]) || text[j] == L'_')) ++j;
+            std::wstring name = text.substr(i, j - i);
+            for (wchar_t& c : name) c = static_cast<wchar_t>(towlower(c));
+            if (name == L"x") {
+                out.push_back({FormulaOp::Variable, 0.0});
+                expect_value = false;
+            } else {
+                FormulaOp fn = FormulaOp::FuncAbs;
+                if (!formula_function_from_name(name, fn)) {
+                    error = ((g_str == &kEn) ? L"Unknown function: " : L"Неизвестная функция: ") + name;
+                    return false;
+                }
+                ops.push_back({fn, false});
+                expect_value = true;
+            }
+            i = j;
+            continue;
+        }
+
+        if (ch == L'(') {
+            ops.push_back({FormulaOp::Add, true});
+            ++i;
+            expect_value = true;
+            continue;
+        }
+        if (ch == L')') {
+            bool found_lparen = false;
+            while (!ops.empty()) {
+                if (ops.back().is_lparen) {
+                    found_lparen = true;
+                    ops.pop_back();
+                    break;
+                }
+                out.push_back({ops.back().op, 0.0});
+                ops.pop_back();
+            }
+            if (!found_lparen) {
+                error = (g_str == &kEn) ? L"Mismatched parentheses." : L"Несогласованные скобки.";
+                return false;
+            }
+            if (!ops.empty() && formula_is_function(ops.back().op)) {
+                out.push_back({ops.back().op, 0.0});
+                ops.pop_back();
+            }
+            ++i;
+            expect_value = false;
+            continue;
+        }
+
+        FormulaOp op = FormulaOp::Add;
+        if (ch == L'+') op = FormulaOp::Add;
+        else if (ch == L'-') op = expect_value ? FormulaOp::Neg : FormulaOp::Sub;
+        else if (ch == L'*') op = FormulaOp::Mul;
+        else if (ch == L'/') op = FormulaOp::Div;
+        else {
+            error = ((g_str == &kEn) ? L"Unsupported character in formula: " : L"Недопустимый символ в формуле: ") + std::wstring(1, ch);
+            return false;
+        }
+        if (expect_value && op != FormulaOp::Neg) {
+            error = (g_str == &kEn) ? L"Operator position is invalid." : L"Некорректное положение оператора.";
+            return false;
+        }
+        push_operator(op);
+        ++i;
+        expect_value = true;
+    }
+
+    if (expect_value) {
+        error = (g_str == &kEn) ? L"Incomplete formula." : L"Формула не завершена.";
+        return false;
+    }
+
+    while (!ops.empty()) {
+        if (ops.back().is_lparen) {
+            error = (g_str == &kEn) ? L"Mismatched parentheses." : L"Несогласованные скобки.";
+            return false;
+        }
+        out.push_back({ops.back().op, 0.0});
+        ops.pop_back();
+    }
+    return !out.empty();
+}
+
+double eval_formula_rpn(const std::vector<FormulaToken>& rpn, double x) {
+    std::vector<double> stack;
+    stack.reserve(rpn.size());
+    auto pop1 = [&]() -> double {
+        if (stack.empty()) return std::numeric_limits<double>::quiet_NaN();
+        double v = stack.back();
+        stack.pop_back();
+        return v;
+    };
+    auto pop2 = [&](double& a, double& b) -> bool {
+        if (stack.size() < 2) return false;
+        b = stack.back(); stack.pop_back();
+        a = stack.back(); stack.pop_back();
+        return true;
+    };
+
+    for (const auto& token : rpn) {
+        switch (token.op) {
+            case FormulaOp::Number: stack.push_back(token.value); break;
+            case FormulaOp::Variable: stack.push_back(x); break;
+            case FormulaOp::Add: {
+                double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
+                stack.push_back(a + b); break;
+            }
+            case FormulaOp::Sub: {
+                double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
+                stack.push_back(a - b); break;
+            }
+            case FormulaOp::Mul: {
+                double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
+                stack.push_back(a * b); break;
+            }
+            case FormulaOp::Div: {
+                double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
+                stack.push_back(b == 0.0 ? std::numeric_limits<double>::quiet_NaN() : (a / b)); break;
+            }
+            case FormulaOp::Neg: {
+                double v = pop1(); if (!std::isfinite(v) && !std::isnan(v)) return std::numeric_limits<double>::quiet_NaN();
+                stack.push_back(-v); break;
+            }
+            case FormulaOp::FuncAbs: {
+                double v = pop1(); stack.push_back(std::fabs(v)); break;
+            }
+            case FormulaOp::FuncSqrt: {
+                double v = pop1(); stack.push_back(v < 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(v)); break;
+            }
+            case FormulaOp::FuncSin: { double v = pop1(); stack.push_back(std::sin(v)); break; }
+            case FormulaOp::FuncCos: { double v = pop1(); stack.push_back(std::cos(v)); break; }
+            case FormulaOp::FuncTan: { double v = pop1(); stack.push_back(std::tan(v)); break; }
+            case FormulaOp::FuncLog: {
+                double v = pop1(); stack.push_back(v <= 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::log(v)); break;
+            }
+            case FormulaOp::FuncExp: { double v = pop1(); stack.push_back(std::exp(v)); break; }
+        }
+    }
+    return stack.size() == 1 ? stack.back() : std::numeric_limits<double>::quiet_NaN();
 }
 
 void normalize_active_point_group() {
@@ -1205,7 +1502,7 @@ void set_status() {
     }
 }
 
-void ensure_channel_transform_vectors();
+void ensure_channel_formula_vectors();
 double transform_channel_value(std::size_t ci, double raw);
 
 bool build_time_window_dataset(const lvm::Dataset& in, double start, double end, lvm::Dataset& out) {
@@ -1214,7 +1511,7 @@ bool build_time_window_dataset(const lvm::Dataset& in, double start, double end,
     out.ok = true;
     out.names = in.names;
     out.channels.resize(in.channels.size());
-    ensure_channel_transform_vectors();
+    ensure_channel_formula_vectors();
     for (std::size_t r = 0; r < in.time.size(); ++r) {
         const double t = in.time[r];
         if (t < start || t > end) continue;
@@ -1283,7 +1580,7 @@ void finish_channel_rename(bool apply) {
     }
     g_channel_edit_proc = nullptr;
     g.editing_channel = -1;
-    if (g.settings_wnd) populate_transform_channel_list(g.settings_wnd);
+    if (g.settings_wnd) refresh_settings_controls();
     set_status();
     InvalidateRect(g.main, nullptr, FALSE);
 }
@@ -1401,21 +1698,21 @@ int side_selected_point_group() {
 }
 
 void load_side_transform_controls() {
-    ensure_channel_transform_vectors();
-    if (g.side_global_mul) SetWindowTextW(g.side_global_mul, format_edit_number(g.global_value_mul).c_str());
-    if (g.side_global_add) SetWindowTextW(g.side_global_add, format_edit_number(g.global_value_add).c_str());
-
+    ensure_channel_formula_vectors();
+    if (g.side_global_formula_edit) {
+        SetWindowTextW(g.side_global_formula_edit, g.global_formula.c_str());
+        EnableWindow(g.side_global_formula_edit, has_data());
+    }
+    if (g.side_global_formula_apply) EnableWindow(g.side_global_formula_apply, has_data());
     const int ci = g.side_selected_channel;
-    const bool valid = ci >= 0 && ci < static_cast<int>(g.channel_value_mul.size());
-    if (g.side_channel_mul) {
-        SetWindowTextW(g.side_channel_mul, valid ? format_edit_number(g.channel_value_mul[static_cast<std::size_t>(ci)]).c_str() : L"1");
-        EnableWindow(g.side_channel_mul, valid);
+    const bool valid = ci >= 0 && ci < static_cast<int>(g.channel_formulas.size());
+    if (g.side_formula_edit) {
+        SetWindowTextW(g.side_formula_edit, valid ? g.channel_formulas[static_cast<std::size_t>(ci)].c_str() : default_channel_formula_text().c_str());
+        EnableWindow(g.side_formula_edit, has_data());
     }
-    if (g.side_channel_add) {
-        SetWindowTextW(g.side_channel_add, valid ? format_edit_number(g.channel_value_add[static_cast<std::size_t>(ci)]).c_str() : L"0");
-        EnableWindow(g.side_channel_add, valid);
-    }
-    if (g.side_transform_reset_channel) EnableWindow(g.side_transform_reset_channel, valid);
+    if (g.side_formula_apply_selected) EnableWindow(g.side_formula_apply_selected, valid);
+    if (g.side_formula_apply_visible) EnableWindow(g.side_formula_apply_visible, has_data());
+    if (g.side_formula_reset_selected) EnableWindow(g.side_formula_reset_selected, valid);
 }
 
 void load_side_point_group_controls() {
@@ -1479,6 +1776,10 @@ void refresh_side_panel_controls() {
     if (g.side_tab_channels) SetWindowTextW(g.side_tab_channels, side_tab_channels_text());
     if (g.side_tab_points) SetWindowTextW(g.side_tab_points, side_tab_points_text());
     if (g.side_channel_hint) SetWindowTextW(g.side_channel_hint, side_channel_hint_text());
+    if (g.side_global_formula_label) SetWindowTextW(g.side_global_formula_label, side_global_formula_label_text());
+    if (g.side_global_formula_apply) SetWindowTextW(g.side_global_formula_apply, side_global_formula_apply_text());
+    if (g.side_formula_help) SetWindowTextW(g.side_formula_help, side_formula_help_text().c_str());
+    if (g.side_channel_formula_label) SetWindowTextW(g.side_channel_formula_label, side_channel_formula_label_text());
     if (g.side_point_group_visible) SetWindowTextW(g.side_point_group_visible, point_group_visible_text());
     if (g.side_point_group_new) SetWindowTextW(g.side_point_group_new, point_group_new_button_text());
     if (g.side_point_group_delete) SetWindowTextW(g.side_point_group_delete, side_point_group_delete_text());
@@ -1486,8 +1787,9 @@ void refresh_side_panel_controls() {
     if (g.side_point_color_current) SetWindowTextW(g.side_point_color_current, point_current_color_button_text());
     if (g.side_point_group_color) SetWindowTextW(g.side_point_group_color, point_selected_group_color_button_text());
     if (g.side_point_label_groups) SetWindowTextW(g.side_point_label_groups, point_group_list_title());
-    if (g.side_transform_apply) SetWindowTextW(g.side_transform_apply, side_transform_apply_text());
-    if (g.side_transform_reset_channel) SetWindowTextW(g.side_transform_reset_channel, side_transform_reset_channel_text());
+    if (g.side_formula_apply_selected) SetWindowTextW(g.side_formula_apply_selected, side_formula_apply_selected_text());
+    if (g.side_formula_apply_visible) SetWindowTextW(g.side_formula_apply_visible, side_formula_apply_visible_text());
+    if (g.side_formula_reset_selected) SetWindowTextW(g.side_formula_reset_selected, side_formula_reset_selected_text());
 
     const struct ToggleMap { int id; bool value; const wchar_t* text; } point_toggles[] = {
         {IDC_SIDE_PT_NUM, g.pdisp.number, g_str->pt_num},
@@ -1512,6 +1814,7 @@ void refresh_side_panel_controls() {
 
 void redraw_button(HWND btn);
 void redraw_toolbar_buttons();
+void show_welcome(HINSTANCE inst);
 
 void layout() {
     RECT rc;
@@ -1552,9 +1855,17 @@ void layout() {
     MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, TRUE);
     if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, 132, 28, TRUE);
     if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + 136, kTopBar + 8, 132, 28, TRUE);
-    if (g.side_channel_hint) MoveWindow(g.side_channel_hint, panel_x, kTopBar + 76, panel_w - 24, 36, TRUE);
+    if (g.side_channel_hint) MoveWindow(g.side_channel_hint, panel_x, kTopBar + 76, panel_w - 24, 22, TRUE);
+    int controls_y = kTopBar + 102;
+    if (g.side_global_formula_label) MoveWindow(g.side_global_formula_label, panel_x, controls_y, panel_w - 12, 20, TRUE);
+    controls_y += 24;
+    if (g.side_global_formula_edit) MoveWindow(g.side_global_formula_edit, panel_x, controls_y, panel_w - 12, 26, TRUE);
+    controls_y += 32;
+    if (g.side_global_formula_apply) MoveWindow(g.side_global_formula_apply, panel_x, controls_y, panel_w - 12, 28, TRUE);
+    controls_y += 34;
+    if (g.side_formula_help) MoveWindow(g.side_formula_help, panel_x, controls_y, panel_w - 12, 52, TRUE);
 
-    int y = kTopBar + 118;
+    int y = controls_y + 62;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
         MoveWindow(g.checks[i], panel_x, y + 2, 18, 20, TRUE);
         if (i < g.check_labels.size()) {
@@ -1569,24 +1880,17 @@ void layout() {
         MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
     }
 
-    if (g.side_channel_controls.size() >= 11) {
+    if (g.side_formula_edit && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected) {
         int cy = max(y + 8, kTopBar + 136);
-        const int label_w = 126;
-        const int edit_w = max(70, panel_w - 24 - label_w);
-        MoveWindow(g.side_channel_controls[1], panel_x, cy, label_w, 20, TRUE);
-        MoveWindow(g.side_global_mul, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
-        cy += 28;
-        MoveWindow(g.side_channel_controls[3], panel_x, cy, label_w, 20, TRUE);
-        MoveWindow(g.side_global_add, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
-        cy += 28;
-        MoveWindow(g.side_channel_controls[5], panel_x, cy, label_w, 20, TRUE);
-        MoveWindow(g.side_channel_mul, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
-        cy += 28;
-        MoveWindow(g.side_channel_controls[7], panel_x, cy, label_w, 20, TRUE);
-        MoveWindow(g.side_channel_add, panel_x + label_w, cy - 2, edit_w, 24, TRUE);
+        if (g.side_channel_formula_label) MoveWindow(g.side_channel_formula_label, panel_x, cy, panel_w - 12, 20, TRUE);
+        cy += 24;
+        MoveWindow(g.side_formula_edit, panel_x, cy, panel_w - 12, 26, TRUE);
         cy += 34;
-        MoveWindow(g.side_transform_apply, panel_x, cy, (panel_w - 30) / 2, 28, TRUE);
-        MoveWindow(g.side_transform_reset_channel, panel_x + (panel_w - 30) / 2 + 6, cy, (panel_w - 30) / 2, 28, TRUE);
+        const int button_w = max(80, (panel_w - 18) / 2);
+        MoveWindow(g.side_formula_apply_selected, panel_x, cy, button_w, 28, TRUE);
+        MoveWindow(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, TRUE);
+        cy += 34;
+        MoveWindow(g.side_formula_reset_selected, panel_x, cy, panel_w - 12, 28, TRUE);
     }
 
     const int points_left = panel_x;
@@ -1620,9 +1924,10 @@ void layout() {
     py += 30;
     if (g.side_point_group_color) MoveWindow(g.side_point_group_color, points_left, py, panel_w - 24, 28, TRUE);
     py += 36;
-    if (g.side_point_group_name) MoveWindow(g.side_point_group_name, points_left, py, panel_w - 114, 24, TRUE);
-    if (g.side_point_group_rename) MoveWindow(g.side_point_group_rename, points_left + panel_w - 108, py - 2, 96, 28, TRUE);
-    py += 34;
+    if (g.side_point_group_name) MoveWindow(g.side_point_group_name, points_left, py, panel_w - 24, 24, TRUE);
+    py += 30;
+    if (g.side_point_group_rename) MoveWindow(g.side_point_group_rename, points_left, py, panel_w - 24, 28, TRUE);
+    py += 36;
     if (g.side_point_group_new) MoveWindow(g.side_point_group_new, points_left, py, (panel_w - 30) / 2, 28, TRUE);
     if (g.side_point_group_delete) MoveWindow(g.side_point_group_delete, points_left + (panel_w - 30) / 2 + 6, py, (panel_w - 30) / 2, 28, TRUE);
 
@@ -1679,7 +1984,7 @@ void rebuild_ui();
 void rebuild_accelerators();
 void refresh_settings_controls();
 void compute_spectrum_from_current_source();
-void ensure_channel_transform_vectors();
+void ensure_channel_formula_vectors();
 double transform_channel_value(std::size_t ci, double raw);
 void refresh_side_panel_controls();
 void apply_side_panel_visibility();
@@ -2234,8 +2539,9 @@ bool load_path(const std::wstring& wpath) {
     g_channel_colors.reserve(g.ds.channel_count());
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) g_channel_colors.push_back(kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))]);
     g.side_selected_channel = g.ds.channel_count() > 0 ? 0 : -1;
-    g.channel_value_mul.assign(g.ds.channel_count(), 1.0);
-    g.channel_value_add.assign(g.ds.channel_count(), 0.0);
+    g.channel_formulas.assign(g.ds.channel_count(), default_channel_formula_text());
+    g.channel_formula_rpn.assign(g.ds.channel_count(), {});
+    load_channel_formulas_from_ini();
     g.data_t0 = g.ds.time.front();
     g.data_t1 = g.ds.time.back();
     if (g.data_t1 <= g.data_t0) g.data_t1 = g.data_t0 + 1.0;
@@ -2309,7 +2615,7 @@ void build_series(std::size_t channel_index, std::size_t lo, std::size_t hi,
 // Auto-fit vertical range over the currently visible time window (with 5% pad).
 bool current_time_yrange(double& ymin, double& ymax) {
     if (!has_data()) return false;
-    ensure_channel_transform_vectors();
+    ensure_channel_formula_vectors();
     const std::vector<double>& t = g.ds.time;
     const std::size_t n = t.size();
     std::size_t lo = static_cast<std::size_t>(
@@ -3416,19 +3722,36 @@ std::string current_channel_label(std::size_t ci) {
     return "Channel_" + std::to_string(ci + 1);
 }
 
-void ensure_channel_transform_vectors() {
+void ensure_channel_formula_vectors() {
     const std::size_t n = g.ds.channel_count();
-    if (g.channel_value_mul.size() != n) g.channel_value_mul.assign(n, 1.0);
-    if (g.channel_value_add.size() != n) g.channel_value_add.assign(n, 0.0);
+    if (g.global_formula.empty()) g.global_formula = default_channel_formula_text();
+    if (g.global_formula_rpn.empty()) {
+        std::wstring error;
+        compile_formula_rpn(g.global_formula, g.global_formula_rpn, error);
+        if (g.global_formula_rpn.empty()) {
+            g.global_formula = default_channel_formula_text();
+            compile_formula_rpn(g.global_formula, g.global_formula_rpn, error);
+        }
+    }
+    if (g.channel_formulas.size() != n) g.channel_formulas.assign(n, default_channel_formula_text());
+    if (g.channel_formula_rpn.size() != n) g.channel_formula_rpn.assign(n, {});
+    for (std::size_t i = 0; i < n; ++i) {
+        if (g.channel_formulas[i].empty()) g.channel_formulas[i] = default_channel_formula_text();
+        if (g.channel_formula_rpn[i].empty()) {
+            std::wstring error;
+            compile_formula_rpn(g.channel_formulas[i], g.channel_formula_rpn[i], error);
+        }
+    }
 }
 
 double transform_channel_value(std::size_t ci, double raw) {
     if (std::isnan(raw)) return raw;
-    const double global_mul = g.global_value_mul;
-    const double global_add = g.global_value_add;
-    const double local_mul = (ci < g.channel_value_mul.size()) ? g.channel_value_mul[ci] : 1.0;
-    const double local_add = (ci < g.channel_value_add.size()) ? g.channel_value_add[ci] : 0.0;
-    return raw * global_mul * local_mul + global_add + local_add;
+    ensure_channel_formula_vectors();
+    if (ci >= g.channel_formula_rpn.size()) return raw;
+    const double global_value = eval_formula_rpn(g.global_formula_rpn, raw);
+    const double base = (std::isfinite(global_value) || std::isnan(global_value)) ? global_value : raw;
+    const double value = eval_formula_rpn(g.channel_formula_rpn[ci], base);
+    return std::isfinite(value) || std::isnan(value) ? value : raw;
 }
 
 std::wstring format_edit_number(double value) {
@@ -3462,9 +3785,13 @@ bool read_edit_double(HWND parent, int id, double& out) {
 }
 
 void reset_channel_transform(std::size_t ci) {
-    ensure_channel_transform_vectors();
-    if (ci < g.channel_value_mul.size()) g.channel_value_mul[ci] = 1.0;
-    if (ci < g.channel_value_add.size()) g.channel_value_add[ci] = 0.0;
+    ensure_channel_formula_vectors();
+    if (ci < g.channel_formulas.size()) g.channel_formulas[ci] = default_channel_formula_text();
+    if (ci < g.channel_formula_rpn.size()) {
+        g.channel_formula_rpn[ci].clear();
+        std::wstring error;
+        compile_formula_rpn(g.channel_formulas[ci], g.channel_formula_rpn[ci], error);
+    }
 }
 
 void clear_transform_sensitive_overlays() {
@@ -3502,7 +3829,7 @@ void on_signal_transform_changed() {
 bool save_csv(const std::wstring& path) {
     std::ofstream out(to_acp(path.c_str()), std::ios::binary);
     if (!out) return false;
-    ensure_channel_transform_vectors();
+    ensure_channel_formula_vectors();
     if (g.freq_mode) {
         if (!g.spec_valid) return false;
         std::vector<std::size_t> cols;
@@ -3539,7 +3866,7 @@ bool save_csv(const std::wstring& path) {
 bool save_txt_view(const std::wstring& path) {
     std::ofstream out(to_acp(path.c_str()), std::ios::binary);
     if (!out) return false;
-    ensure_channel_transform_vectors();
+    ensure_channel_formula_vectors();
     if (g.freq_mode) {
         if (!g.spec_valid) return false;
         std::vector<std::size_t> cols;
@@ -3691,7 +4018,7 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
         return false;
     }
     if (!has_data()) return false;
-    ensure_channel_transform_vectors();
+    ensure_channel_formula_vectors();
     const auto& t = g.ds.time;
     std::size_t i = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), dx) - t.begin());
     if (i >= t.size()) i = t.size() - 1;
@@ -3810,6 +4137,36 @@ void write_ini_double(const wchar_t* section, const wchar_t* key, double value) 
     WritePrivateProfileStringW(section, key, text.c_str(), g_config_path.c_str());
 }
 
+void load_channel_formulas_from_ini() {
+    ensure_channel_formula_vectors();
+    wchar_t global_buf[512]{};
+    GetPrivateProfileStringW(L"transform", L"global_formula", default_channel_formula_text().c_str(), global_buf, 512, g_config_path.c_str());
+    g.global_formula = normalize_formula_text(global_buf);
+    g.global_formula_rpn.clear();
+    std::wstring global_error;
+    if (!compile_formula_rpn(g.global_formula, g.global_formula_rpn, global_error)) {
+        g.global_formula = default_channel_formula_text();
+        g.global_formula_rpn.clear();
+        compile_formula_rpn(g.global_formula, g.global_formula_rpn, global_error);
+    }
+    const int stored_count = read_ini_int(L"transform", L"formula_count", static_cast<int>(g.channel_formulas.size()));
+    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
+        wchar_t key_name[32]{};
+        swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
+        wchar_t buf[512]{};
+        const wchar_t* def = (static_cast<int>(i) < stored_count) ? default_channel_formula_text().c_str() : default_channel_formula_text().c_str();
+        GetPrivateProfileStringW(L"transform", key_name, def, buf, 512, g_config_path.c_str());
+        g.channel_formulas[i] = normalize_formula_text(buf);
+        g.channel_formula_rpn[i].clear();
+        std::wstring error;
+        if (!compile_formula_rpn(g.channel_formulas[i], g.channel_formula_rpn[i], error)) {
+            g.channel_formulas[i] = default_channel_formula_text();
+            g.channel_formula_rpn[i].clear();
+            compile_formula_rpn(g.channel_formulas[i], g.channel_formula_rpn[i], error);
+        }
+    }
+}
+
 void load_runtime_settings() {
     if (g_config_path.empty()) g_config_path = app_config_path();
 
@@ -3836,8 +4193,6 @@ void load_runtime_settings() {
 
     g.marker_color = static_cast<COLORREF>(read_ini_int(
         L"ui", L"marker_color", static_cast<int>(g_theme->marker_color)));
-    g.global_value_mul = read_ini_double(L"transform", L"global_mul", g.global_value_mul);
-    g.global_value_add = read_ini_double(L"transform", L"global_add", g.global_value_add);
 
     g.hotkeys = default_hotkeys();
     for (auto& hk : g.hotkeys) {
@@ -3877,8 +4232,15 @@ void save_runtime_settings() {
     wchar_t color_buf[32]{};
     swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
     WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
-    write_ini_double(L"transform", L"global_mul", g.global_value_mul);
-    write_ini_double(L"transform", L"global_add", g.global_value_add);
+    WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
+    wchar_t count_buf[32]{};
+    swprintf(count_buf, 32, L"%u", static_cast<unsigned int>(g.channel_formulas.size()));
+    WritePrivateProfileStringW(L"transform", L"formula_count", count_buf, g_config_path.c_str());
+    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
+        wchar_t key_name[32]{};
+        swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
+        WritePrivateProfileStringW(L"transform", key_name, g.channel_formulas[i].c_str(), g_config_path.c_str());
+    }
 
     for (const auto& hk : g.hotkeys) {
         wchar_t key_name[32]{};
@@ -3995,6 +4357,12 @@ std::wstring welcome_intro_text() {
         : L"Нативный просмотрщик логов LabVIEW: открывайте .lvm и .txt, изучайте сигналы во времени и быстро переходите к Hz / FFT по выбранному участку.";
 }
 
+std::wstring welcome_version_text() {
+    return (g_str == &kEn)
+        ? (std::wstring(L"Build: ") + APP_VERSION_W)
+        : (std::wstring(L"Версия сборки: ") + APP_VERSION_W);
+}
+
 std::wstring welcome_features_text() {
     const bool en = (g_str == &kEn);
     std::wstring out;
@@ -4072,12 +4440,15 @@ void layout_welcome_controls(HWND hwnd) {
     const int hw = max(180, rect_width(layout.hero) - hero_pad * 2);
     const int title_h = layout.stacked ? 46 : 52;
     const int subtitle_h = 24;
+    const int version_h = 20;
     const int intro_h = layout.stacked ? 64 : 76;
 
     place(IDW_TITLE, hx, hy, hw, title_h);
     hy += title_h + 8;
     place(IDW_SUBTITLE, hx, hy, hw, subtitle_h);
-    hy += subtitle_h + 14;
+    hy += subtitle_h + 6;
+    place(IDW_VERSION, hx, hy, hw, version_h);
+    hy += version_h + 12;
     place(IDW_INTRO, hx, hy, hw, intro_h);
     hy += intro_h + 18;
 
@@ -4642,7 +5013,7 @@ void show_hotkeys() {
 }
 
 void show_about() {
-    MessageBoxW(g.main, g_str->about_body, g_str->dlg_about_title, MB_OK | MB_ICONINFORMATION);
+    show_welcome(GetModuleHandleW(nullptr));
 }
 
 // Refresh every checkable menu item from the current app state. Cheap, so we
@@ -5039,134 +5410,28 @@ void populate_hotkey_list(HWND hwnd) {
     SendMessageW(list, LB_SETCURSEL, selected_index, 0);
 }
 
-const wchar_t* transform_group_title_text() {
-    return (g_str == &kEn) ? L"Signal transform" : L"Преобразование сигналов";
-}
-
-const wchar_t* transform_global_mul_text() {
-    return (g_str == &kEn) ? L"Global multiplier:" : L"Общий множитель:";
-}
-
-const wchar_t* transform_global_add_text() {
-    return (g_str == &kEn) ? L"Global addend:" : L"Общее слагаемое:";
-}
-
-const wchar_t* transform_channel_mul_text() {
-    return (g_str == &kEn) ? L"Channel multiplier:" : L"Множитель канала:";
-}
-
-const wchar_t* transform_channel_add_text() {
-    return (g_str == &kEn) ? L"Channel addend:" : L"Слагаемое канала:";
-}
-
-const wchar_t* transform_apply_text() {
-    return (g_str == &kEn) ? L"Apply" : L"Применить";
-}
-
-const wchar_t* transform_reset_channel_text() {
-    return (g_str == &kEn) ? L"Reset channel" : L"Сбросить канал";
-}
-
-const wchar_t* transform_reset_all_text() {
-    return (g_str == &kEn) ? L"Reset all" : L"Сбросить всё";
-}
-
-const wchar_t* transform_hint_text() {
-    return (g_str == &kEn)
-        ? L"Result = raw * global * channel + global add + channel add"
-        : L"Итог = исходное * общий * канал + общее слагаемое + слагаемое канала";
-}
-
-void populate_transform_channel_list(HWND hwnd) {
-    HWND list = GetDlgItem(hwnd, IDC_SET_TRANSFORM_LIST);
-    if (!list) return;
-    ensure_channel_transform_vectors();
-    int current_sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
-    SendMessageW(list, LB_RESETCONTENT, 0, 0);
-    int select_index = 0;
-    for (std::size_t i = 0; i < g.channel_labels.size(); ++i) {
-        std::wstring label = g.channel_labels[i];
-        int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
-        SendMessageW(list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
-        if (current_sel != LB_ERR && static_cast<int>(i) == current_sel) select_index = idx;
+bool read_formula_edit(HWND edit, std::wstring& formula, std::vector<FormulaToken>& compiled, std::wstring& error) {
+    if (!edit) {
+        error = (g_str == &kEn) ? L"Formula field is unavailable." : L"Поле формулы недоступно.";
+        return false;
     }
-    if (!g.channel_labels.empty()) {
-        SendMessageW(list, LB_SETCURSEL, select_index, 0);
-    }
+    wchar_t buf[512]{};
+    GetWindowTextW(edit, buf, 512);
+    formula = normalize_formula_text(buf);
+    if (formula.empty()) formula = default_channel_formula_text();
+    return compile_formula_rpn(formula, compiled, error);
 }
 
-int settings_selected_transform_channel(HWND hwnd) {
-    HWND list = GetDlgItem(hwnd, IDC_SET_TRANSFORM_LIST);
-    if (!list) return -1;
-    int sel = static_cast<int>(SendMessageW(list, LB_GETCURSEL, 0, 0));
-    if (sel == LB_ERR) return -1;
-    return static_cast<int>(SendMessageW(list, LB_GETITEMDATA, sel, 0));
+void assign_formula_to_channel(std::size_t channel_index, const std::wstring& formula, const std::vector<FormulaToken>& compiled) {
+    ensure_channel_formula_vectors();
+    if (channel_index >= g.channel_formulas.size() || channel_index >= g.channel_formula_rpn.size()) return;
+    g.channel_formulas[channel_index] = formula;
+    g.channel_formula_rpn[channel_index] = compiled;
 }
 
-void load_selected_transform_controls(HWND hwnd) {
-    HWND global_mul = GetDlgItem(hwnd, IDC_SET_GLOBAL_MUL);
-    HWND global_add = GetDlgItem(hwnd, IDC_SET_GLOBAL_ADD);
-    if (global_mul) SetWindowTextW(global_mul, format_edit_number(g.global_value_mul).c_str());
-    if (global_add) SetWindowTextW(global_add, format_edit_number(g.global_value_add).c_str());
-
-    const int ci = settings_selected_transform_channel(hwnd);
-    const bool have_channel = ci >= 0 && ci < static_cast<int>(g.channel_value_mul.size());
-    HWND channel_mul = GetDlgItem(hwnd, IDC_SET_CHANNEL_MUL);
-    HWND channel_add = GetDlgItem(hwnd, IDC_SET_CHANNEL_ADD);
-    HWND apply = GetDlgItem(hwnd, IDC_SET_TRANSFORM_APPLY);
-    HWND reset_channel = GetDlgItem(hwnd, IDC_SET_TRANSFORM_RESET_CHANNEL);
-    if (channel_mul) {
-        SetWindowTextW(channel_mul, have_channel ? format_edit_number(g.channel_value_mul[static_cast<std::size_t>(ci)]).c_str() : L"1");
-        EnableWindow(channel_mul, have_channel);
-    }
-    if (channel_add) {
-        SetWindowTextW(channel_add, have_channel ? format_edit_number(g.channel_value_add[static_cast<std::size_t>(ci)]).c_str() : L"0");
-        EnableWindow(channel_add, have_channel);
-    }
-    if (apply) EnableWindow(apply, TRUE);
-    if (reset_channel) EnableWindow(reset_channel, have_channel);
-}
-
-bool apply_signal_transform_controls(HWND hwnd, bool reset_channel, bool reset_all) {
-    double global_mul = g.global_value_mul;
-    double global_add = g.global_value_add;
-    if (!reset_all) {
-        if (!read_edit_double(hwnd, IDC_SET_GLOBAL_MUL, global_mul) ||
-            !read_edit_double(hwnd, IDC_SET_GLOBAL_ADD, global_add)) {
-            MessageBoxW(hwnd,
-                g_str == &kEn ? L"Enter valid numbers for the global transform." : L"Введите корректные числа для общего преобразования.",
-                settings_window_title(), MB_OK | MB_ICONWARNING);
-            return false;
-        }
-    }
-
-    g.global_value_mul = reset_all ? 1.0 : global_mul;
-    g.global_value_add = reset_all ? 0.0 : global_add;
-
-    ensure_channel_transform_vectors();
-    const int ci = settings_selected_transform_channel(hwnd);
-    if (reset_all) {
-        std::fill(g.channel_value_mul.begin(), g.channel_value_mul.end(), 1.0);
-        std::fill(g.channel_value_add.begin(), g.channel_value_add.end(), 0.0);
-    } else if (reset_channel) {
-        if (ci >= 0) reset_channel_transform(static_cast<std::size_t>(ci));
-    } else if (ci >= 0 && ci < static_cast<int>(g.channel_value_mul.size())) {
-        double channel_mul = 1.0;
-        double channel_add = 0.0;
-        if (!read_edit_double(hwnd, IDC_SET_CHANNEL_MUL, channel_mul) ||
-            !read_edit_double(hwnd, IDC_SET_CHANNEL_ADD, channel_add)) {
-            MessageBoxW(hwnd,
-                g_str == &kEn ? L"Enter valid numbers for the selected channel." : L"Введите корректные числа для выбранного канала.",
-                settings_window_title(), MB_OK | MB_ICONWARNING);
-            return false;
-        }
-        g.channel_value_mul[static_cast<std::size_t>(ci)] = channel_mul;
-        g.channel_value_add[static_cast<std::size_t>(ci)] = channel_add;
-    }
-
-    load_selected_transform_controls(hwnd);
-    on_signal_transform_changed();
-    return true;
+void assign_global_formula(const std::wstring& formula, const std::vector<FormulaToken>& compiled) {
+    g.global_formula = formula;
+    g.global_formula_rpn = compiled;
 }
 
 int settings_selected_point_group(HWND hwnd) {
@@ -5447,6 +5712,7 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             mkstatic(g_str->welcome_title, IDW_TITLE, g.title_font ? g.title_font : font);
             mkstatic(g_str->welcome_subtitle, IDW_SUBTITLE, g.bold_font ? g.bold_font : font);
+            mkstatic(welcome_version_text().c_str(), IDW_VERSION, g.axis_font ? g.axis_font : font);
             mkstatic(welcome_intro_text().c_str(), IDW_INTRO, font);
             mkstatic(welcome_features_text().c_str(), IDW_FEATURES, font);
             mkstatic(g_str->m_lang, IDW_LANG_LABEL, g.bold_font ? g.bold_font : font);
@@ -5561,14 +5827,14 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = reinterpret_cast<HDC>(wp);
             SetBkMode(dc, TRANSPARENT);
             int ctl_id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
-            if (ctl_id == IDW_SUBTITLE) {
+            if (ctl_id == IDW_SUBTITLE || ctl_id == IDW_VERSION) {
                 SetTextColor(dc, g_theme->text_secondary);
             } else if (ctl_id == IDW_LANG_LABEL || ctl_id == IDW_ACTIONS_TITLE) {
                 SetTextColor(dc, g_theme->accent);
             } else {
                 SetTextColor(dc, g_theme->text_primary);
             }
-            if (ctl_id == IDW_TITLE || ctl_id == IDW_SUBTITLE || ctl_id == IDW_INTRO || ctl_id == IDW_FEATURES) {
+            if (ctl_id == IDW_TITLE || ctl_id == IDW_SUBTITLE || ctl_id == IDW_VERSION || ctl_id == IDW_INTRO || ctl_id == IDW_FEATURES) {
                 return reinterpret_cast<LRESULT>(g_welcome_hero_brush ? g_welcome_hero_brush : g_welcome_brush);
             }
             return reinterpret_cast<LRESULT>(g_welcome_action_brush ? g_welcome_action_brush : g_welcome_brush);
@@ -5736,16 +6002,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_tab_points = mk(side_tab_points_text(), IDC_SIDE_TAB_POINTS, 0);
             g.side_channel_hint = mk_panel_ctl(L"STATIC", side_channel_hint_text(),
                                                SS_LEFT | SS_NOPREFIX, IDC_SIDE_CHANNEL_HINT, g.side_channel_controls);
-            mk_panel_ctl(L"STATIC", transform_global_mul_text(), SS_LEFT, 0, g.side_channel_controls);
-            g.side_global_mul = mk_panel_ctl(L"EDIT", format_edit_number(g.global_value_mul).c_str(), WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_MUL, g.side_channel_controls);
-            mk_panel_ctl(L"STATIC", transform_global_add_text(), SS_LEFT, 0, g.side_channel_controls);
-            g.side_global_add = mk_panel_ctl(L"EDIT", format_edit_number(g.global_value_add).c_str(), WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_ADD, g.side_channel_controls);
-            mk_panel_ctl(L"STATIC", transform_channel_mul_text(), SS_LEFT, 0, g.side_channel_controls);
-            g.side_channel_mul = mk_panel_ctl(L"EDIT", L"1", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_CHANNEL_MUL, g.side_channel_controls);
-            mk_panel_ctl(L"STATIC", transform_channel_add_text(), SS_LEFT, 0, g.side_channel_controls);
-            g.side_channel_add = mk_panel_ctl(L"EDIT", L"0", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_CHANNEL_ADD, g.side_channel_controls);
-            g.side_transform_apply = mk_panel_btn(side_transform_apply_text(), IDC_SIDE_TRANSFORM_APPLY, g.side_channel_controls);
-            g.side_transform_reset_channel = mk_panel_btn(side_transform_reset_channel_text(), IDC_SIDE_TRANSFORM_RESET_CHANNEL, g.side_channel_controls);
+            g.side_global_formula_label = mk_panel_ctl(L"STATIC", side_global_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_global_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
+                                                      WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_FORMULA_EDIT, g.side_channel_controls);
+            g.side_global_formula_apply = mk_panel_btn(side_global_formula_apply_text(), IDC_SIDE_GLOBAL_FORMULA_APPLY, g.side_channel_controls);
+            g.side_formula_help = mk_panel_ctl(L"STATIC", side_formula_help_text().c_str(),
+                                               SS_LEFT | SS_NOPREFIX, IDC_SIDE_FORMULA_HELP, g.side_channel_controls);
+            g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
+            g.side_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
+                                               WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_FORMULA_EDIT, g.side_channel_controls);
+            g.side_formula_apply_selected = mk_panel_btn(side_formula_apply_selected_text(), IDC_SIDE_FORMULA_APPLY_SELECTED, g.side_channel_controls);
+            g.side_formula_apply_visible = mk_panel_btn(side_formula_apply_visible_text(), IDC_SIDE_FORMULA_APPLY_VISIBLE, g.side_channel_controls);
+            g.side_formula_reset_selected = mk_panel_btn(side_formula_reset_selected_text(), IDC_SIDE_FORMULA_RESET_SELECTED, g.side_channel_controls);
 
             const struct PointToggleSeed { int id; const wchar_t* text; bool on; } point_toggle_seeds[] = {
                 {IDC_SIDE_PT_NUM, g_str->pt_num, g.pdisp.number},
@@ -5995,39 +6263,62 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     layout();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
-                case IDC_SIDE_TRANSFORM_APPLY: {
-                    double global_mul = g.global_value_mul;
-                    double global_add = g.global_value_add;
-                    if (!read_edit_double(hwnd, IDC_SIDE_GLOBAL_MUL, global_mul) ||
-                        !read_edit_double(hwnd, IDC_SIDE_GLOBAL_ADD, global_add)) {
-                        MessageBoxW(hwnd,
-                            g_str == &kEn ? L"Enter valid numbers for the global transform." : L"Введите корректные числа для общего преобразования.",
-                            settings_window_title(), MB_OK | MB_ICONWARNING);
+                case IDC_SIDE_GLOBAL_FORMULA_APPLY: {
+                    if (!has_data()) return 0;
+                    std::wstring formula;
+                    std::wstring error;
+                    std::vector<FormulaToken> compiled;
+                    if (!read_formula_edit(g.side_global_formula_edit, formula, compiled, error)) {
+                        std::wstring message = (g_str == &kEn) ? L"Invalid global formula:\n" : L"Некорректная общая формула:\n";
+                        message += error;
+                        MessageBoxW(hwnd, message.c_str(), settings_window_title(), MB_OK | MB_ICONWARNING);
                         return 0;
                     }
-                    g.global_value_mul = global_mul;
-                    g.global_value_add = global_add;
-                    ensure_channel_transform_vectors();
-                    if (g.side_selected_channel >= 0 && g.side_selected_channel < static_cast<int>(g.channel_value_mul.size())) {
-                        double channel_mul = 1.0;
-                        double channel_add = 0.0;
-                        if (!read_edit_double(hwnd, IDC_SIDE_CHANNEL_MUL, channel_mul) ||
-                            !read_edit_double(hwnd, IDC_SIDE_CHANNEL_ADD, channel_add)) {
-                            MessageBoxW(hwnd,
-                                g_str == &kEn ? L"Enter valid numbers for the selected channel." : L"Введите корректные числа для выбранного канала.",
-                                settings_window_title(), MB_OK | MB_ICONWARNING);
-                            return 0;
-                        }
-                        g.channel_value_mul[static_cast<std::size_t>(g.side_selected_channel)] = channel_mul;
-                        g.channel_value_add[static_cast<std::size_t>(g.side_selected_channel)] = channel_add;
-                    }
+                    assign_global_formula(formula, compiled);
                     save_runtime_settings();
                     if (g.settings_wnd) refresh_settings_controls();
                     load_side_transform_controls();
                     on_signal_transform_changed();
                     return 0;
                 }
-                case IDC_SIDE_TRANSFORM_RESET_CHANNEL:
+                case IDC_SIDE_FORMULA_APPLY_SELECTED:
+                case IDC_SIDE_FORMULA_APPLY_VISIBLE: {
+                    if (!has_data()) return 0;
+                    std::wstring formula;
+                    std::wstring error;
+                    std::vector<FormulaToken> compiled;
+                    if (!read_formula_edit(g.side_formula_edit, formula, compiled, error)) {
+                        std::wstring message = (g_str == &kEn) ? L"Invalid formula:\n" : L"Некорректная формула:\n";
+                        message += error;
+                        MessageBoxW(hwnd, message.c_str(), settings_window_title(), MB_OK | MB_ICONWARNING);
+                        return 0;
+                    }
+
+                    ensure_channel_formula_vectors();
+                    bool changed = false;
+                    if (LOWORD(wp) == IDC_SIDE_FORMULA_APPLY_SELECTED) {
+                        if (g.side_selected_channel >= 0 &&
+                            g.side_selected_channel < static_cast<int>(g.channel_formulas.size())) {
+                            assign_formula_to_channel(static_cast<std::size_t>(g.side_selected_channel), formula, compiled);
+                            changed = true;
+                        }
+                    } else {
+                        for (std::size_t i = 0; i < g.visible.size() && i < g.channel_formulas.size(); ++i) {
+                            if (!g.visible[i]) continue;
+                            assign_formula_to_channel(i, formula, compiled);
+                            changed = true;
+                        }
+                    }
+
+                    if (changed) {
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        load_side_transform_controls();
+                        on_signal_transform_changed();
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_FORMULA_RESET_SELECTED:
                     if (g.side_selected_channel >= 0) {
                         reset_channel_transform(static_cast<std::size_t>(g.side_selected_channel));
                         save_runtime_settings();

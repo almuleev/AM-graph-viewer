@@ -134,11 +134,11 @@ enum {
     IDC_SIDE_CHANNEL_HINT,
     IDC_SIDE_GLOBAL_FORMULA_EDIT,
     IDC_SIDE_GLOBAL_FORMULA_APPLY,
-    IDC_SIDE_FORMULA_HELP,
     IDC_SIDE_FORMULA_EDIT,
     IDC_SIDE_FORMULA_APPLY_SELECTED,
     IDC_SIDE_FORMULA_APPLY_VISIBLE,
     IDC_SIDE_FORMULA_RESET_SELECTED,
+    IDC_SIDE_FORMULA_RESET_ALL,
     IDC_SIDE_POINT_GROUP_LIST,
     IDC_SIDE_POINT_GROUP_VISIBLE,
     IDC_SIDE_POINT_GROUP_NEW,
@@ -667,12 +667,12 @@ struct App {
     HWND side_global_formula_label = nullptr;
     HWND side_global_formula_edit = nullptr;
     HWND side_global_formula_apply = nullptr;
-    HWND side_formula_help = nullptr;
     HWND side_channel_formula_label = nullptr;
     HWND side_formula_edit = nullptr;
     HWND side_formula_apply_selected = nullptr;
     HWND side_formula_apply_visible = nullptr;
     HWND side_formula_reset_selected = nullptr;
+    HWND side_formula_reset_all = nullptr;
     HWND side_point_group_list = nullptr;
     HWND side_point_group_visible = nullptr;
     HWND side_point_group_new = nullptr;
@@ -752,7 +752,7 @@ void ensure_channel_formula_vectors();
 void load_channel_formulas_from_ini();
 
 const wchar_t* side_global_formula_label_text() {
-    return (g_str == &kEn) ? L"Global formula for all charts:" : L"Общая формула для всех графиков:";
+    return (g_str == &kEn) ? L"Global coefficient for all charts:" : L"Общий коэффициент для всех графиков:";
 }
 
 const wchar_t* side_global_formula_apply_text() {
@@ -760,7 +760,7 @@ const wchar_t* side_global_formula_apply_text() {
 }
 
 const wchar_t* side_channel_formula_label_text() {
-    return (g_str == &kEn) ? L"Formula for the selected channel:" : L"Формула выбранного канала:";
+    return (g_str == &kEn) ? L"Coefficient for the selected channel:" : L"Коэффициент выбранного канала:";
 }
 
 const wchar_t* point_group_list_title() {
@@ -811,12 +811,6 @@ const wchar_t* side_channel_hint_text() {
         : L"Клик по имени канала переименовывает его. Клик по цветному квадрату меняет цвет.";
 }
 
-std::wstring side_formula_help_text() {
-    return (g_str == &kEn)
-        ? L"x = the original point value.\r\nExamples: x*1000, x+2, abs(x), (x-1)/5.\r\nThe global formula runs first for all channels, then the selected-channel formula runs on that result."
-        : L"x = исходное значение точки.\r\nПримеры: x*1000, x+2, abs(x), (x-1)/5.\r\nСначала общая формула применяется ко всем каналам, затем формула выбранного канала применяется к результату.";
-}
-
 const wchar_t* side_formula_apply_selected_text() {
     return (g_str == &kEn) ? L"Apply to selected" : L"К выбранному";
 }
@@ -827,6 +821,10 @@ const wchar_t* side_formula_apply_visible_text() {
 
 const wchar_t* side_formula_reset_selected_text() {
     return (g_str == &kEn) ? L"Reset selected" : L"Сбросить канал";
+}
+
+const wchar_t* side_formula_reset_all_text() {
+    return (g_str == &kEn) ? L"Reset all channels" : L"Сбросить все каналы";
 }
 
 const wchar_t* side_point_group_delete_text() {
@@ -928,7 +926,7 @@ bool compile_formula_rpn(const std::wstring& raw_text, std::vector<FormulaToken>
             wchar_t* end = nullptr;
             double value = wcstod(begin, &end);
             if (begin == end) {
-                error = (g_str == &kEn) ? L"Invalid number in formula." : L"Некорректное число в формуле.";
+                error = (g_str == &kEn) ? L"Invalid number in coefficient." : L"Некорректное число в коэффициенте.";
                 return false;
             }
             i = static_cast<std::size_t>(end - text.c_str());
@@ -994,7 +992,7 @@ bool compile_formula_rpn(const std::wstring& raw_text, std::vector<FormulaToken>
         else if (ch == L'*') op = FormulaOp::Mul;
         else if (ch == L'/') op = FormulaOp::Div;
         else {
-            error = ((g_str == &kEn) ? L"Unsupported character in formula: " : L"Недопустимый символ в формуле: ") + std::wstring(1, ch);
+            error = ((g_str == &kEn) ? L"Unsupported character in coefficient: " : L"Недопустимый символ в коэффициенте: ") + std::wstring(1, ch);
             return false;
         }
         if (expect_value && op != FormulaOp::Neg) {
@@ -1007,7 +1005,7 @@ bool compile_formula_rpn(const std::wstring& raw_text, std::vector<FormulaToken>
     }
 
     if (expect_value) {
-        error = (g_str == &kEn) ? L"Incomplete formula." : L"Формула не завершена.";
+        error = (g_str == &kEn) ? L"Incomplete coefficient." : L"Коэффициент не завершён.";
         return false;
     }
 
@@ -1713,6 +1711,7 @@ void load_side_transform_controls() {
     if (g.side_formula_apply_selected) EnableWindow(g.side_formula_apply_selected, valid);
     if (g.side_formula_apply_visible) EnableWindow(g.side_formula_apply_visible, has_data());
     if (g.side_formula_reset_selected) EnableWindow(g.side_formula_reset_selected, valid);
+    if (g.side_formula_reset_all) EnableWindow(g.side_formula_reset_all, has_data());
 }
 
 void load_side_point_group_controls() {
@@ -1778,7 +1777,6 @@ void refresh_side_panel_controls() {
     if (g.side_channel_hint) SetWindowTextW(g.side_channel_hint, side_channel_hint_text());
     if (g.side_global_formula_label) SetWindowTextW(g.side_global_formula_label, side_global_formula_label_text());
     if (g.side_global_formula_apply) SetWindowTextW(g.side_global_formula_apply, side_global_formula_apply_text());
-    if (g.side_formula_help) SetWindowTextW(g.side_formula_help, side_formula_help_text().c_str());
     if (g.side_channel_formula_label) SetWindowTextW(g.side_channel_formula_label, side_channel_formula_label_text());
     if (g.side_point_group_visible) SetWindowTextW(g.side_point_group_visible, point_group_visible_text());
     if (g.side_point_group_new) SetWindowTextW(g.side_point_group_new, point_group_new_button_text());
@@ -1790,6 +1788,7 @@ void refresh_side_panel_controls() {
     if (g.side_formula_apply_selected) SetWindowTextW(g.side_formula_apply_selected, side_formula_apply_selected_text());
     if (g.side_formula_apply_visible) SetWindowTextW(g.side_formula_apply_visible, side_formula_apply_visible_text());
     if (g.side_formula_reset_selected) SetWindowTextW(g.side_formula_reset_selected, side_formula_reset_selected_text());
+    if (g.side_formula_reset_all) SetWindowTextW(g.side_formula_reset_all, side_formula_reset_all_text());
 
     const struct ToggleMap { int id; bool value; const wchar_t* text; } point_toggles[] = {
         {IDC_SIDE_PT_NUM, g.pdisp.number, g_str->pt_num},
@@ -1862,10 +1861,7 @@ void layout() {
     if (g.side_global_formula_edit) MoveWindow(g.side_global_formula_edit, panel_x, controls_y, panel_w - 12, 26, TRUE);
     controls_y += 32;
     if (g.side_global_formula_apply) MoveWindow(g.side_global_formula_apply, panel_x, controls_y, panel_w - 12, 28, TRUE);
-    controls_y += 34;
-    if (g.side_formula_help) MoveWindow(g.side_formula_help, panel_x, controls_y, panel_w - 12, 52, TRUE);
-
-    int y = controls_y + 62;
+    int y = controls_y + 38;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
         MoveWindow(g.checks[i], panel_x, y + 2, 18, 20, TRUE);
         if (i < g.check_labels.size()) {
@@ -1880,7 +1876,7 @@ void layout() {
         MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
     }
 
-    if (g.side_formula_edit && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected) {
+    if (g.side_formula_edit && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
         int cy = max(y + 8, kTopBar + 136);
         if (g.side_channel_formula_label) MoveWindow(g.side_channel_formula_label, panel_x, cy, panel_w - 12, 20, TRUE);
         cy += 24;
@@ -1890,7 +1886,8 @@ void layout() {
         MoveWindow(g.side_formula_apply_selected, panel_x, cy, button_w, 28, TRUE);
         MoveWindow(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, TRUE);
         cy += 34;
-        MoveWindow(g.side_formula_reset_selected, panel_x, cy, panel_w - 12, 28, TRUE);
+        MoveWindow(g.side_formula_reset_selected, panel_x, cy, button_w, 28, TRUE);
+        MoveWindow(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, TRUE);
     }
 
     const int points_left = panel_x;
@@ -3794,6 +3791,13 @@ void reset_channel_transform(std::size_t ci) {
     }
 }
 
+void reset_all_channel_transforms() {
+    ensure_channel_formula_vectors();
+    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
+        reset_channel_transform(i);
+    }
+}
+
 void clear_transform_sensitive_overlays() {
     clear_measure_point_groups();
     g.markers.clear();
@@ -5412,7 +5416,7 @@ void populate_hotkey_list(HWND hwnd) {
 
 bool read_formula_edit(HWND edit, std::wstring& formula, std::vector<FormulaToken>& compiled, std::wstring& error) {
     if (!edit) {
-        error = (g_str == &kEn) ? L"Formula field is unavailable." : L"Поле формулы недоступно.";
+        error = (g_str == &kEn) ? L"Coefficient field is unavailable." : L"Поле коэффициента недоступно.";
         return false;
     }
     wchar_t buf[512]{};
@@ -6006,14 +6010,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_global_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                       WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_FORMULA_EDIT, g.side_channel_controls);
             g.side_global_formula_apply = mk_panel_btn(side_global_formula_apply_text(), IDC_SIDE_GLOBAL_FORMULA_APPLY, g.side_channel_controls);
-            g.side_formula_help = mk_panel_ctl(L"STATIC", side_formula_help_text().c_str(),
-                                               SS_LEFT | SS_NOPREFIX, IDC_SIDE_FORMULA_HELP, g.side_channel_controls);
             g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
             g.side_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_FORMULA_EDIT, g.side_channel_controls);
             g.side_formula_apply_selected = mk_panel_btn(side_formula_apply_selected_text(), IDC_SIDE_FORMULA_APPLY_SELECTED, g.side_channel_controls);
             g.side_formula_apply_visible = mk_panel_btn(side_formula_apply_visible_text(), IDC_SIDE_FORMULA_APPLY_VISIBLE, g.side_channel_controls);
             g.side_formula_reset_selected = mk_panel_btn(side_formula_reset_selected_text(), IDC_SIDE_FORMULA_RESET_SELECTED, g.side_channel_controls);
+            g.side_formula_reset_all = mk_panel_btn(side_formula_reset_all_text(), IDC_SIDE_FORMULA_RESET_ALL, g.side_channel_controls);
 
             const struct PointToggleSeed { int id; const wchar_t* text; bool on; } point_toggle_seeds[] = {
                 {IDC_SIDE_PT_NUM, g_str->pt_num, g.pdisp.number},
@@ -6269,7 +6272,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     std::wstring error;
                     std::vector<FormulaToken> compiled;
                     if (!read_formula_edit(g.side_global_formula_edit, formula, compiled, error)) {
-                        std::wstring message = (g_str == &kEn) ? L"Invalid global formula:\n" : L"Некорректная общая формула:\n";
+                        std::wstring message = (g_str == &kEn) ? L"Invalid global coefficient:\n" : L"Некорректный общий коэффициент:\n";
                         message += error;
                         MessageBoxW(hwnd, message.c_str(), settings_window_title(), MB_OK | MB_ICONWARNING);
                         return 0;
@@ -6288,7 +6291,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     std::wstring error;
                     std::vector<FormulaToken> compiled;
                     if (!read_formula_edit(g.side_formula_edit, formula, compiled, error)) {
-                        std::wstring message = (g_str == &kEn) ? L"Invalid formula:\n" : L"Некорректная формула:\n";
+                        std::wstring message = (g_str == &kEn) ? L"Invalid coefficient:\n" : L"Некорректный коэффициент:\n";
                         message += error;
                         MessageBoxW(hwnd, message.c_str(), settings_window_title(), MB_OK | MB_ICONWARNING);
                         return 0;
@@ -6321,6 +6324,15 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_FORMULA_RESET_SELECTED:
                     if (g.side_selected_channel >= 0) {
                         reset_channel_transform(static_cast<std::size_t>(g.side_selected_channel));
+                        save_runtime_settings();
+                        if (g.settings_wnd) refresh_settings_controls();
+                        load_side_transform_controls();
+                        on_signal_transform_changed();
+                    }
+                    return 0;
+                case IDC_SIDE_FORMULA_RESET_ALL:
+                    if (has_data()) {
+                        reset_all_channel_transforms();
                         save_runtime_settings();
                         if (g.settings_wnd) refresh_settings_controls();
                         load_side_transform_controls();

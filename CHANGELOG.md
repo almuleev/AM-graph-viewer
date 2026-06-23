@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.1
+
+- Убраны все добавленные подсказки по формулам из правой рабочей панели.
+- Removed the newly added formula hints from the right-side work panel.
+- Все пользовательские упоминания формул в панели преобразований переименованы в коэффициенты.
+- Reworded the transform panel UI so user-facing formula labels are now presented as coefficients.
+- Добавлена отдельная кнопка для сброса всех локальных коэффициентов каналов без затрагивания общего коэффициента.
+- Added a separate action to reset all per-channel local coefficients without changing the global coefficient.
+
 ## v0.10.0
 
 - Добавлена формульная система преобразования сигналов: общая формула для всех графиков и отдельная формула для выбранного канала.

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.10.2
+
+- Добавлен `undo/redo` для изменений в настройках каналов и точек: видимость, переименование, цвета, коэффициенты и параметры отображения точек теперь откатываются через `Ctrl+Z` / `Ctrl+Shift+Z`.
+- Added `undo/redo` for channel and point setting changes: visibility, renaming, colours, coefficients, and point display options can now be reverted with `Ctrl+Z` / `Ctrl+Shift+Z`.
+- Исправлено некорректное отображение текста на кнопках правой панели после изменения размера окна: подписи больше не вылезают за границы соседних кнопок.
+- Fixed button text clipping in the right-side panel after window resizing so labels no longer spill into neighbouring controls.
+- Упрощена панель точек: укорочены подписи переключателей, убрана лишняя подсказка под списком каналов, добавлена явная кнопка смены цвета выбранного канала.
+- Streamlined the side panels: shorter point toggle labels, the extra channel hint removed, and an explicit colour picker button for the selected channel.
+- Привязка точек и маркеров к графику теперь выбирает ближайшую видимую точку по экранному расстоянию, а не только по оси X.
+- Point and marker snapping now chooses the nearest visible point by on-screen distance instead of snapping by X only.
+
 ## v0.10.1
 
 - Убраны все добавленные подсказки по формулам из правой рабочей панели.

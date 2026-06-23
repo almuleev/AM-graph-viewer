@@ -669,6 +669,7 @@ struct App {
     HWND side_global_formula_apply = nullptr;
     HWND side_channel_formula_label = nullptr;
     HWND side_formula_edit = nullptr;
+    HWND side_channel_color = nullptr;
     HWND side_formula_apply_selected = nullptr;
     HWND side_formula_apply_visible = nullptr;
     HWND side_formula_reset_selected = nullptr;
@@ -723,8 +724,32 @@ std::vector<LegendItem> g_legend_items;
 RECT g_legend_box = {0,0,0,0};
 
 // ---- undo / redo system ------------------------------------------------
+struct SettingsSnapshot {
+    std::vector<char> visible;
+    std::vector<std::wstring> channel_labels;
+    std::vector<COLORREF> channel_colors;
+    std::wstring global_formula;
+    std::vector<std::wstring> channel_formulas;
+    PointDisplay pdisp;
+    bool snap_to_data = true;
+    COLORREF marker_color = RGB(0, 120, 215);
+    std::vector<PointGroup> point_groups;
+    int active_point_group = -1;
+    std::vector<GuideLine> guides;
+    std::vector<App::Marker> markers;
+    int active_marker = -1;
+    int pending_line = 0;
+    bool pending_marker = false;
+    bool measure_mode = false;
+    bool auto_y = true;
+    double y_lock_min = -1.0;
+    double y_lock_max = 1.0;
+    bool auto_y_amp = true;
+    double y_amp_max = 1.0;
+};
+
 struct UndoAction {
-    enum Type { NONE, ADD_POINT, ADD_LINE, ADD_MARKER, CLEAR_POINTS, CLEAR_LINES, CLEAR_MARKERS } type = NONE;
+    enum Type { NONE, ADD_POINT, ADD_LINE, ADD_MARKER, CLEAR_POINTS, CLEAR_LINES, CLEAR_MARKERS, SETTINGS_CHANGE } type = NONE;
     std::pair<double, double> point;
     int point_group_index = -1;
     bool point_group_created = false;
@@ -735,6 +760,8 @@ struct UndoAction {
     int saved_active_point_group = -1;
     std::vector<GuideLine> saved_lines;
     std::vector<App::Marker> saved_markers;
+    SettingsSnapshot before_settings;
+    SettingsSnapshot after_settings;
 };
 std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
@@ -750,6 +777,15 @@ std::wstring format_edit_number(double value);
 COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
 void ensure_channel_formula_vectors();
 void load_channel_formulas_from_ini();
+void finish_channel_rename(bool apply);
+void save_runtime_settings();
+void set_status();
+void sync_menu();
+void compute_spectrum_from_current_source();
+SettingsSnapshot capture_settings_snapshot();
+bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot& b);
+void apply_settings_snapshot(const SettingsSnapshot& snapshot);
+bool record_settings_change(const SettingsSnapshot& before);
 
 const wchar_t* side_global_formula_label_text() {
     return (g_str == &kEn) ? L"Global coefficient for all charts:" : L"Общий коэффициент для всех графиков:";
@@ -806,9 +842,7 @@ const wchar_t* side_channel_color_button_text() {
 }
 
 const wchar_t* side_channel_hint_text() {
-    return (g_str == &kEn)
-        ? L"Click a channel name to rename it. Click the colour square to recolour it."
-        : L"Клик по имени канала переименовывает его. Клик по цветному квадрату меняет цвет.";
+    return L"";
 }
 
 const wchar_t* side_formula_apply_selected_text() {
@@ -833,6 +867,38 @@ const wchar_t* side_point_group_delete_text() {
 
 const wchar_t* side_point_group_rename_text() {
     return (g_str == &kEn) ? L"Rename" : L"Переименовать";
+}
+
+const wchar_t* side_pt_num_text() {
+    return (g_str == &kEn) ? L"Point #" : L"Номер";
+}
+
+const wchar_t* side_pt_x_text() {
+    return (g_str == &kEn) ? L"X" : L"X";
+}
+
+const wchar_t* side_pt_y_text() {
+    return (g_str == &kEn) ? L"Y" : L"Y";
+}
+
+const wchar_t* side_pt_dx_text() {
+    return (g_str == &kEn) ? L"Δx" : L"Δx";
+}
+
+const wchar_t* side_pt_dy_text() {
+    return (g_str == &kEn) ? L"Δy" : L"Δy";
+}
+
+const wchar_t* side_pt_invdt_text() {
+    return (g_str == &kEn) ? L"1/Δt" : L"1/Δt";
+}
+
+const wchar_t* side_pt_dist_text() {
+    return (g_str == &kEn) ? L"d" : L"d";
+}
+
+const wchar_t* side_pt_snap_text() {
+    return (g_str == &kEn) ? L"Snap" : L"Привязка";
 }
 
 std::wstring default_channel_formula_text() {
@@ -1207,6 +1273,182 @@ void push_undo(const UndoAction& a) {
     g_undo.push_back(a);
     g_redo.clear(); // new action clears redo stack
 }
+
+SettingsSnapshot capture_settings_snapshot() {
+    ensure_channel_formula_vectors();
+    SettingsSnapshot snapshot;
+    snapshot.visible = g.visible;
+    snapshot.channel_labels = g.channel_labels;
+    snapshot.channel_colors = g_channel_colors;
+    snapshot.global_formula = g.global_formula;
+    snapshot.channel_formulas = g.channel_formulas;
+    snapshot.pdisp = g.pdisp;
+    snapshot.snap_to_data = g.snap_to_data;
+    snapshot.marker_color = g.marker_color;
+    snapshot.point_groups = g.point_groups;
+    snapshot.active_point_group = g.active_point_group;
+    snapshot.guides = g.guides;
+    snapshot.markers = g.markers;
+    snapshot.active_marker = g.active_marker;
+    snapshot.pending_line = g.pending_line;
+    snapshot.pending_marker = g.pending_marker;
+    snapshot.measure_mode = g.measure_mode;
+    snapshot.auto_y = g.auto_y;
+    snapshot.y_lock_min = g.y_lock_min;
+    snapshot.y_lock_max = g.y_lock_max;
+    snapshot.auto_y_amp = g.auto_y_amp;
+    snapshot.y_amp_max = g.y_amp_max;
+    return snapshot;
+}
+
+bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot& b) {
+    auto same_point_groups = [&](const std::vector<PointGroup>& lhs, const std::vector<PointGroup>& rhs) {
+        if (lhs.size() != rhs.size()) return false;
+        for (std::size_t i = 0; i < lhs.size(); ++i) {
+            if (lhs[i].name != rhs[i].name ||
+                lhs[i].color != rhs[i].color ||
+                lhs[i].visible != rhs[i].visible ||
+                lhs[i].points != rhs[i].points) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto same_guides = [&](const std::vector<GuideLine>& lhs, const std::vector<GuideLine>& rhs) {
+        if (lhs.size() != rhs.size()) return false;
+        for (std::size_t i = 0; i < lhs.size(); ++i) {
+            if (lhs[i].vertical != rhs[i].vertical ||
+                lhs[i].value != rhs[i].value ||
+                lhs[i].freq != rhs[i].freq) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto same_markers = [&](const std::vector<App::Marker>& lhs, const std::vector<App::Marker>& rhs) {
+        if (lhs.size() != rhs.size()) return false;
+        for (std::size_t i = 0; i < lhs.size(); ++i) {
+            if (lhs[i].x != rhs[i].x ||
+                lhs[i].y != rhs[i].y ||
+                lhs[i].label != rhs[i].label ||
+                lhs[i].freq != rhs[i].freq ||
+                lhs[i].snapped != rhs[i].snapped ||
+                lhs[i].channel != rhs[i].channel) {
+                return false;
+            }
+        }
+        return true;
+    };
+    return a.visible != b.visible ||
+           a.channel_labels != b.channel_labels ||
+           a.channel_colors != b.channel_colors ||
+           a.global_formula != b.global_formula ||
+           a.channel_formulas != b.channel_formulas ||
+           a.pdisp.number != b.pdisp.number ||
+           a.pdisp.x != b.pdisp.x ||
+           a.pdisp.y != b.pdisp.y ||
+           a.pdisp.dx != b.pdisp.dx ||
+           a.pdisp.dy != b.pdisp.dy ||
+           a.pdisp.inv_dt != b.pdisp.inv_dt ||
+           a.pdisp.dist != b.pdisp.dist ||
+           a.snap_to_data != b.snap_to_data ||
+           a.marker_color != b.marker_color ||
+           !same_point_groups(a.point_groups, b.point_groups) ||
+           a.active_point_group != b.active_point_group ||
+           !same_guides(a.guides, b.guides) ||
+           !same_markers(a.markers, b.markers) ||
+           a.active_marker != b.active_marker ||
+           a.pending_line != b.pending_line ||
+           a.pending_marker != b.pending_marker ||
+           a.measure_mode != b.measure_mode ||
+           a.auto_y != b.auto_y ||
+           a.y_lock_min != b.y_lock_min ||
+           a.y_lock_max != b.y_lock_max ||
+           a.auto_y_amp != b.auto_y_amp ||
+           a.y_amp_max != b.y_amp_max;
+}
+
+bool settings_snapshot_formulas_differ(const SettingsSnapshot& a, const SettingsSnapshot& b) {
+    return a.global_formula != b.global_formula || a.channel_formulas != b.channel_formulas;
+}
+
+void sync_channel_controls_from_state() {
+    for (std::size_t i = 0; i < g.checks.size() && i < g.visible.size(); ++i) {
+        if (g.checks[i]) {
+            SendMessageW(g.checks[i], BM_SETCHECK, g.visible[i] ? BST_CHECKED : BST_UNCHECKED, 0);
+        }
+    }
+    for (std::size_t i = 0; i < g.check_labels.size() && i < g.channel_labels.size(); ++i) {
+        if (g.check_labels[i]) {
+            SetWindowTextW(g.check_labels[i], g.channel_labels[i].c_str());
+        }
+    }
+    if (g.measure) {
+        SendMessageW(g.measure, BM_SETCHECK, g.measure_mode ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (g.autoy) {
+        SendMessageW(g.autoy, BM_SETCHECK, g.auto_y ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+}
+
+void rebuild_formula_cache_from_state() {
+    g.global_formula_rpn.clear();
+    g.channel_formula_rpn.assign(g.channel_formulas.size(), {});
+    ensure_channel_formula_vectors();
+}
+
+void recompute_transforms_from_state() {
+    g.spec_valid = false;
+    g.spec = lvm::Spectrum{};
+    g.spec_source_valid = false;
+    compute_spectrum_from_current_source();
+    sync_menu();
+}
+
+void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
+    if (g.channel_edit) finish_channel_rename(false);
+    g.visible = snapshot.visible;
+    g.channel_labels = snapshot.channel_labels;
+    g_channel_colors = snapshot.channel_colors;
+    g.global_formula = snapshot.global_formula;
+    g.channel_formulas = snapshot.channel_formulas;
+    rebuild_formula_cache_from_state();
+    g.pdisp = snapshot.pdisp;
+    g.snap_to_data = snapshot.snap_to_data;
+    g.marker_color = snapshot.marker_color;
+    g.point_groups = snapshot.point_groups;
+    g.active_point_group = snapshot.active_point_group;
+    g.guides = snapshot.guides;
+    g.markers = snapshot.markers;
+    g.active_marker = snapshot.active_marker;
+    g.pending_line = snapshot.pending_line;
+    g.pending_marker = snapshot.pending_marker;
+    g.measure_mode = snapshot.measure_mode;
+    g.auto_y = snapshot.auto_y;
+    g.y_lock_min = snapshot.y_lock_min;
+    g.y_lock_max = snapshot.y_lock_max;
+    g.auto_y_amp = snapshot.auto_y_amp;
+    g.y_amp_max = snapshot.y_amp_max;
+    sync_channel_controls_from_state();
+    recompute_transforms_from_state();
+    if (g.settings_wnd) refresh_settings_controls();
+    refresh_side_panel_controls();
+    set_status();
+    InvalidateRect(g.main, nullptr, TRUE);
+    save_runtime_settings();
+}
+
+bool record_settings_change(const SettingsSnapshot& before) {
+    const SettingsSnapshot after = capture_settings_snapshot();
+    if (!settings_snapshot_differs(before, after)) return false;
+    UndoAction action;
+    action.type = UndoAction::SETTINGS_CHANGE;
+    action.before_settings = before;
+    action.after_settings = after;
+    push_undo(action);
+    return true;
+}
+
 void pop_undo() {
     if (g_undo.empty()) return;
     UndoAction a = g_undo.back();
@@ -1262,6 +1504,10 @@ void pop_undo() {
             g_redo.push_back(a);
             g.markers = a.saved_markers;
             break;
+        case UndoAction::SETTINGS_CHANGE:
+            g_redo.push_back(a);
+            apply_settings_snapshot(a.before_settings);
+            break;
         default: break;
     }
     if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
@@ -1309,6 +1555,10 @@ void pop_redo() {
         case UndoAction::CLEAR_MARKERS:
             g_undo.push_back(a);
             g.markers.clear();
+            break;
+        case UndoAction::SETTINGS_CHANGE:
+            g_undo.push_back(a);
+            apply_settings_snapshot(a.after_settings);
             break;
         default: break;
     }
@@ -1563,6 +1813,12 @@ int channel_index_by_name(const std::string& name) {
 void finish_channel_rename(bool apply) {
     if (g.editing_channel < 0 || g.editing_channel >= static_cast<int>(g.channel_labels.size())) return;
     const int ci = g.editing_channel;
+    SettingsSnapshot before;
+    bool track_change = false;
+    if (apply && g.channel_edit) {
+        before = capture_settings_snapshot();
+        track_change = true;
+    }
     if (apply && g.channel_edit) {
         wchar_t buf[256];
         GetWindowTextW(g.channel_edit, buf, 256);
@@ -1578,6 +1834,7 @@ void finish_channel_rename(bool apply) {
     }
     g_channel_edit_proc = nullptr;
     g.editing_channel = -1;
+    if (track_change) record_settings_change(before);
     if (g.settings_wnd) refresh_settings_controls();
     set_status();
     InvalidateRect(g.main, nullptr, FALSE);
@@ -1708,6 +1965,7 @@ void load_side_transform_controls() {
         SetWindowTextW(g.side_formula_edit, valid ? g.channel_formulas[static_cast<std::size_t>(ci)].c_str() : default_channel_formula_text().c_str());
         EnableWindow(g.side_formula_edit, has_data());
     }
+    if (g.side_channel_color) EnableWindow(g.side_channel_color, valid);
     if (g.side_formula_apply_selected) EnableWindow(g.side_formula_apply_selected, valid);
     if (g.side_formula_apply_visible) EnableWindow(g.side_formula_apply_visible, has_data());
     if (g.side_formula_reset_selected) EnableWindow(g.side_formula_reset_selected, valid);
@@ -1778,6 +2036,7 @@ void refresh_side_panel_controls() {
     if (g.side_global_formula_label) SetWindowTextW(g.side_global_formula_label, side_global_formula_label_text());
     if (g.side_global_formula_apply) SetWindowTextW(g.side_global_formula_apply, side_global_formula_apply_text());
     if (g.side_channel_formula_label) SetWindowTextW(g.side_channel_formula_label, side_channel_formula_label_text());
+    if (g.side_channel_color) SetWindowTextW(g.side_channel_color, side_channel_color_button_text());
     if (g.side_point_group_visible) SetWindowTextW(g.side_point_group_visible, point_group_visible_text());
     if (g.side_point_group_new) SetWindowTextW(g.side_point_group_new, point_group_new_button_text());
     if (g.side_point_group_delete) SetWindowTextW(g.side_point_group_delete, side_point_group_delete_text());
@@ -1791,14 +2050,14 @@ void refresh_side_panel_controls() {
     if (g.side_formula_reset_all) SetWindowTextW(g.side_formula_reset_all, side_formula_reset_all_text());
 
     const struct ToggleMap { int id; bool value; const wchar_t* text; } point_toggles[] = {
-        {IDC_SIDE_PT_NUM, g.pdisp.number, g_str->pt_num},
-        {IDC_SIDE_PT_X, g.pdisp.x, g_str->pt_x},
-        {IDC_SIDE_PT_Y, g.pdisp.y, g_str->pt_y},
-        {IDC_SIDE_PT_DX, g.pdisp.dx, g_str->pt_dx},
-        {IDC_SIDE_PT_DY, g.pdisp.dy, g_str->pt_dy},
-        {IDC_SIDE_PT_INVDT, g.pdisp.inv_dt, g_str->pt_invdt},
-        {IDC_SIDE_PT_DIST, g.pdisp.dist, g_str->pt_dist},
-        {IDC_SIDE_PT_SNAP, g.snap_to_data, g_str->pt_snap},
+        {IDC_SIDE_PT_NUM, g.pdisp.number, side_pt_num_text()},
+        {IDC_SIDE_PT_X, g.pdisp.x, side_pt_x_text()},
+        {IDC_SIDE_PT_Y, g.pdisp.y, side_pt_y_text()},
+        {IDC_SIDE_PT_DX, g.pdisp.dx, side_pt_dx_text()},
+        {IDC_SIDE_PT_DY, g.pdisp.dy, side_pt_dy_text()},
+        {IDC_SIDE_PT_INVDT, g.pdisp.inv_dt, side_pt_invdt_text()},
+        {IDC_SIDE_PT_DIST, g.pdisp.dist, side_pt_dist_text()},
+        {IDC_SIDE_PT_SNAP, g.snap_to_data, side_pt_snap_text()},
     };
     for (const auto& item : point_toggles) {
         HWND ctl = GetDlgItem(g.main, item.id);
@@ -1854,8 +2113,8 @@ void layout() {
     MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, TRUE);
     if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, 132, 28, TRUE);
     if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + 136, kTopBar + 8, 132, 28, TRUE);
-    if (g.side_channel_hint) MoveWindow(g.side_channel_hint, panel_x, kTopBar + 76, panel_w - 24, 22, TRUE);
-    int controls_y = kTopBar + 102;
+    if (g.side_channel_hint) ShowWindow(g.side_channel_hint, SW_HIDE);
+    int controls_y = kTopBar + 78;
     if (g.side_global_formula_label) MoveWindow(g.side_global_formula_label, panel_x, controls_y, panel_w - 12, 20, TRUE);
     controls_y += 24;
     if (g.side_global_formula_edit) MoveWindow(g.side_global_formula_edit, panel_x, controls_y, panel_w - 12, 26, TRUE);
@@ -1876,11 +2135,13 @@ void layout() {
         MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
     }
 
-    if (g.side_formula_edit && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
+    if (g.side_formula_edit && g.side_channel_color && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
         int cy = max(y + 8, kTopBar + 136);
         if (g.side_channel_formula_label) MoveWindow(g.side_channel_formula_label, panel_x, cy, panel_w - 12, 20, TRUE);
         cy += 24;
         MoveWindow(g.side_formula_edit, panel_x, cy, panel_w - 12, 26, TRUE);
+        cy += 32;
+        MoveWindow(g.side_channel_color, panel_x, cy, panel_w - 12, 28, TRUE);
         cy += 34;
         const int button_w = max(80, (panel_w - 18) / 2);
         MoveWindow(g.side_formula_apply_selected, panel_x, cy, button_w, 28, TRUE);
@@ -3798,7 +4059,7 @@ void reset_all_channel_transforms() {
     }
 }
 
-void clear_transform_sensitive_overlays() {
+void clear_transform_sensitive_overlays(bool clear_history = true) {
     clear_measure_point_groups();
     g.markers.clear();
     g.active_marker = -1;
@@ -3808,14 +4069,16 @@ void clear_transform_sensitive_overlays() {
     g.pending_line = 0;
     g.pending_marker = false;
     g.measure_mode = false;
-    g_undo.clear();
-    g_redo.clear();
+    if (clear_history) {
+        g_undo.clear();
+        g_redo.clear();
+    }
     if (g.measure) SendMessageW(g.measure, BM_SETCHECK, BST_UNCHECKED, 0);
 }
 
-void on_signal_transform_changed() {
+void on_signal_transform_changed(bool preserve_history = false) {
     if (!has_data()) return;
-    clear_transform_sensitive_overlays();
+    clear_transform_sensitive_overlays(!preserve_history);
     g.auto_y = true;
     g.auto_y_amp = true;
     if (g.autoy) SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0);
@@ -3994,28 +4257,60 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
     return true;
 }
 
-// Snap a clicked coordinate to the nearest real sample (Time mode) or spectrum
-// bin (Hz mode) of the closest visible channel, so a marker lands exactly on a
-// data point. The stored data is never modified вЂ” only the marker is adjusted.
+// Snap a clicked coordinate to the nearest visible real sample (Time mode) or
+// spectrum point (Hz mode) by on-screen distance, so a marker lands on the
+// visually closest data point. The stored data is never modified вЂ” only the
+// marker is adjusted.
 bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) {
+    if (!g.vvalid) return false;
+    const RECT& p = g.vrect;
+    const int pw = p.right - p.left;
+    const int ph = p.bottom - p.top;
+    if (pw <= 0 || ph <= 0) return false;
+
+    auto to_px = [&](double x) -> double {
+        return static_cast<double>(p.left) + (x - g.vx0) / (g.vx1 - g.vx0) * pw;
+    };
+    auto to_py = [&](double y) -> double {
+        return static_cast<double>(p.bottom) - (y - g.vy0) / (g.vy1 - g.vy0) * ph;
+    };
+
+    const double target_px = to_px(dx);
+    const double target_py = to_py(dy);
+    double best_dist2 = std::numeric_limits<double>::max();
+    double best_x = dx;
+    double best_y = dy;
+    int best_ci = -1;
+
     if (g.freq_mode) {
-        if (!g.spec_valid || g.spec.freqs.size() < 2) return false;
+        if (!g.spec_valid || g.spec.freqs.empty() || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
         const auto& f = g.spec.freqs;
-        std::size_t k = static_cast<std::size_t>(std::lower_bound(f.begin(), f.end(), dx) - f.begin());
-        if (k >= f.size()) k = f.size() - 1;
-        if (k > 0 && (dx - f[k - 1]) < (f[k] - dx)) --k;
-        double best = std::numeric_limits<double>::max(), by = dy;
-        int best_ci = -1;
+        std::size_t lo = static_cast<std::size_t>(std::lower_bound(f.begin(), f.end(), g.vx0) - f.begin());
+        std::size_t hi = static_cast<std::size_t>(std::upper_bound(f.begin(), f.end(), g.vx1) - f.begin());
+        if (lo >= hi) return false;
         for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
             const int ci = channel_index_by_name(g.spec.names[j]);
             if (ci < 0 || !g.visible[ci]) continue;
-            const double v = g.spec.amp[j][k];
-            const double d = std::fabs(v - dy);
-            if (d < best) { best = d; by = v; best_ci = ci; }
+            for (std::size_t k = lo; k < hi; ++k) {
+                const double x = f[k];
+                const double y = g.spec.amp[j][k];
+                if (!std::isfinite(y)) continue;
+                const double px = to_px(x);
+                const double py = to_py(y);
+                const double dxp = px - target_px;
+                const double dyp = py - target_py;
+                const double dist2 = dxp * dxp + dyp * dyp;
+                if (dist2 < best_dist2) {
+                    best_dist2 = dist2;
+                    best_x = x;
+                    best_y = y;
+                    best_ci = ci;
+                }
+            }
         }
-        dx = f[k];
         if (best_ci >= 0) {
-            dy = by;
+            dx = best_x;
+            dy = best_y;
             if (out_channel) *out_channel = best_ci;
             return true;
         }
@@ -4024,21 +4319,32 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
     if (!has_data()) return false;
     ensure_channel_formula_vectors();
     const auto& t = g.ds.time;
-    std::size_t i = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), dx) - t.begin());
-    if (i >= t.size()) i = t.size() - 1;
-    if (i > 0 && (dx - t[i - 1]) < (t[i] - dx)) --i;
-    double best = std::numeric_limits<double>::max(), by = dy;
-    int best_ci = -1;
+    if (t.empty() || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
+    std::size_t lo = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), g.vx0) - t.begin());
+    std::size_t hi = static_cast<std::size_t>(std::upper_bound(t.begin(), t.end(), g.vx1) - t.begin());
+    if (lo >= hi) return false;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
-        const double v = transform_channel_value(c, g.ds.channels[c][i]);
-        if (std::isnan(v)) continue;
-        const double d = std::fabs(v - dy);
-        if (d < best) { best = d; by = v; best_ci = static_cast<int>(c); }
+        for (std::size_t i = lo; i < hi; ++i) {
+            const double y = transform_channel_value(c, g.ds.channels[c][i]);
+            if (!std::isfinite(y)) continue;
+            const double x = t[i];
+            const double px = to_px(x);
+            const double py = to_py(y);
+            const double dxp = px - target_px;
+            const double dyp = py - target_py;
+            const double dist2 = dxp * dxp + dyp * dyp;
+            if (dist2 < best_dist2) {
+                best_dist2 = dist2;
+                best_x = x;
+                best_y = y;
+                best_ci = static_cast<int>(c);
+            }
+        }
     }
-    dx = t[i];
     if (best_ci >= 0) {
-        dy = by;
+        dx = best_x;
+        dy = best_y;
         if (out_channel) *out_channel = best_ci;
         return true;
     }
@@ -4893,14 +5199,12 @@ void draw_button_with_colors(HDC dc, const RECT& r, const wchar_t* txt,
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, text_col);
     HFONT f = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-    SelectObject(dc, f);
-    SetTextAlign(dc, TA_CENTER | TA_TOP);
-    SIZE sz{};
-    GetTextExtentPoint32W(dc, txt, lstrlenW(txt), &sz);
-    int tx = (r.left + r.right) / 2;
-    int ty = r.top + (r.bottom - r.top - sz.cy) / 2;
-    if (pressed) { tx += 1; ty += 1; }
-    TextOutW(dc, tx, ty, txt, lstrlenW(txt));
+    HGDIOBJ old_font = SelectObject(dc, f);
+    RECT text_rect = { r.left + 6, r.top, r.right - 6, r.bottom };
+    if (pressed) OffsetRect(&text_rect, 0, 1);
+    DrawTextW(dc, txt, -1, &text_rect,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    SelectObject(dc, old_font);
 }
 
 void draw_welcome_action_button(HDC dc, const RECT& r, const wchar_t* txt,
@@ -6013,20 +6317,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
             g.side_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_FORMULA_EDIT, g.side_channel_controls);
+            g.side_channel_color = mk_panel_btn(side_channel_color_button_text(), IDC_SIDE_CHANNEL_COLOR, g.side_channel_controls);
             g.side_formula_apply_selected = mk_panel_btn(side_formula_apply_selected_text(), IDC_SIDE_FORMULA_APPLY_SELECTED, g.side_channel_controls);
             g.side_formula_apply_visible = mk_panel_btn(side_formula_apply_visible_text(), IDC_SIDE_FORMULA_APPLY_VISIBLE, g.side_channel_controls);
             g.side_formula_reset_selected = mk_panel_btn(side_formula_reset_selected_text(), IDC_SIDE_FORMULA_RESET_SELECTED, g.side_channel_controls);
             g.side_formula_reset_all = mk_panel_btn(side_formula_reset_all_text(), IDC_SIDE_FORMULA_RESET_ALL, g.side_channel_controls);
 
             const struct PointToggleSeed { int id; const wchar_t* text; bool on; } point_toggle_seeds[] = {
-                {IDC_SIDE_PT_NUM, g_str->pt_num, g.pdisp.number},
-                {IDC_SIDE_PT_X, g_str->pt_x, g.pdisp.x},
-                {IDC_SIDE_PT_Y, g_str->pt_y, g.pdisp.y},
-                {IDC_SIDE_PT_DX, g_str->pt_dx, g.pdisp.dx},
-                {IDC_SIDE_PT_DY, g_str->pt_dy, g.pdisp.dy},
-                {IDC_SIDE_PT_INVDT, g_str->pt_invdt, g.pdisp.inv_dt},
-                {IDC_SIDE_PT_DIST, g_str->pt_dist, g.pdisp.dist},
-                {IDC_SIDE_PT_SNAP, g_str->pt_snap, g.snap_to_data},
+                {IDC_SIDE_PT_NUM, side_pt_num_text(), g.pdisp.number},
+                {IDC_SIDE_PT_X, side_pt_x_text(), g.pdisp.x},
+                {IDC_SIDE_PT_Y, side_pt_y_text(), g.pdisp.y},
+                {IDC_SIDE_PT_DX, side_pt_dx_text(), g.pdisp.dx},
+                {IDC_SIDE_PT_DY, side_pt_dy_text(), g.pdisp.dy},
+                {IDC_SIDE_PT_INVDT, side_pt_invdt_text(), g.pdisp.inv_dt},
+                {IDC_SIDE_PT_DIST, side_pt_dist_text(), g.pdisp.dist},
+                {IDC_SIDE_PT_SNAP, side_pt_snap_text(), g.snap_to_data},
             };
             for (const auto& seed : point_toggle_seeds) {
                 HWND c = mk_panel_ctl(L"BUTTON", seed.text, BS_AUTOCHECKBOX, seed.id, g.side_point_controls);
@@ -6228,13 +6533,21 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_PLAY: toggle_play(); return 0;
                 case IDC_SHOW_ALL:
+                {
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     set_all_channels_visible(true);
+                    record_settings_change(before);
                     InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
+                }
                 case IDC_HIDE_ALL:
+                {
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     set_all_channels_visible(false);
+                    record_settings_change(before);
                     InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
+                }
                 case IDC_MEASURE:
                     g.measure_mode = !g.measure_mode;
                     if (g.measure_mode) g.pending_line = 0;
@@ -6268,6 +6581,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_SIDE_GLOBAL_FORMULA_APPLY: {
                     if (!has_data()) return 0;
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     std::wstring formula;
                     std::wstring error;
                     std::vector<FormulaToken> compiled;
@@ -6278,15 +6592,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         return 0;
                     }
                     assign_global_formula(formula, compiled);
-                    save_runtime_settings();
+                    on_signal_transform_changed(true);
+                    record_settings_change(before);
                     if (g.settings_wnd) refresh_settings_controls();
                     load_side_transform_controls();
-                    on_signal_transform_changed();
                     return 0;
                 }
+                case IDC_SIDE_CHANNEL_COLOR:
+                    if (g.side_selected_channel >= 0 &&
+                        g.side_selected_channel < static_cast<int>(g.ds.channel_count())) {
+                        CHOOSECOLORW cc = {};
+                        cc.lStructSize = sizeof(cc);
+                        cc.hwndOwner = hwnd;
+                        cc.lpCustColors = g_custom_colors;
+                        cc.rgbResult = channel_color(static_cast<std::size_t>(g.side_selected_channel));
+                        cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+                        if (ChooseColorW(&cc)) {
+                            const SettingsSnapshot before = capture_settings_snapshot();
+                            if (static_cast<std::size_t>(g.side_selected_channel) >= g_channel_colors.size()) {
+                                g_channel_colors.resize(g.ds.channel_count());
+                            }
+                            g_channel_colors[static_cast<std::size_t>(g.side_selected_channel)] = cc.rgbResult;
+                            record_settings_change(before);
+                            if (g.settings_wnd) refresh_settings_controls();
+                            refresh_side_panel_controls();
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                        }
+                    }
+                    return 0;
                 case IDC_SIDE_FORMULA_APPLY_SELECTED:
                 case IDC_SIDE_FORMULA_APPLY_VISIBLE: {
                     if (!has_data()) return 0;
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     std::wstring formula;
                     std::wstring error;
                     std::vector<FormulaToken> compiled;
@@ -6314,29 +6651,31 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     }
 
                     if (changed) {
-                        save_runtime_settings();
+                        on_signal_transform_changed(true);
+                        record_settings_change(before);
                         if (g.settings_wnd) refresh_settings_controls();
                         load_side_transform_controls();
-                        on_signal_transform_changed();
                     }
                     return 0;
                 }
                 case IDC_SIDE_FORMULA_RESET_SELECTED:
                     if (g.side_selected_channel >= 0) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         reset_channel_transform(static_cast<std::size_t>(g.side_selected_channel));
-                        save_runtime_settings();
+                        on_signal_transform_changed(true);
+                        record_settings_change(before);
                         if (g.settings_wnd) refresh_settings_controls();
                         load_side_transform_controls();
-                        on_signal_transform_changed();
                     }
                     return 0;
                 case IDC_SIDE_FORMULA_RESET_ALL:
                     if (has_data()) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         reset_all_channel_transforms();
-                        save_runtime_settings();
+                        on_signal_transform_changed(true);
+                        record_settings_change(before);
                         if (g.settings_wnd) refresh_settings_controls();
                         load_side_transform_controls();
-                        on_signal_transform_changed();
                     }
                     return 0;
                 case IDC_AUTOY:
@@ -6524,8 +6863,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_POINT_GROUP_VISIBLE: {
                     const int index = side_selected_point_group();
                     if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         const bool checked = SendMessageW(g.side_point_group_visible, BM_GETCHECK, 0, 0) == BST_CHECKED;
                         g.point_groups[static_cast<std::size_t>(index)].visible = checked;
+                        record_settings_change(before);
                         save_runtime_settings();
                         if (g.settings_wnd) refresh_settings_controls();
                         load_side_point_group_controls();
@@ -6534,19 +6875,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     }
                     return 0;
                 }
-                case IDC_SIDE_POINT_GROUP_NEW:
+                case IDC_SIDE_POINT_GROUP_NEW: {
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     create_point_group(g.marker_color);
+                    record_settings_change(before);
                     save_runtime_settings();
                     if (g.settings_wnd) refresh_settings_controls();
                     refresh_side_panel_controls();
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
+                }
                 case IDC_SIDE_POINT_GROUP_DELETE: {
                     const int index = side_selected_point_group();
                     if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         erase_point_group(static_cast<std::size_t>(index));
                         if (PointGroup* group = active_point_group()) g.marker_color = group->color;
+                        record_settings_change(before);
                         save_runtime_settings();
                         if (g.settings_wnd) refresh_settings_controls();
                         refresh_side_panel_controls();
@@ -6558,6 +6904,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_POINT_GROUP_RENAME: {
                     const int index = side_selected_point_group();
                     if (index >= 0 && index < static_cast<int>(g.point_groups.size()) && g.side_point_group_name) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         wchar_t buf[256]{};
                         GetWindowTextW(g.side_point_group_name, buf, 256);
                         std::wstring name = buf;
@@ -6565,6 +6912,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                             name = (g_str == &kEn) ? (L"Group " + std::to_wstring(index + 1)) : (L"Группа " + std::to_wstring(index + 1));
                         }
                         g.point_groups[static_cast<std::size_t>(index)].name = name;
+                        record_settings_change(before);
                         if (g.settings_wnd) refresh_settings_controls();
                         refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
@@ -6579,9 +6927,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     cc.rgbResult = g.marker_color;
                     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
                     if (ChooseColorW(&cc)) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         g.marker_color = cc.rgbResult;
                         PointGroup* group = active_point_group();
                         if (group && group->points.empty()) group->color = g.marker_color;
+                        record_settings_change(before);
                         save_runtime_settings();
                         if (g.settings_wnd) refresh_settings_controls();
                         refresh_side_panel_controls();
@@ -6599,9 +6949,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     cc.rgbResult = g.point_groups[static_cast<std::size_t>(index)].color;
                     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
                     if (ChooseColorW(&cc)) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
                         g.point_groups[static_cast<std::size_t>(index)].color = cc.rgbResult;
                         g.active_point_group = index;
                         g.marker_color = cc.rgbResult;
+                        record_settings_change(before);
                         save_runtime_settings();
                         if (g.settings_wnd) refresh_settings_controls();
                         refresh_side_panel_controls();
@@ -6617,6 +6969,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_PT_INVDT:
                 case IDC_SIDE_PT_DIST:
                 case IDC_SIDE_PT_SNAP: {
+                    const SettingsSnapshot before = capture_settings_snapshot();
                     auto checked = [&](int ctl_id) {
                         return SendMessageW(GetDlgItem(hwnd, ctl_id), BM_GETCHECK, 0, 0) == BST_CHECKED;
                     };
@@ -6628,6 +6981,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g.pdisp.inv_dt = checked(IDC_SIDE_PT_INVDT);
                     g.pdisp.dist = checked(IDC_SIDE_PT_DIST);
                     g.snap_to_data = checked(IDC_SIDE_PT_SNAP);
+                    record_settings_change(before);
                     save_runtime_settings();
                     if (g.settings_wnd) refresh_settings_controls();
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -6637,8 +6991,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
                 const int ci = id - IDC_CHAN_BASE;
+                const SettingsSnapshot before = capture_settings_snapshot();
                 g.side_selected_channel = ci;
                 g.visible[ci] = (SendMessageW(g.checks[ci], BM_GETCHECK, 0, 0) == BST_CHECKED);
+                record_settings_change(before);
                 load_side_transform_controls();
                 InvalidateRect(hwnd, nullptr, TRUE);
             } else if (id >= IDC_CHAN_LABEL_BASE &&
@@ -6733,18 +7089,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         const int ci = li.channel;
                         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
                             // Solo: show only this channel
+                            const SettingsSnapshot before = capture_settings_snapshot();
                             for (std::size_t j = 0; j < g.visible.size(); ++j) {
                                 g.visible[j] = (static_cast<int>(j) == ci);
                                 if (j < g.checks.size())
                                     SendMessageW(g.checks[j], BM_SETCHECK,
                                         g.visible[j] ? BST_CHECKED : BST_UNCHECKED, 0);
                             }
+                            record_settings_change(before);
                         } else {
                             // Toggle
+                            const SettingsSnapshot before = capture_settings_snapshot();
                             g.visible[ci] = !g.visible[ci];
                             if (ci < static_cast<int>(g.checks.size()))
                                 SendMessageW(g.checks[ci], BM_SETCHECK,
                                     g.visible[ci] ? BST_CHECKED : BST_UNCHECKED, 0);
+                            record_settings_change(before);
                         }
                         InvalidateRect(hwnd, nullptr, TRUE);
                         return 0;
@@ -6768,8 +7128,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         cc.rgbResult = channel_color(i);
                         cc.Flags = CC_FULLOPEN | CC_RGBINIT;
                         if (ChooseColorW(&cc)) {
+                            const SettingsSnapshot before = capture_settings_snapshot();
                             if (i >= g_channel_colors.size()) g_channel_colors.resize(g.ds.channel_count());
                             g_channel_colors[i] = cc.rgbResult;
+                            record_settings_change(before);
                             InvalidateRect(hwnd, nullptr, FALSE);
                         }
                         return 0;

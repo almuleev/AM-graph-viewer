@@ -35,6 +35,7 @@
 #include "build_version.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -123,6 +124,8 @@ enum {
     IDM_LANG_EN = 1601,
     IDM_MODE_TIME = 1700,
     IDM_MODE_FREQ,
+    IDW_LIGHT_MODE = 1800,
+    IDW_LIGHT_HINT,
 
     IDC_CHAN_BASE = 2000,
     IDC_CHAN_LABEL_BASE = 3000,
@@ -180,6 +183,8 @@ enum {
     IDC_SET_POINT_COLOR_CURRENT,
     IDC_SET_POINT_GROUP_COLOR,
     IDC_SET_POINT_GROUP_NEW,
+    IDC_SET_LIGHT_MODE = 5130,
+    IDC_SET_LIGHT_HINT,
 
     IDC_SET_GROUP_GENERAL = 5150,
     IDC_SET_GROUP_TRANSFORM,
@@ -304,6 +309,28 @@ struct NumericPromptState {
 
 NumericPromptState g_numeric_prompt;
 
+struct RangePromptState {
+    HWND wnd = nullptr;
+    HWND start_edit = nullptr;
+    HWND end_edit = nullptr;
+    bool done = false;
+    bool accepted = false;
+    double start_value = 0.0;
+    double end_value = 0.0;
+    double min_value = 0.0;
+    double max_value = 0.0;
+    std::wstring title;
+    std::wstring info_label;
+    std::wstring start_label;
+    std::wstring end_label;
+    std::wstring apply_text;
+    std::wstring cancel_text;
+    std::wstring invalid_start_text;
+    std::wstring invalid_end_text;
+};
+
+RangePromptState g_range_prompt;
+
 void update_theme_brushes() {
     if (g_panel_brush) DeleteObject(g_panel_brush);
     g_panel_brush = CreateSolidBrush(g_theme->bg_panel);
@@ -357,6 +384,10 @@ const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_le
 const int IDC_SPEED_PROMPT_EDIT = 6200;
 const int IDC_SPEED_PROMPT_OK = 6201;
 const int IDC_SPEED_PROMPT_CANCEL = 6202;
+const int IDC_RANGE_PROMPT_START_EDIT = 6203;
+const int IDC_RANGE_PROMPT_END_EDIT = 6204;
+const int IDC_RANGE_PROMPT_OK = 6205;
+const int IDC_RANGE_PROMPT_CANCEL = 6206;
 
 // ---- string table --------------------------------------------------------
 struct Strings {
@@ -386,7 +417,18 @@ struct Strings {
     const wchar_t* hover_open; const wchar_t* hover_png; const wchar_t* hover_csv; const wchar_t* hover_timehz; const wchar_t* hover_play; const wchar_t* hover_pause; const wchar_t* hover_measure; const wchar_t* hover_reset; const wchar_t* hover_autoy; const wchar_t* hover_settings;
     const wchar_t* lang_ru; const wchar_t* lang_en;
     const wchar_t* m_lang;
+    const wchar_t* light_mode;
+    const wchar_t* light_mode_hint;
+    const wchar_t* light_mode_status;
+    const wchar_t* light_mode_range_title;
+    const wchar_t* light_mode_range_start;
+    const wchar_t* light_mode_range_end;
+    const wchar_t* light_mode_range_apply;
+    const wchar_t* light_mode_range_invalid_start;
+    const wchar_t* light_mode_range_invalid_end;
     const wchar_t* msg_loading;
+    const wchar_t* msg_loading_light;
+    const wchar_t* msg_scanning_range;
     const wchar_t* msg_openprompt;
     const wchar_t* msg_delta_f;
     const wchar_t* msg_delta_t;
@@ -438,7 +480,18 @@ static const Strings kRu = {
     L"LVM Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
     L"Открыть файл…", L"Сохранить PNG", L"Сохранить CSV", L"Переключить Время / Гц", L"Воспроизведение", L"Пауза", L"Режим измерения точек", L"Сбросить вид", L"Авто масштабирование", L"Настройки точек",
     L"Русский", L"English", L"Язык",
-    L"Загрузка файла...\nПожалуйста, подождите",
+    L"Лёгкий режим",
+    L"После выбора файла запрашивает временной диапазон\r\nи открывает только этот фрагмент. Каналы скрыты.",
+    L"   |   Лёгкий режим: открыт только выбранный временной фрагмент",
+    L"Лёгкий режим: диапазон открытия",
+    L"С какой секунды открыть фрагмент:",
+    L"По какую секунду открыть фрагмент:",
+    L"Открыть фрагмент",
+    L"Введите конечное число не меньше 0, например 0, 1.5 или 12.",
+    L"Введите конечное число больше начального времени.",
+    L"Загрузка файла...\r\nПожалуйста, подождите",
+    L"Лёгкий режим: загрузка фрагмента...\r\nПожалуйста, подождите",
+    L"Лёгкий режим: сканирование диапазона времени...\r\nПожалуйста, подождите",
     L"Откройте файл .lvm или .txt (кнопка «Открыть файл» / клавиша O)",
     L"   |   Δf = %.5g Гц,  Δamp = %.4g",
     L"   |   Δt = %.6g c,  Δy = %.5g,  1/Δt = %.6g Гц",
@@ -490,7 +543,18 @@ static const Strings kEn = {
     L"LVM Viewer — LabVIEW signal viewer (.lvm / .txt)\n\nNative Win32 + GDI/GDI+ application, no external\ndependencies, no Qt. Time and spectrum (FFT), measurements\nwith snapping, guide lines, visual smoothing, PNG/CSV export.\n\nBuild: build_gui.ps1 (MinGW g++) or make gui.",
     L"Open file…", L"Save PNG", L"Save CSV", L"Toggle Time / Hz", L"Playback", L"Pause", L"Measurement point mode", L"Reset view", L"Auto zoom", L"Point settings",
     L"Русский", L"English", L"Language",
-    L"Loading file...\nPlease wait",
+    L"Light mode",
+    L"After file selection, asks for a time range\r\nand opens only that fragment. Channels start hidden.",
+    L"   |   Light mode: only the selected time fragment is open",
+    L"Light mode: open time range",
+    L"Open the fragment starting from this second:",
+    L"Open the fragment until this second:",
+    L"Open fragment",
+    L"Enter a finite number greater than or equal to 0, for example 0, 1.5, or 12.",
+    L"Enter a finite number greater than the start time.",
+    L"Loading file...\r\nPlease wait",
+    L"Light mode: loading fragment...\r\nPlease wait",
+    L"Light mode: scanning time range...\r\nPlease wait",
     L"Open a .lvm or .txt file (click «Open file» / press O)",
     L"   |   Δf = %.5g Hz,  Δamp = %.4g",
     L"   |   Δt = %.6g s,  Δy = %.5g,  1/Δt = %.6g Hz",
@@ -568,6 +632,18 @@ struct FormulaToken {
     double value = 0.0;
 };
 
+enum class TransformRuntimeKind : unsigned char {
+    Identity = 0,
+    Affine = 1,
+    CachedFormula = 2
+};
+
+struct AffineFormulaInfo {
+    bool valid = false;
+    double mul = 0.0;
+    double add = 0.0;
+};
+
 struct HotkeyBinding {
     int command = 0;
     BYTE fvirt = FVIRTKEY;
@@ -580,8 +656,20 @@ struct App {
     std::vector<std::wstring> channel_labels;  // user-editable display names
     std::wstring global_formula = L"x";
     std::vector<FormulaToken> global_formula_rpn;
+    bool global_formula_identity = true;
+    bool global_formula_affine = true;
+    double global_formula_mul = 1.0;
+    double global_formula_add = 0.0;
     std::vector<std::wstring> channel_formulas;
     std::vector<std::vector<FormulaToken>> channel_formula_rpn;
+    std::vector<char> channel_formula_identity;
+    std::vector<TransformRuntimeKind> channel_transform_kind;
+    std::vector<double> channel_transform_mul;
+    std::vector<double> channel_transform_add;
+    std::vector<std::vector<double>> transformed_channel_cache;
+    std::vector<char> transformed_channel_cache_valid;
+    bool has_non_identity_formula = false;
+    bool has_non_affine_formula = false;
     bool freq_mode = false;
 
     double data_t0 = 0.0, data_t1 = 1.0;
@@ -634,6 +722,10 @@ struct App {
     std::vector<Marker> markers;
     bool pending_marker = false;
     int active_marker = -1;
+    bool light_mode = false;
+    bool current_file_partial = false;
+    double light_mode_open_start = 0.0;
+    double light_mode_open_end = 10.0;
 
     std::wstring file_name;
     std::string last_error;
@@ -661,8 +753,13 @@ struct App {
     bool side_panel_visible = true;
     int side_panel_tab = 0; // 0 = channels, 1 = points
     int side_selected_channel = -1;
+    int side_scroll_y = 0;
+    int side_scroll_max = 0;
+    int side_content_height_channels = 0;
+    int side_content_height_points = 0;
     HWND side_tab_channels = nullptr;
     HWND side_tab_points = nullptr;
+    HWND side_scrollbar = nullptr;
     HWND side_channel_hint = nullptr;
     HWND side_global_formula_label = nullptr;
     HWND side_global_formula_edit = nullptr;
@@ -772,10 +869,16 @@ void refresh_settings_controls();
 void apply_side_panel_visibility();
 void set_side_panel_tab(int tab);
 int side_panel_width();
+void layout();
+void update_side_panel_scrollbar(int viewport_top, int content_height);
+bool side_panel_hit_test(const POINT& pt);
+void scroll_side_panel(int delta);
 void load_side_transform_controls();
 std::wstring format_edit_number(double value);
 COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
 void ensure_channel_formula_vectors();
+void invalidate_transformed_channel_cache();
+void ensure_transformed_channel_cache(std::size_t channel_index);
 void load_channel_formulas_from_ini();
 void finish_channel_rename(bool apply);
 void save_runtime_settings();
@@ -1086,62 +1189,201 @@ bool compile_formula_rpn(const std::wstring& raw_text, std::vector<FormulaToken>
     return !out.empty();
 }
 
-double eval_formula_rpn(const std::vector<FormulaToken>& rpn, double x) {
-    std::vector<double> stack;
+bool formula_rpn_is_identity(const std::vector<FormulaToken>& rpn) {
+    return rpn.size() == 1 && rpn[0].op == FormulaOp::Variable;
+}
+
+AffineFormulaInfo analyze_formula_rpn_affine(const std::vector<FormulaToken>& rpn) {
+    if (rpn.empty()) return {};
+
+    std::vector<AffineFormulaInfo> stack;
     stack.reserve(rpn.size());
-    auto pop1 = [&]() -> double {
-        if (stack.empty()) return std::numeric_limits<double>::quiet_NaN();
-        double v = stack.back();
+    auto is_constant = [](const AffineFormulaInfo& value) {
+        return value.valid && value.mul == 0.0;
+    };
+    auto push = [&](AffineFormulaInfo value) -> bool {
+        if (!value.valid) return false;
+        stack.push_back(value);
+        return true;
+    };
+    auto pop1 = [&]() -> AffineFormulaInfo {
+        if (stack.empty()) return {};
+        AffineFormulaInfo value = stack.back();
         stack.pop_back();
-        return v;
+        return value;
+    };
+    auto pop2 = [&](AffineFormulaInfo& a, AffineFormulaInfo& b) -> bool {
+        if (stack.size() < 2) return false;
+        b = stack.back();
+        stack.pop_back();
+        a = stack.back();
+        stack.pop_back();
+        return true;
+    };
+    auto push_constant_fn = [&](const AffineFormulaInfo& operand, double (*fn)(double)) -> bool {
+        return is_constant(operand) && push({true, 0.0, fn(operand.add)});
+    };
+
+    for (const auto& token : rpn) {
+        switch (token.op) {
+            case FormulaOp::Number:
+                if (!push({true, 0.0, token.value})) return {};
+                break;
+            case FormulaOp::Variable:
+                if (!push({true, 1.0, 0.0})) return {};
+                break;
+            case FormulaOp::Add: {
+                AffineFormulaInfo a, b;
+                if (!pop2(a, b) || !push({a.valid && b.valid, a.mul + b.mul, a.add + b.add})) return {};
+                break;
+            }
+            case FormulaOp::Sub: {
+                AffineFormulaInfo a, b;
+                if (!pop2(a, b) || !push({a.valid && b.valid, a.mul - b.mul, a.add - b.add})) return {};
+                break;
+            }
+            case FormulaOp::Neg: {
+                AffineFormulaInfo v = pop1();
+                if (!push({v.valid, -v.mul, -v.add})) return {};
+                break;
+            }
+            case FormulaOp::Mul: {
+                AffineFormulaInfo a, b;
+                if (!pop2(a, b)) return {};
+                if (is_constant(a) && b.valid) {
+                    if (!push({true, a.add * b.mul, a.add * b.add})) return {};
+                } else if (is_constant(b) && a.valid) {
+                    if (!push({true, b.add * a.mul, b.add * a.add})) return {};
+                } else {
+                    return {};
+                }
+                break;
+            }
+            case FormulaOp::Div: {
+                AffineFormulaInfo a, b;
+                if (!pop2(a, b) || !a.valid || !is_constant(b)) return {};
+                const double denom = b.add;
+                const double inv = (denom == 0.0) ? std::numeric_limits<double>::quiet_NaN() : (1.0 / denom);
+                if (!push({true, a.mul * inv, a.add * inv})) return {};
+                break;
+            }
+            case FormulaOp::FuncAbs: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) { return std::fabs(x); })) return {};
+                break;
+            }
+            case FormulaOp::FuncSqrt: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) {
+                    return x < 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(x);
+                })) return {};
+                break;
+            }
+            case FormulaOp::FuncSin: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) { return std::sin(x); })) return {};
+                break;
+            }
+            case FormulaOp::FuncCos: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) { return std::cos(x); })) return {};
+                break;
+            }
+            case FormulaOp::FuncTan: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) { return std::tan(x); })) return {};
+                break;
+            }
+            case FormulaOp::FuncLog: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) {
+                    return x <= 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::log(x);
+                })) return {};
+                break;
+            }
+            case FormulaOp::FuncExp: {
+                AffineFormulaInfo v = pop1();
+                if (!push_constant_fn(v, [](double x) { return std::exp(x); })) return {};
+                break;
+            }
+        }
+    }
+
+    return stack.size() == 1 ? stack.back() : AffineFormulaInfo{};
+}
+
+double eval_formula_rpn(const std::vector<FormulaToken>& rpn, double x) {
+    if (rpn.empty()) return std::numeric_limits<double>::quiet_NaN();
+    if (formula_rpn_is_identity(rpn)) return x;
+
+    constexpr std::size_t kInlineStackCap = 32;
+    std::array<double, kInlineStackCap> inline_stack{};
+    std::vector<double> heap_stack;
+    double* stack = inline_stack.data();
+    std::size_t capacity = kInlineStackCap;
+    if (rpn.size() > kInlineStackCap) {
+        heap_stack.resize(rpn.size());
+        stack = heap_stack.data();
+        capacity = heap_stack.size();
+    }
+
+    std::size_t sp = 0;
+    auto push = [&](double v) -> bool {
+        if (sp >= capacity) return false;
+        stack[sp++] = v;
+        return true;
+    };
+    auto pop1 = [&]() -> double {
+        if (sp == 0) return std::numeric_limits<double>::quiet_NaN();
+        return stack[--sp];
     };
     auto pop2 = [&](double& a, double& b) -> bool {
-        if (stack.size() < 2) return false;
-        b = stack.back(); stack.pop_back();
-        a = stack.back(); stack.pop_back();
+        if (sp < 2) return false;
+        b = stack[--sp];
+        a = stack[--sp];
         return true;
     };
 
     for (const auto& token : rpn) {
         switch (token.op) {
-            case FormulaOp::Number: stack.push_back(token.value); break;
-            case FormulaOp::Variable: stack.push_back(x); break;
+            case FormulaOp::Number: if (!push(token.value)) return std::numeric_limits<double>::quiet_NaN(); break;
+            case FormulaOp::Variable: if (!push(x)) return std::numeric_limits<double>::quiet_NaN(); break;
             case FormulaOp::Add: {
                 double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
-                stack.push_back(a + b); break;
+                if (!push(a + b)) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::Sub: {
                 double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
-                stack.push_back(a - b); break;
+                if (!push(a - b)) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::Mul: {
                 double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
-                stack.push_back(a * b); break;
+                if (!push(a * b)) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::Div: {
                 double a, b; if (!pop2(a, b)) return std::numeric_limits<double>::quiet_NaN();
-                stack.push_back(b == 0.0 ? std::numeric_limits<double>::quiet_NaN() : (a / b)); break;
+                if (!push(b == 0.0 ? std::numeric_limits<double>::quiet_NaN() : (a / b))) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::Neg: {
                 double v = pop1(); if (!std::isfinite(v) && !std::isnan(v)) return std::numeric_limits<double>::quiet_NaN();
-                stack.push_back(-v); break;
+                if (!push(-v)) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::FuncAbs: {
-                double v = pop1(); stack.push_back(std::fabs(v)); break;
+                double v = pop1(); if (!push(std::fabs(v))) return std::numeric_limits<double>::quiet_NaN(); break;
             }
             case FormulaOp::FuncSqrt: {
-                double v = pop1(); stack.push_back(v < 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(v)); break;
+                double v = pop1(); if (!push(v < 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(v))) return std::numeric_limits<double>::quiet_NaN(); break;
             }
-            case FormulaOp::FuncSin: { double v = pop1(); stack.push_back(std::sin(v)); break; }
-            case FormulaOp::FuncCos: { double v = pop1(); stack.push_back(std::cos(v)); break; }
-            case FormulaOp::FuncTan: { double v = pop1(); stack.push_back(std::tan(v)); break; }
+            case FormulaOp::FuncSin: { double v = pop1(); if (!push(std::sin(v))) return std::numeric_limits<double>::quiet_NaN(); break; }
+            case FormulaOp::FuncCos: { double v = pop1(); if (!push(std::cos(v))) return std::numeric_limits<double>::quiet_NaN(); break; }
+            case FormulaOp::FuncTan: { double v = pop1(); if (!push(std::tan(v))) return std::numeric_limits<double>::quiet_NaN(); break; }
             case FormulaOp::FuncLog: {
-                double v = pop1(); stack.push_back(v <= 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::log(v)); break;
+                double v = pop1(); if (!push(v <= 0.0 ? std::numeric_limits<double>::quiet_NaN() : std::log(v))) return std::numeric_limits<double>::quiet_NaN(); break;
             }
-            case FormulaOp::FuncExp: { double v = pop1(); stack.push_back(std::exp(v)); break; }
+            case FormulaOp::FuncExp: { double v = pop1(); if (!push(std::exp(v))) return std::numeric_limits<double>::quiet_NaN(); break; }
         }
     }
-    return stack.size() == 1 ? stack.back() : std::numeric_limits<double>::quiet_NaN();
+    return sp == 1 ? stack[0] : std::numeric_limits<double>::quiet_NaN();
 }
 
 void normalize_active_point_group() {
@@ -1395,6 +1637,7 @@ void rebuild_formula_cache_from_state() {
     g.global_formula_rpn.clear();
     g.channel_formula_rpn.assign(g.channel_formulas.size(), {});
     ensure_channel_formula_vectors();
+    invalidate_transformed_channel_cache();
 }
 
 void recompute_transforms_from_state() {
@@ -1709,6 +1952,7 @@ void set_status() {
         } else if (has_fft_window()) {
             s += fft_window_status(g.fft_window_start, g.fft_window_end, true);
         }
+        if (g.current_file_partial) s += g_str->light_mode_status;
     }
     if (has_data()) {
         std::size_t nlines = 0;
@@ -1760,13 +2004,40 @@ bool build_time_window_dataset(const lvm::Dataset& in, double start, double end,
     out.names = in.names;
     out.channels.resize(in.channels.size());
     ensure_channel_formula_vectors();
-    for (std::size_t r = 0; r < in.time.size(); ++r) {
-        const double t = in.time[r];
-        if (t < start || t > end) continue;
-        out.time.push_back(t);
-        for (std::size_t c = 0; c < in.channels.size(); ++c) {
-            out.channels[c].push_back(transform_channel_value(c, in.channels[c][r]));
+    if (in.time.empty()) return true;
+
+    const std::size_t lo = static_cast<std::size_t>(
+        std::lower_bound(in.time.begin(), in.time.end(), start) - in.time.begin());
+    const std::size_t hi = static_cast<std::size_t>(
+        std::upper_bound(in.time.begin(), in.time.end(), end) - in.time.begin());
+    if (lo >= hi) return true;
+
+    out.time.assign(in.time.begin() + static_cast<std::ptrdiff_t>(lo),
+                    in.time.begin() + static_cast<std::ptrdiff_t>(hi));
+    for (std::size_t c = 0; c < in.channels.size(); ++c) {
+        out.channels[c].reserve(hi - lo);
+        const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
+            ? g.channel_transform_kind[c]
+            : TransformRuntimeKind::Identity;
+        if (kind == TransformRuntimeKind::Identity) {
+            out.channels[c].insert(out.channels[c].end(),
+                                   in.channels[c].begin() + static_cast<std::ptrdiff_t>(lo),
+                                   in.channels[c].begin() + static_cast<std::ptrdiff_t>(hi));
+            continue;
         }
+        if (kind == TransformRuntimeKind::Affine) {
+            const double mul = g.channel_transform_mul[c];
+            const double add = g.channel_transform_add[c];
+            for (std::size_t r = lo; r < hi; ++r) {
+                out.channels[c].push_back(in.channels[c][r] * mul + add);
+            }
+            continue;
+        }
+        ensure_transformed_channel_cache(c);
+        const auto& cache = g.transformed_channel_cache[c];
+        out.channels[c].insert(out.channels[c].end(),
+                               cache.begin() + static_cast<std::ptrdiff_t>(lo),
+                               cache.begin() + static_cast<std::ptrdiff_t>(hi));
     }
     return true;
 }
@@ -2006,6 +2277,52 @@ void populate_side_point_group_list() {
     load_side_point_group_controls();
 }
 
+bool side_panel_hit_test(const POINT& pt) {
+    if (!g.side_panel_visible || welcome_visible()) return false;
+    RECT rc{};
+    GetClientRect(g.main, &rc);
+    const int panel_left = rc.right - side_panel_width();
+    return pt.x >= panel_left && pt.x <= rc.right && pt.y >= kTopBar && pt.y <= rc.bottom - kBottomBar;
+}
+
+void update_side_panel_scrollbar(int viewport_top, int content_height) {
+    g.side_content_height_channels = max(g.side_content_height_channels, 0);
+    g.side_content_height_points = max(g.side_content_height_points, 0);
+    RECT rc{};
+    GetClientRect(g.main, &rc);
+    const int viewport_bottom = rc.bottom - kBottomBar - 6;
+    const int viewport_height = max(0, viewport_bottom - viewport_top);
+    g.side_scroll_max = max(0, content_height - viewport_height);
+    if (g.side_scroll_y > g.side_scroll_max) g.side_scroll_y = g.side_scroll_max;
+    if (g.side_scroll_y < 0) g.side_scroll_y = 0;
+    if (!g.side_scrollbar) return;
+
+    if (!g.side_panel_visible || welcome_visible() || g.side_scroll_max <= 0) {
+        ShowWindow(g.side_scrollbar, SW_HIDE);
+        SetScrollPos(g.side_scrollbar, SB_CTL, 0, TRUE);
+        return;
+    }
+
+    SCROLLINFO si{};
+    si.cbSize = sizeof(si);
+    si.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+    si.nMin = 0;
+    si.nMax = content_height > 0 ? content_height - 1 : 0;
+    si.nPage = static_cast<UINT>(viewport_height);
+    si.nPos = g.side_scroll_y;
+    SetScrollInfo(g.side_scrollbar, SB_CTL, &si, TRUE);
+    ShowWindow(g.side_scrollbar, SW_SHOW);
+}
+
+void scroll_side_panel(int delta) {
+    if (delta == 0 || g.side_scroll_max <= 0) return;
+    const int next = std::clamp(g.side_scroll_y + delta, 0, g.side_scroll_max);
+    if (next == g.side_scroll_y) return;
+    g.side_scroll_y = next;
+    layout();
+    InvalidateRect(g.main, nullptr, FALSE);
+}
+
 void set_side_panel_tab(int tab) {
     g.side_panel_tab = (tab == 1) ? 1 : 0;
     const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
@@ -2025,6 +2342,7 @@ void apply_side_panel_visibility() {
     const bool show = g.side_panel_visible && !welcome_visible();
     if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show ? SW_SHOW : SW_HIDE);
     if (g.side_tab_points) ShowWindow(g.side_tab_points, show ? SW_SHOW : SW_HIDE);
+    if (!show && g.side_scrollbar) ShowWindow(g.side_scrollbar, SW_HIDE);
     set_side_panel_tab(g.side_panel_tab);
 }
 
@@ -2108,57 +2426,92 @@ void layout() {
     const int panel_w = side_panel_width();
     const int panel_left = cw - panel_w;
     const int panel_x = panel_left + 12;
+    const int viewport_bottom = ch - kBottomBar - 6;
+    const int channels_viewport_top = kTopBar + 78;
+    const int points_viewport_top = kTopBar + 48;
 
     MoveWindow(g.show_all_btn, panel_x, kTopBar + 42, 86, 28, TRUE);
     MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, TRUE);
     if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, 132, 28, TRUE);
     if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + 136, kTopBar + 8, 132, 28, TRUE);
+    apply_side_panel_visibility();
+
+    const int channels_content_estimate =
+        122 + static_cast<int>(g.checks.size()) * 26 + 8 + 20 + 24 + 26 + 32 + 28 + 34 + 28 + 34 + 28;
+    const int points_content_estimate = 390;
+    const int active_viewport_top = (g.side_panel_tab == 0) ? channels_viewport_top : points_viewport_top;
+    const int active_content_estimate = (g.side_panel_tab == 0) ? channels_content_estimate : points_content_estimate;
+    const int viewport_height = max(0, viewport_bottom - active_viewport_top);
+    const int scroll_w = GetSystemMetrics(SM_CXVSCROLL);
+    const bool need_scroll = g.side_panel_visible && !welcome_visible() && active_content_estimate > viewport_height;
+    const int content_w = max(60, panel_w - 12 - (need_scroll ? (scroll_w + 6) : 0));
+    const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
+
+    if (g.side_scrollbar) {
+        MoveWindow(g.side_scrollbar, panel_left + panel_w - scroll_w, active_viewport_top,
+                   scroll_w, viewport_height, TRUE);
+    }
+
+    auto place_scrolled = [&](HWND ctl, int x0, int y_rel, int w, int h, int viewport_top, bool visible_in_tab) {
+        if (!ctl) return;
+        const int y_abs = viewport_top + y_rel - g.side_scroll_y;
+        const bool visible = visible_in_tab && y_abs + h > viewport_top && y_abs < viewport_bottom;
+        ShowWindow(ctl, visible ? SW_SHOW : SW_HIDE);
+        if (visible) MoveWindow(ctl, x0, y_abs, max(1, w), max(1, h), TRUE);
+    };
+
     if (g.side_channel_hint) ShowWindow(g.side_channel_hint, SW_HIDE);
-    int controls_y = kTopBar + 78;
-    if (g.side_global_formula_label) MoveWindow(g.side_global_formula_label, panel_x, controls_y, panel_w - 12, 20, TRUE);
-    controls_y += 24;
-    if (g.side_global_formula_edit) MoveWindow(g.side_global_formula_edit, panel_x, controls_y, panel_w - 12, 26, TRUE);
-    controls_y += 32;
-    if (g.side_global_formula_apply) MoveWindow(g.side_global_formula_apply, panel_x, controls_y, panel_w - 12, 28, TRUE);
-    int y = controls_y + 38;
+    int y = 0;
+    place_scrolled(g.side_global_formula_label, panel_x, y, content_w, 20, channels_viewport_top, show_channels);
+    y += 24;
+    place_scrolled(g.side_global_formula_edit, panel_x, y, content_w, 26, channels_viewport_top, show_channels);
+    y += 32;
+    place_scrolled(g.side_global_formula_apply, panel_x, y, content_w, 28, channels_viewport_top, show_channels);
+    y += 38;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
-        MoveWindow(g.checks[i], panel_x, y + 2, 18, 20, TRUE);
+        place_scrolled(g.checks[i], panel_x, y + 2, 18, 20, channels_viewport_top, show_channels);
         if (i < g.check_labels.size()) {
-            MoveWindow(g.check_labels[i], panel_x + 24, y, max(60, panel_w - 24 - 32), 24, TRUE);
+            place_scrolled(g.check_labels[i], panel_x + 24, y, max(60, content_w - 28), 24, channels_viewport_top, show_channels);
         }
         y += 26;
     }
     if (g.channel_edit && g.editing_channel >= 0 && g.editing_channel < static_cast<int>(g.check_labels.size())) {
-        RECT r;
-        GetWindowRect(g.check_labels[g.editing_channel], &r);
-        MapWindowPoints(nullptr, g.main, reinterpret_cast<LPPOINT>(&r), 2);
-        MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
+        const bool edit_visible = show_channels && IsWindowVisible(g.check_labels[g.editing_channel]) != FALSE;
+        ShowWindow(g.channel_edit, edit_visible ? SW_SHOW : SW_HIDE);
+        if (edit_visible) {
+            RECT r;
+            GetWindowRect(g.check_labels[g.editing_channel], &r);
+            MapWindowPoints(nullptr, g.main, reinterpret_cast<LPPOINT>(&r), 2);
+            MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, TRUE);
+        }
     }
 
     if (g.side_formula_edit && g.side_channel_color && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
-        int cy = max(y + 8, kTopBar + 136);
-        if (g.side_channel_formula_label) MoveWindow(g.side_channel_formula_label, panel_x, cy, panel_w - 12, 20, TRUE);
+        int cy = y + 8;
+        place_scrolled(g.side_channel_formula_label, panel_x, cy, content_w, 20, channels_viewport_top, show_channels);
         cy += 24;
-        MoveWindow(g.side_formula_edit, panel_x, cy, panel_w - 12, 26, TRUE);
+        place_scrolled(g.side_formula_edit, panel_x, cy, content_w, 26, channels_viewport_top, show_channels);
         cy += 32;
-        MoveWindow(g.side_channel_color, panel_x, cy, panel_w - 12, 28, TRUE);
+        place_scrolled(g.side_channel_color, panel_x, cy, content_w, 28, channels_viewport_top, show_channels);
         cy += 34;
-        const int button_w = max(80, (panel_w - 18) / 2);
-        MoveWindow(g.side_formula_apply_selected, panel_x, cy, button_w, 28, TRUE);
-        MoveWindow(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, TRUE);
+        const int button_w = max(80, (content_w - 6) / 2);
+        place_scrolled(g.side_formula_apply_selected, panel_x, cy, button_w, 28, channels_viewport_top, show_channels);
+        place_scrolled(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, channels_viewport_top, show_channels);
         cy += 34;
-        MoveWindow(g.side_formula_reset_selected, panel_x, cy, button_w, 28, TRUE);
-        MoveWindow(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, TRUE);
+        place_scrolled(g.side_formula_reset_selected, panel_x, cy, button_w, 28, channels_viewport_top, show_channels);
+        place_scrolled(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, channels_viewport_top, show_channels);
+        g.side_content_height_channels = cy + 28;
     }
 
     const int points_left = panel_x;
     const int col_gap = 6;
-    const int checkbox_col_w = max(110, (panel_w - 24 - col_gap) / 2);
+    const int checkbox_col_w = max(110, (content_w - col_gap) / 2);
     const int checkbox_col2_x = points_left + checkbox_col_w + col_gap;
-    int py = kTopBar + 48;
+    int py = 0;
     auto place_side = [&](int id, int x0, int y0, int w, int h) {
         HWND ctl = GetDlgItem(g.main, id);
-        if (ctl) MoveWindow(ctl, x0, y0, w, h, TRUE);
+        place_scrolled(ctl, x0, y0, w, h, points_viewport_top, show_points);
     };
     place_side(IDC_SIDE_PT_NUM, points_left, py, checkbox_col_w, 22);
     place_side(IDC_SIDE_PT_X, checkbox_col2_x, py, checkbox_col_w, 22);
@@ -2172,25 +2525,27 @@ void layout() {
     place_side(IDC_SIDE_PT_DIST, points_left, py, checkbox_col_w, 22);
     place_side(IDC_SIDE_PT_SNAP, checkbox_col2_x, py, checkbox_col_w, 22);
     py += 30;
-    place_side(IDC_SIDE_POINT_COLOR_CURRENT, points_left, py, panel_w - 24, 28);
+    place_side(IDC_SIDE_POINT_COLOR_CURRENT, points_left, py, content_w, 28);
     py += 38;
-    if (g.side_point_label_groups) MoveWindow(g.side_point_label_groups, points_left, py, panel_w - 24, 20, TRUE);
+    place_scrolled(g.side_point_label_groups, points_left, py, content_w, 20, points_viewport_top, show_points);
     py += 24;
-    if (g.side_point_group_list) MoveWindow(g.side_point_group_list, points_left, py, panel_w - 24, 122, TRUE);
+    place_scrolled(g.side_point_group_list, points_left, py, content_w, 122, points_viewport_top, show_points);
     py += 130;
-    if (g.side_point_group_visible) MoveWindow(g.side_point_group_visible, points_left, py, panel_w - 24, 22, TRUE);
+    place_scrolled(g.side_point_group_visible, points_left, py, content_w, 22, points_viewport_top, show_points);
     py += 30;
-    if (g.side_point_group_color) MoveWindow(g.side_point_group_color, points_left, py, panel_w - 24, 28, TRUE);
+    place_scrolled(g.side_point_group_color, points_left, py, content_w, 28, points_viewport_top, show_points);
     py += 36;
-    if (g.side_point_group_name) MoveWindow(g.side_point_group_name, points_left, py, panel_w - 24, 24, TRUE);
+    place_scrolled(g.side_point_group_name, points_left, py, content_w, 24, points_viewport_top, show_points);
     py += 30;
-    if (g.side_point_group_rename) MoveWindow(g.side_point_group_rename, points_left, py, panel_w - 24, 28, TRUE);
+    place_scrolled(g.side_point_group_rename, points_left, py, content_w, 28, points_viewport_top, show_points);
     py += 36;
-    if (g.side_point_group_new) MoveWindow(g.side_point_group_new, points_left, py, (panel_w - 30) / 2, 28, TRUE);
-    if (g.side_point_group_delete) MoveWindow(g.side_point_group_delete, points_left + (panel_w - 30) / 2 + 6, py, (panel_w - 30) / 2, 28, TRUE);
+    if (g.side_point_group_new) place_scrolled(g.side_point_group_new, points_left, py, (content_w - 6) / 2, 28, points_viewport_top, show_points);
+    if (g.side_point_group_delete) place_scrolled(g.side_point_group_delete, points_left + (content_w - 6) / 2 + 6, py, (content_w - 6) / 2, 28, points_viewport_top, show_points);
+    g.side_content_height_points = py + 28;
+
+    update_side_panel_scrollbar(active_viewport_top, g.side_panel_tab == 0 ? g.side_content_height_channels : g.side_content_height_points);
 
     MoveWindow(g.status, 8, ch - kBottomBar + 4, cw - 16, 20, TRUE);
-    apply_side_panel_visibility();
 }
 
 RECT plot_rect() {
@@ -2248,10 +2603,18 @@ void refresh_side_panel_controls();
 void apply_side_panel_visibility();
 void set_side_panel_tab(int tab);
 int side_panel_width();
+void layout();
+void update_side_panel_scrollbar(int viewport_top, int content_height);
+bool side_panel_hit_test(const POINT& pt);
+void scroll_side_panel(int delta);
 HMENU make_menu();
 std::wstring hotkey_text_for_command(int command);
 std::wstring format_edit_number(double value);
 bool parse_wide_double_text(const wchar_t* text, double& out);
+bool prompt_numeric_value(const wchar_t* title, const wchar_t* label,
+                          const wchar_t* apply_text, const wchar_t* cancel_text,
+                          const wchar_t* invalid_text, double initial_value,
+                          bool positive_only, double& out_value);
 void fill_rounded_rect(HDC dc, const RECT& r, COLORREF fill, COLORREF border, int radius);
 void load_runtime_settings();
 void save_runtime_settings();
@@ -2337,25 +2700,25 @@ LRESULT CALLBACK NumericPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CREATE: {
             HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             CreateWindowExW(0, L"STATIC", g_numeric_prompt.label.c_str(),
-                            WS_CHILD | WS_VISIBLE | SS_LEFT,
-                            16, 16, 320, 20, hwnd, nullptr,
+                            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+                            16, 16, 336, 44, hwnd, nullptr,
                             reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             g_numeric_prompt.edit = CreateWindowExW(
                 WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_numeric_prompt.value).c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                16, 44, 320, 24, hwnd,
+                16, 66, 336, 24, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_EDIT)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", g_numeric_prompt.apply_text.c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                86, 82, 116, 28, hwnd,
+                102, 104, 116, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_OK)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             HWND cancel = CreateWindowExW(
                 0, L"BUTTON", g_numeric_prompt.cancel_text.c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                214, 82, 122, 28, hwnd,
+                230, 104, 122, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_CANCEL)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             if (g_numeric_prompt.edit) SendMessageW(g_numeric_prompt.edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
@@ -2440,6 +2803,139 @@ LRESULT CALLBACK NumericPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_CREATE: {
+            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            auto mkstatic = [&](const std::wstring& text, int x, int y, int w, int h) {
+                HWND ctl = CreateWindowExW(0, L"STATIC", text.c_str(),
+                                           WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
+                                           x, y, w, h, hwnd, nullptr,
+                                           reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                return ctl;
+            };
+            mkstatic(g_range_prompt.info_label, 16, 14, 388, 38);
+            mkstatic(g_range_prompt.start_label, 16, 60, 388, 18);
+            g_range_prompt.start_edit = CreateWindowExW(
+                WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_range_prompt.start_value).c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                16, 82, 388, 24, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_START_EDIT)),
+                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            mkstatic(g_range_prompt.end_label, 16, 116, 388, 18);
+            g_range_prompt.end_edit = CreateWindowExW(
+                WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_range_prompt.end_value).c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                16, 138, 388, 24, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_END_EDIT)),
+                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            HWND ok = CreateWindowExW(
+                0, L"BUTTON", g_range_prompt.apply_text.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                154, 178, 122, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_OK)),
+                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            HWND cancel = CreateWindowExW(
+                0, L"BUTTON", g_range_prompt.cancel_text.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                286, 178, 118, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_CANCEL)),
+                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            if (g_range_prompt.start_edit) SendMessageW(g_range_prompt.start_edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            if (g_range_prompt.end_edit) SendMessageW(g_range_prompt.end_edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            if (ok) SendMessageW(ok, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            if (cancel) SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            return 0;
+        }
+        case WM_COMMAND:
+            switch (LOWORD(wp)) {
+                case IDC_RANGE_PROMPT_OK: {
+                    double start = 0.0, end = 0.0;
+                    wchar_t buf_start[128]{}, buf_end[128]{};
+                    if (g_range_prompt.start_edit) GetWindowTextW(g_range_prompt.start_edit, buf_start, 128);
+                    if (g_range_prompt.end_edit) GetWindowTextW(g_range_prompt.end_edit, buf_end, 128);
+                    const bool start_valid = parse_wide_double_text(buf_start, start) &&
+                                             std::isfinite(start) &&
+                                             start >= g_range_prompt.min_value &&
+                                             start < g_range_prompt.max_value;
+                    if (!start_valid) {
+                        MessageBoxW(hwnd, g_range_prompt.invalid_start_text.c_str(), g_range_prompt.title.c_str(), MB_OK | MB_ICONWARNING);
+                        if (g_range_prompt.start_edit) SetFocus(g_range_prompt.start_edit);
+                        return 0;
+                    }
+                    const bool end_valid = parse_wide_double_text(buf_end, end) &&
+                                           std::isfinite(end) &&
+                                           end > start &&
+                                           end <= g_range_prompt.max_value;
+                    if (!end_valid) {
+                        MessageBoxW(hwnd, g_range_prompt.invalid_end_text.c_str(), g_range_prompt.title.c_str(), MB_OK | MB_ICONWARNING);
+                        if (g_range_prompt.end_edit) SetFocus(g_range_prompt.end_edit);
+                        return 0;
+                    }
+                    g_range_prompt.start_value = start;
+                    g_range_prompt.end_value = end;
+                    g_range_prompt.accepted = true;
+                    DestroyWindow(hwnd);
+                    return 0;
+                }
+                case IDC_RANGE_PROMPT_CANCEL:
+                    DestroyWindow(hwnd);
+                    return 0;
+            }
+            break;
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+        case WM_ERASEBKGND: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            RECT rc{};
+            GetClientRect(hwnd, &rc);
+            HBRUSH b = CreateSolidBrush(g_theme->bg_panel);
+            FillRect(dc, &rc, b);
+            DeleteObject(b);
+            return 1;
+        }
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLORBTN: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, g_theme->text_primary);
+            return reinterpret_cast<LRESULT>(g_panel_brush);
+        }
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+            if (!dis || !dis->hwndItem) break;
+            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
+            wchar_t txt[128]{};
+            GetWindowTextW(dis->hwndItem, txt, 128);
+            const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+            if (ctl_id == IDC_RANGE_PROMPT_OK) {
+                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, true, false);
+                return TRUE;
+            }
+            if (ctl_id == IDC_RANGE_PROMPT_CANCEL) {
+                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetBkColor(dc, g_theme->bg_panel);
+            SetTextColor(dc, g_theme->text_primary);
+            return reinterpret_cast<LRESULT>(g_panel_brush);
+        }
+        case WM_DESTROY:
+            g_range_prompt.done = true;
+            g_range_prompt.wnd = nullptr;
+            g_range_prompt.start_edit = nullptr;
+            g_range_prompt.end_edit = nullptr;
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
 bool prompt_numeric_value(const wchar_t* title, const wchar_t* label,
                           const wchar_t* apply_text, const wchar_t* cancel_text,
                           const wchar_t* invalid_text, double initial_value,
@@ -2469,7 +2965,7 @@ bool prompt_numeric_value(const wchar_t* title, const wchar_t* label,
         L"LvmNumericPrompt",
         g_numeric_prompt.title.c_str(),
         WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 368, 150,
+        CW_USEDEFAULT, CW_USEDEFAULT, 384, 172,
         g.main, nullptr,
         reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
         nullptr);
@@ -2501,6 +2997,82 @@ bool prompt_numeric_value(const wchar_t* title, const wchar_t* label,
     SetForegroundWindow(g.main);
     if (!g_numeric_prompt.accepted) return false;
     out_value = g_numeric_prompt.value;
+    return true;
+}
+
+bool prompt_light_mode_window(double range_start, double range_end, double& out_start, double& out_end) {
+    static ATOM atom = 0;
+    if (!atom) {
+        WNDCLASSEXW wc = { sizeof(wc) };
+        wc.lpfnWndProc = RangePromptProc;
+        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = nullptr;
+        wc.lpszClassName = L"LvmRangePrompt";
+        atom = RegisterClassExW(&wc);
+    }
+
+    const bool en = (g_str == &kEn);
+    g_range_prompt.done = false;
+    g_range_prompt.accepted = false;
+    g_range_prompt.min_value = range_start;
+    g_range_prompt.max_value = range_end;
+    g_range_prompt.start_value = std::clamp(g.light_mode_open_start, range_start, range_end);
+    g_range_prompt.end_value = std::clamp(g.light_mode_open_end, g_range_prompt.start_value + 1e-9, range_end);
+    if (g_range_prompt.end_value <= g_range_prompt.start_value) {
+        g_range_prompt.end_value = std::min(range_end, g_range_prompt.start_value + 10.0);
+    }
+    g_range_prompt.title = g_str->light_mode_range_title;
+    g_range_prompt.info_label = (en ? L"Available range: " : L"Доступный диапазон: ") +
+                                format_edit_number(range_start) + L" .. " +
+                                format_edit_number(range_end) + (en ? L" s" : L" c");
+    g_range_prompt.start_label = g_str->light_mode_range_start;
+    g_range_prompt.end_label = g_str->light_mode_range_end;
+    g_range_prompt.apply_text = g_str->light_mode_range_apply;
+    g_range_prompt.cancel_text = speed_prompt_cancel_text();
+    g_range_prompt.invalid_start_text = g_str->light_mode_range_invalid_start;
+    g_range_prompt.invalid_end_text = g_str->light_mode_range_invalid_end;
+    g_range_prompt.wnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
+        L"LvmRangePrompt",
+        g_range_prompt.title.c_str(),
+        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 430, 246,
+        g.main, nullptr,
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
+        nullptr);
+    if (!g_range_prompt.wnd) return false;
+
+    RECT mr{}, wr{};
+    GetWindowRect(g.main, &mr);
+    GetWindowRect(g_range_prompt.wnd, &wr);
+    SetWindowPos(
+        g_range_prompt.wnd, HWND_TOP,
+        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
+        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
+        0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+    EnableWindow(g.main, FALSE);
+    if (g_range_prompt.start_edit) {
+        SetFocus(g_range_prompt.start_edit);
+        SendMessageW(g_range_prompt.start_edit, EM_SETSEL, 0, -1);
+    }
+
+    MSG msg;
+    while (!g_range_prompt.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(g_range_prompt.wnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    EnableWindow(g.main, TRUE);
+    SetForegroundWindow(g.main);
+    if (!g_range_prompt.accepted) return false;
+    g.light_mode_open_start = g_range_prompt.start_value;
+    g.light_mode_open_end = g_range_prompt.end_value;
+    save_runtime_settings();
+    out_start = g_range_prompt.start_value;
+    out_end = g_range_prompt.end_value;
     return true;
 }
 
@@ -2753,11 +3325,18 @@ static HWND g_loading_wnd = nullptr;
 void show_loading(const std::wstring& msg) {
     if (g_loading_wnd) { DestroyWindow(g_loading_wnd); g_loading_wnd = nullptr; }
     HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
+    std::wstring display = msg;
+    for (std::size_t i = 0; i < display.size(); ++i) {
+        if (display[i] == L'\n' && (i == 0 || display[i - 1] != L'\r')) {
+            display.insert(i, 1, L'\r');
+            ++i;
+        }
+    }
     g_loading_wnd = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-        L"Static", msg.c_str(),
-        WS_POPUP | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE | WS_BORDER,
-        0, 0, 300, 90, g.main, nullptr, inst, nullptr);
+        L"Static", display.c_str(),
+        WS_POPUP | WS_VISIBLE | SS_CENTER | WS_BORDER,
+        0, 0, 420, 96, g.main, nullptr, inst, nullptr);
     if (!g_loading_wnd) return;
     HFONT font = CreateFontW(-16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                              DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
@@ -2777,26 +3356,36 @@ void hide_loading() {
     if (g_loading_wnd) { DestroyWindow(g_loading_wnd); g_loading_wnd = nullptr; }
 }
 
-bool load_path(const std::wstring& wpath) {
-    show_loading(g_str->msg_loading);
+bool load_path(const std::wstring& wpath, const double* fragment_start = nullptr, const double* fragment_end = nullptr) {
+    show_loading(g.light_mode ? g_str->msg_loading_light : g_str->msg_loading);
     SetCursor(LoadCursor(nullptr, IDC_WAIT));
-    lvm::Dataset ds = lvm::read_lvm_file(to_acp(wpath.c_str()));
+    lvm::LoadOptions load_options{};
+    if (fragment_start && fragment_end && std::isfinite(*fragment_start) && std::isfinite(*fragment_end) && *fragment_end > *fragment_start) {
+        load_options.use_time_window = true;
+        load_options.time_start = *fragment_start;
+        load_options.time_end = *fragment_end;
+    }
+    lvm::Dataset ds = g.light_mode
+        ? lvm::read_lvm_file(to_acp(wpath.c_str()), load_options)
+        : lvm::read_lvm_file(to_acp(wpath.c_str()));
     SetCursor(LoadCursor(nullptr, IDC_ARROW));
     hide_loading();
     if (!ds.ok) { g.last_error = ds.error; return false; }
 
     const std::vector<double> raw_time = ds.time;
     lvm::drop_duplicate_time_channels(ds, raw_time);
-    lvm::make_monotonic(ds.time);
+    if (!load_options.use_time_window) lvm::make_monotonic(ds.time);
 
+    g.current_file_partial = load_options.use_time_window || ds.partial;
     g.ds = std::move(ds);
-    g.visible.assign(g.ds.channel_count(), 1);
+    g.visible.assign(g.ds.channel_count(), g.light_mode ? 0 : 1);
     g.channel_labels.clear();
     for (const auto& n : g.ds.names) g.channel_labels.push_back(to_w(n));
     g_channel_colors.clear();
     g_channel_colors.reserve(g.ds.channel_count());
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) g_channel_colors.push_back(kPalette[i % (sizeof(kPalette) / sizeof(kPalette[0]))]);
     g.side_selected_channel = g.ds.channel_count() > 0 ? 0 : -1;
+    g.side_scroll_y = 0;
     g.channel_formulas.assign(g.ds.channel_count(), default_channel_formula_text());
     g.channel_formula_rpn.assign(g.ds.channel_count(), {});
     load_channel_formulas_from_ini();
@@ -2824,11 +3413,12 @@ bool load_path(const std::wstring& wpath) {
     g.auto_y = true;   // a fresh file starts on auto-fit
     if (g.autoy) { SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0); InvalidateRect(g.autoy, nullptr, FALSE); }
     if (g.menu) CheckMenuItem(g.menu, IDC_AUTOY, MF_BYCOMMAND | MF_CHECKED);
-
-    compute_spectrum_from_current_source();
     if (g.settings_wnd) refresh_settings_controls();
+    g.spec_valid = false;
+    g.spec = lvm::Spectrum{};
+    g.spec_source_valid = false;
     g.freq_start = 0.0;
-    g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
+    g.freq_end = 1.0;
 
     const wchar_t* base = wcsrchr(wpath.c_str(), L'\\');
     g.file_name = base ? base + 1 : wpath;
@@ -2844,6 +3434,30 @@ bool load_path(const std::wstring& wpath) {
     return true;
 }
 
+bool load_path_interactive(const std::wstring& wpath) {
+    g.last_error.clear();
+    double fragment_start = 0.0;
+    double fragment_end = 0.0;
+    const double* start_ptr = nullptr;
+    const double* end_ptr = nullptr;
+    if (g.light_mode) {
+        double range_start = 0.0;
+        double range_end = 0.0;
+        show_loading(g_str->msg_scanning_range);
+        std::string scan_error;
+        const bool scanned = lvm::scan_time_bounds(to_acp(wpath.c_str()), range_start, range_end, scan_error);
+        hide_loading();
+        if (!scanned) {
+            g.last_error = scan_error;
+            return false;
+        }
+        if (!prompt_light_mode_window(range_start, range_end, fragment_start, fragment_end)) return false;
+        start_ptr = &fragment_start;
+        end_ptr = &fragment_end;
+    }
+    return load_path(wpath, start_ptr, end_ptr);
+}
+
 void open_file() {
     wchar_t file[2048] = L"";
     OPENFILENAMEW ofn = {};
@@ -2854,7 +3468,7 @@ void open_file() {
     ofn.nMaxFile = 2048;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
     if (!GetOpenFileNameW(&ofn)) return;
-    if (!load_path(file))
+    if (!load_path_interactive(file) && !g.last_error.empty())
         MessageBoxW(g.main, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
 }
 
@@ -2863,11 +3477,30 @@ void open_file() {
 // Copy transformed values for indices [lo,hi) into `out` as floats.
 void build_series(std::size_t channel_index, std::size_t lo, std::size_t hi,
                   std::vector<float>& out) {
+    ensure_channel_formula_vectors();
+    if (channel_index >= g.ds.channels.size() || hi < lo) {
+        out.clear();
+        return;
+    }
     const std::vector<double>& col = g.ds.channels[channel_index];
     const std::size_t count = hi - lo;
     out.resize(count);
-    for (std::size_t i = 0; i < count; ++i)
-        out[i] = static_cast<float>(transform_channel_value(channel_index, col[lo + i]));
+    const TransformRuntimeKind kind = (channel_index < g.channel_transform_kind.size())
+        ? g.channel_transform_kind[channel_index]
+        : TransformRuntimeKind::Identity;
+    if (kind == TransformRuntimeKind::Identity) {
+        for (std::size_t i = 0; i < count; ++i) out[i] = static_cast<float>(col[lo + i]);
+        return;
+    }
+    if (kind == TransformRuntimeKind::Affine) {
+        const double mul = g.channel_transform_mul[channel_index];
+        const double add = g.channel_transform_add[channel_index];
+        for (std::size_t i = 0; i < count; ++i) out[i] = static_cast<float>(col[lo + i] * mul + add);
+        return;
+    }
+    ensure_transformed_channel_cache(channel_index);
+    const auto& cache = g.transformed_channel_cache[channel_index];
+    for (std::size_t i = 0; i < count; ++i) out[i] = static_cast<float>(cache[lo + i]);
 }
 
 // Auto-fit vertical range over the currently visible time window (with 5% pad).
@@ -2886,8 +3519,22 @@ bool current_time_yrange(double& ymin, double& ymax) {
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
         const auto& col = g.ds.channels[c];
+        const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
+            ? g.channel_transform_kind[c]
+            : TransformRuntimeKind::Identity;
+        const std::vector<double>* cache = nullptr;
+        double mul = 1.0;
+        double add = 0.0;
+        if (kind == TransformRuntimeKind::Affine) {
+            mul = g.channel_transform_mul[c];
+            add = g.channel_transform_add[c];
+        } else if (kind == TransformRuntimeKind::CachedFormula) {
+            ensure_transformed_channel_cache(c);
+            cache = &g.transformed_channel_cache[c];
+        }
         for (std::size_t i = lo; i < hi; ++i) {
-            const double v = transform_channel_value(c, col[i]);
+            const double v = cache ? (*cache)[i]
+                                   : (kind == TransformRuntimeKind::Affine ? (col[i] * mul + add) : col[i]);
             if (std::isnan(v)) continue;
             if (v < ymin) ymin = v;
             if (v > ymax) ymax = v;
@@ -3980,6 +4627,12 @@ std::string current_channel_label(std::size_t ci) {
     return "Channel_" + std::to_string(ci + 1);
 }
 
+void invalidate_transformed_channel_cache() {
+    const std::size_t n = g.ds.channel_count();
+    g.transformed_channel_cache.resize(n);
+    g.transformed_channel_cache_valid.assign(n, 0);
+}
+
 void ensure_channel_formula_vectors() {
     const std::size_t n = g.ds.channel_count();
     if (g.global_formula.empty()) g.global_formula = default_channel_formula_text();
@@ -3991,23 +4644,86 @@ void ensure_channel_formula_vectors() {
             compile_formula_rpn(g.global_formula, g.global_formula_rpn, error);
         }
     }
+    g.global_formula_identity = formula_rpn_is_identity(g.global_formula_rpn);
+    const AffineFormulaInfo global_affine = analyze_formula_rpn_affine(g.global_formula_rpn);
+    g.global_formula_affine = global_affine.valid;
+    g.global_formula_mul = global_affine.valid ? global_affine.mul : 1.0;
+    g.global_formula_add = global_affine.valid ? global_affine.add : 0.0;
     if (g.channel_formulas.size() != n) g.channel_formulas.assign(n, default_channel_formula_text());
     if (g.channel_formula_rpn.size() != n) g.channel_formula_rpn.assign(n, {});
+    if (g.channel_formula_identity.size() != n) g.channel_formula_identity.assign(n, 1);
+    if (g.channel_transform_kind.size() != n) g.channel_transform_kind.assign(n, TransformRuntimeKind::Identity);
+    if (g.channel_transform_mul.size() != n) g.channel_transform_mul.assign(n, 1.0);
+    if (g.channel_transform_add.size() != n) g.channel_transform_add.assign(n, 0.0);
+    bool has_non_identity = !g.global_formula_identity;
+    bool has_non_affine = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (g.channel_formulas[i].empty()) g.channel_formulas[i] = default_channel_formula_text();
         if (g.channel_formula_rpn[i].empty()) {
             std::wstring error;
             compile_formula_rpn(g.channel_formulas[i], g.channel_formula_rpn[i], error);
         }
+        g.channel_formula_identity[i] = formula_rpn_is_identity(g.channel_formula_rpn[i]) ? 1 : 0;
+        const AffineFormulaInfo local_affine = analyze_formula_rpn_affine(g.channel_formula_rpn[i]);
+        TransformRuntimeKind kind = TransformRuntimeKind::CachedFormula;
+        double mul = 1.0;
+        double add = 0.0;
+        if (g.global_formula_affine && local_affine.valid) {
+            mul = local_affine.mul * g.global_formula_mul;
+            add = local_affine.mul * g.global_formula_add + local_affine.add;
+            kind = (mul == 1.0 && add == 0.0) ? TransformRuntimeKind::Identity : TransformRuntimeKind::Affine;
+        } else if (g.global_formula_identity && g.channel_formula_identity[i]) {
+            kind = TransformRuntimeKind::Identity;
+        } else {
+            has_non_affine = true;
+        }
+        g.channel_transform_kind[i] = kind;
+        g.channel_transform_mul[i] = mul;
+        g.channel_transform_add[i] = add;
+        if (kind != TransformRuntimeKind::Identity) has_non_identity = true;
     }
+    g.has_non_identity_formula = has_non_identity;
+    g.has_non_affine_formula = has_non_affine;
+    if (g.transformed_channel_cache.size() != n || g.transformed_channel_cache_valid.size() != n) {
+        invalidate_transformed_channel_cache();
+    }
+}
+
+void ensure_transformed_channel_cache(std::size_t channel_index) {
+    ensure_channel_formula_vectors();
+    if (channel_index >= g.ds.channel_count()) return;
+    if (channel_index >= g.channel_transform_kind.size() ||
+        g.channel_transform_kind[channel_index] != TransformRuntimeKind::CachedFormula) {
+        return;
+    }
+    if (channel_index >= g.transformed_channel_cache_valid.size()) invalidate_transformed_channel_cache();
+    if (g.transformed_channel_cache_valid[channel_index]) return;
+
+    const auto& src = g.ds.channels[channel_index];
+    auto& dst = g.transformed_channel_cache[channel_index];
+    dst.resize(src.size());
+    for (std::size_t i = 0; i < src.size(); ++i) {
+        dst[i] = transform_channel_value(channel_index, src[i]);
+    }
+    g.transformed_channel_cache_valid[channel_index] = 1;
 }
 
 double transform_channel_value(std::size_t ci, double raw) {
     if (std::isnan(raw)) return raw;
-    ensure_channel_formula_vectors();
-    if (ci >= g.channel_formula_rpn.size()) return raw;
-    const double global_value = eval_formula_rpn(g.global_formula_rpn, raw);
+    if (!g.has_non_identity_formula) return raw;
+    if (ci >= g.channel_transform_kind.size()) return raw;
+    const TransformRuntimeKind kind = g.channel_transform_kind[ci];
+    if (kind == TransformRuntimeKind::Identity) return raw;
+    if (kind == TransformRuntimeKind::Affine) {
+        return raw * g.channel_transform_mul[ci] + g.channel_transform_add[ci];
+    }
+    const double global_value = g.global_formula_identity
+        ? raw
+        : (g.global_formula_affine
+            ? (raw * g.global_formula_mul + g.global_formula_add)
+            : eval_formula_rpn(g.global_formula_rpn, raw));
     const double base = (std::isfinite(global_value) || std::isnan(global_value)) ? global_value : raw;
+    if (ci < g.channel_formula_identity.size() && g.channel_formula_identity[ci]) return base;
     const double value = eval_formula_rpn(g.channel_formula_rpn[ci], base);
     return std::isfinite(value) || std::isnan(value) ? value : raw;
 }
@@ -4050,6 +4766,8 @@ void reset_channel_transform(std::size_t ci) {
         std::wstring error;
         compile_formula_rpn(g.channel_formulas[ci], g.channel_formula_rpn[ci], error);
     }
+    invalidate_transformed_channel_cache();
+    ensure_channel_formula_vectors();
 }
 
 void reset_all_channel_transforms() {
@@ -4325,8 +5043,23 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
     if (lo >= hi) return false;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
+        const auto& col = g.ds.channels[c];
+        const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
+            ? g.channel_transform_kind[c]
+            : TransformRuntimeKind::Identity;
+        const std::vector<double>* cache = nullptr;
+        double mul = 1.0;
+        double add = 0.0;
+        if (kind == TransformRuntimeKind::Affine) {
+            mul = g.channel_transform_mul[c];
+            add = g.channel_transform_add[c];
+        } else if (kind == TransformRuntimeKind::CachedFormula) {
+            ensure_transformed_channel_cache(c);
+            cache = &g.transformed_channel_cache[c];
+        }
         for (std::size_t i = lo; i < hi; ++i) {
-            const double y = transform_channel_value(c, g.ds.channels[c][i]);
+            const double y = cache ? (*cache)[i]
+                                   : (kind == TransformRuntimeKind::Affine ? (col[i] * mul + add) : col[i]);
             if (!std::isfinite(y)) continue;
             const double x = t[i];
             const double px = to_px(x);
@@ -4475,6 +5208,8 @@ void load_channel_formulas_from_ini() {
             compile_formula_rpn(g.channel_formulas[i], g.channel_formula_rpn[i], error);
         }
     }
+    invalidate_transformed_channel_cache();
+    ensure_channel_formula_vectors();
 }
 
 void load_runtime_settings() {
@@ -4487,11 +5222,18 @@ void load_runtime_settings() {
     g.visual_smooth = read_ini_int(L"ui", L"smoothing", g.visual_smooth ? 1 : 0) != 0;
     g.vertical_pan = read_ini_int(L"ui", L"vertical_pan", g.vertical_pan ? 1 : 0) != 0;
     g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
+    g.light_mode = read_ini_int(L"ui", L"light_mode", g.light_mode ? 1 : 0) != 0;
     g.side_panel_visible = read_ini_int(L"ui", L"side_panel_visible", g.side_panel_visible ? 1 : 0) != 0;
     g.side_panel_tab = read_ini_int(L"ui", L"side_panel_tab", g.side_panel_tab);
     if (g.side_panel_tab != 1) g.side_panel_tab = 0;
     g.play_speed = read_ini_double(L"ui", L"play_speed", g.play_speed);
     if (!(g.play_speed > 0.0) || !std::isfinite(g.play_speed)) g.play_speed = 1.0;
+    g.light_mode_open_start = read_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
+    g.light_mode_open_end = read_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
+    if (!std::isfinite(g.light_mode_open_start) || g.light_mode_open_start < 0.0) g.light_mode_open_start = 0.0;
+    if (!std::isfinite(g.light_mode_open_end) || g.light_mode_open_end <= g.light_mode_open_start) {
+        g.light_mode_open_end = g.light_mode_open_start + 10.0;
+    }
 
     g.pdisp.number = read_ini_int(L"points", L"number", g.pdisp.number ? 1 : 0) != 0;
     g.pdisp.x = read_ini_int(L"points", L"x", g.pdisp.x ? 1 : 0) != 0;
@@ -4527,9 +5269,12 @@ void save_runtime_settings() {
     WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"side_panel_visible", g.side_panel_visible ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"side_panel_tab", g.side_panel_tab == 1 ? L"1" : L"0", g_config_path.c_str());
     write_ini_double(L"ui", L"play_speed", g.play_speed);
+    write_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
+    write_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
 
     WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"points", L"x", g.pdisp.x ? L"1" : L"0", g_config_path.c_str());
@@ -4724,7 +5469,7 @@ WelcomeLayout compute_welcome_layout(HWND hwnd) {
 
     if (layout.stacked) {
         int hero_h = std::clamp(content_h * 52 / 100, 240, 380);
-        const int min_action_h = 300;
+        const int min_action_h = 390;
         hero_h = min(hero_h, max(220, content_h - gap - min_action_h));
         layout.hero = { x0, y0, x0 + content_w, y0 + hero_h };
         layout.action = { x0, layout.hero.bottom + gap, x0 + content_w, y0 + content_h };
@@ -4779,6 +5524,10 @@ void layout_welcome_controls(HWND hwnd) {
     place(IDM_LANG_RU, ax, ay, lang_w, 32);
     place(IDM_LANG_EN, ax + aw - lang_w, ay, lang_w, 32);
     ay += 48;
+    place(IDW_LIGHT_MODE, ax, ay, aw, 22);
+    ay += 28;
+    place(IDW_LIGHT_HINT, ax, ay, aw, layout.stacked ? 64 : 60);
+    ay += layout.stacked ? 74 : 70;
     place(IDW_ACTIONS_TITLE, ax, ay, aw, 24);
     ay += 34;
     place(IDC_OPEN, ax, ay, aw, button_h);
@@ -5735,11 +6484,15 @@ void assign_formula_to_channel(std::size_t channel_index, const std::wstring& fo
     if (channel_index >= g.channel_formulas.size() || channel_index >= g.channel_formula_rpn.size()) return;
     g.channel_formulas[channel_index] = formula;
     g.channel_formula_rpn[channel_index] = compiled;
+    invalidate_transformed_channel_cache();
+    ensure_channel_formula_vectors();
 }
 
 void assign_global_formula(const std::wstring& formula, const std::vector<FormulaToken>& compiled) {
     g.global_formula = formula;
     g.global_formula_rpn = compiled;
+    invalidate_transformed_channel_cache();
+    ensure_channel_formula_vectors();
 }
 
 int settings_selected_point_group(HWND hwnd) {
@@ -5789,6 +6542,8 @@ void populate_point_group_list(HWND hwnd) {
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
+    CheckDlgButton(g.settings_wnd, IDC_SET_LIGHT_MODE, g.light_mode ? BST_CHECKED : BST_UNCHECKED);
+    if (HWND hint = GetDlgItem(g.settings_wnd, IDC_SET_LIGHT_HINT)) SetWindowTextW(hint, g_str->light_mode_hint);
     populate_hotkey_list(g.settings_wnd);
     load_selected_hotkey_controls(g.settings_wnd);
     refresh_side_panel_controls();
@@ -5826,24 +6581,27 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return c;
             };
             const bool en = (g_str == &kEn);
-            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 72, IDC_SET_GROUP_GENERAL);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 136, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_AUTORADIOBUTTON, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_AUTORADIOBUTTON, 144, 36, 110, 22, IDC_SET_LANG_EN);
+            mk(L"BUTTON", g_str->light_mode, BS_AUTOCHECKBOX, 28, 71, 180, 26, IDC_SET_LIGHT_MODE);
+            mk(L"STATIC", g_str->light_mode_hint, SS_LEFT | SS_NOPREFIX, 28, 94, 468, 54, IDC_SET_LIGHT_HINT);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 96, 510, 188, IDC_SET_GROUP_HOTKEYS);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 120, 240, 150, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 128, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 128, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 128, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 160, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 180, 214, 260, IDC_SET_HOTKEY_KEY);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 156, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 180, 240, 150, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_AUTOCHECKBOX, 284, 188, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_AUTOCHECKBOX, 356, 188, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_AUTOCHECKBOX, 428, 188, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 220, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 240, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 218, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 218, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 252, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 278, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 278, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 312, 100, 28, IDC_SET_HOTKEY_CLEAR);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
+            CheckDlgButton(hwnd, IDC_SET_LIGHT_MODE, g.light_mode ? BST_CHECKED : BST_UNCHECKED);
             return 0;
         }
         case WM_COMMAND: {
@@ -5857,6 +6615,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SET_LANG_EN:
                     if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); }
                     break;
+                case IDC_SET_LIGHT_MODE:
+                    if (HIWORD(wp) == BN_CLICKED) {
+                        g.light_mode = checked();
+                        save_runtime_settings();
+                        refresh_settings_controls();
+                    }
+                    return 0;
                 case IDC_SET_HOTKEY_LIST:
                     if (HIWORD(wp) == LBN_SELCHANGE) load_selected_hotkey_controls(hwnd);
                     return 0;
@@ -5971,9 +6736,9 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 void open_settings() {
     if (!g.settings_wnd) {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
-        g.settings_wnd = CreateWindowExW(
+            g.settings_wnd = CreateWindowExW(
             WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 340,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 420,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;
@@ -6026,6 +6791,14 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mkstatic(g_str->m_lang, IDW_LANG_LABEL, g.bold_font ? g.bold_font : font);
             mkbtn(g_str->lang_ru, IDM_LANG_RU);
             mkbtn(g_str->lang_en, IDM_LANG_EN);
+            HWND light_mode = CreateWindowExW(
+                0, L"BUTTON", g_str->light_mode,
+                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                0, 0, 10, 10, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDW_LIGHT_MODE)), inst, nullptr);
+            SendMessageW(light_mode, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            SendMessageW(light_mode, BM_SETCHECK, g.light_mode ? BST_CHECKED : BST_UNCHECKED, 0);
+            mkstatic(g_str->light_mode_hint, IDW_LIGHT_HINT, font);
             mkstatic(welcome_actions_title_text(), IDW_ACTIONS_TITLE, g.bold_font ? g.bold_font : font);
             mkbtn(g_str->welcome_btn_open, IDC_OPEN);
             mkbtn(settings_button_text(), IDC_PTSETTINGS);
@@ -6099,6 +6872,11 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_PTSETTINGS: open_settings(); return 0;
                 case IDM_HOTKEYS: show_hotkeys(); return 0;
                 case IDW_START: ShowWindow(hwnd, SW_HIDE); show_ui_controls(); return 0;
+                case IDW_LIGHT_MODE:
+                    g.light_mode = SendMessageW(GetDlgItem(hwnd, IDW_LIGHT_MODE), BM_GETCHECK, 0, 0) == BST_CHECKED;
+                    save_runtime_settings();
+                    if (g.settings_wnd) refresh_settings_controls();
+                    return 0;
                 case IDM_LANG_RU: if (g_str != &kRu) { g_str = &kRu; save_runtime_settings(); rebuild_ui(); } return 0;
                 case IDM_LANG_EN: if (g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); } return 0;
             }
@@ -6135,7 +6913,7 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = reinterpret_cast<HDC>(wp);
             SetBkMode(dc, TRANSPARENT);
             int ctl_id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
-            if (ctl_id == IDW_SUBTITLE || ctl_id == IDW_VERSION) {
+            if (ctl_id == IDW_SUBTITLE || ctl_id == IDW_VERSION || ctl_id == IDW_LIGHT_HINT) {
                 SetTextColor(dc, g_theme->text_secondary);
             } else if (ctl_id == IDW_LANG_LABEL || ctl_id == IDW_ACTIONS_TITLE) {
                 SetTextColor(dc, g_theme->accent);
@@ -6145,6 +6923,12 @@ LRESULT CALLBACK WelcomeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (ctl_id == IDW_TITLE || ctl_id == IDW_SUBTITLE || ctl_id == IDW_VERSION || ctl_id == IDW_INTRO || ctl_id == IDW_FEATURES) {
                 return reinterpret_cast<LRESULT>(g_welcome_hero_brush ? g_welcome_hero_brush : g_welcome_brush);
             }
+            return reinterpret_cast<LRESULT>(g_welcome_action_brush ? g_welcome_action_brush : g_welcome_brush);
+        }
+        case WM_CTLCOLORBTN: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, g_theme->text_primary);
             return reinterpret_cast<LRESULT>(g_welcome_action_brush ? g_welcome_action_brush : g_welcome_brush);
         }
         case WM_DESTROY:
@@ -6308,6 +7092,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             g.side_tab_channels = mk(side_tab_channels_text(), IDC_SIDE_TAB_CHANNELS, 0);
             g.side_tab_points = mk(side_tab_points_text(), IDC_SIDE_TAB_POINTS, 0);
+            g.side_scrollbar = CreateWindowExW(
+                0, L"SCROLLBAR", nullptr,
+                WS_CHILD | SBS_VERT,
+                0, 0, 10, 10, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CHAN_BASE - 1)), inst, nullptr);
             g.side_channel_hint = mk_panel_ctl(L"STATIC", side_channel_hint_text(),
                                                SS_LEFT | SS_NOPREFIX, IDC_SIDE_CHANNEL_HINT, g.side_channel_controls);
             g.side_global_formula_label = mk_panel_ctl(L"STATIC", side_global_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
@@ -6568,12 +7357,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
                 case IDC_SIDE_TAB_CHANNELS:
+                    g.side_scroll_y = 0;
                     set_side_panel_tab(0);
                     save_runtime_settings();
                     layout();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
                 case IDC_SIDE_TAB_POINTS:
+                    g.side_scroll_y = 0;
                     set_side_panel_tab(1);
                     save_runtime_settings();
                     layout();
@@ -7032,10 +7823,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             break;
         }
+        case WM_VSCROLL:
+            if (reinterpret_cast<HWND>(lp) == g.side_scrollbar) {
+                SCROLLINFO si{};
+                si.cbSize = sizeof(si);
+                si.fMask = SIF_ALL;
+                GetScrollInfo(g.side_scrollbar, SB_CTL, &si);
+                int next = g.side_scroll_y;
+                switch (LOWORD(wp)) {
+                    case SB_LINEUP: next -= 24; break;
+                    case SB_LINEDOWN: next += 24; break;
+                    case SB_PAGEUP: next -= static_cast<int>(si.nPage); break;
+                    case SB_PAGEDOWN: next += static_cast<int>(si.nPage); break;
+                    case SB_THUMBPOSITION:
+                    case SB_THUMBTRACK: next = si.nTrackPos; break;
+                    case SB_TOP: next = 0; break;
+                    case SB_BOTTOM: next = g.side_scroll_max; break;
+                }
+                scroll_side_panel(next - g.side_scroll_y);
+                return 0;
+            }
+            break;
         case WM_MOUSEWHEEL: {
-            if (!has_data()) return 0;
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ScreenToClient(hwnd, &pt);
+            if (side_panel_hit_test(pt) && g.side_scroll_max > 0) {
+                const int direction = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? -48 : 48;
+                scroll_side_panel(direction);
+                return 0;
+            }
+            if (!has_data()) return 0;
             const RECT p = plot_rect();
             bool in_plot = (pt.x >= p.left && pt.x <= p.right && pt.y >= p.top && pt.y <= p.bottom);
             bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -7381,7 +8198,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (count > 0) {
                 wchar_t path[MAX_PATH];
                 if (DragQueryFileW(hDrop, 0, path, MAX_PATH)) {
-                    if (!load_path(path))
+                    if (!load_path_interactive(path) && !g.last_error.empty())
                         MessageBoxW(hwnd, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
                 }
             }
@@ -7488,7 +8305,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
     if (cmd && *cmd) {
         std::wstring path = cmd;
         if (!path.empty() && path.front() == L'"') path = path.substr(1, path.find_last_of(L'"') - 1);
-        if (!load_path(path))
+        if (!load_path_interactive(path) && !g.last_error.empty())
             MessageBoxW(g.main, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
     } else {
         show_welcome(inst);   // start screen when launched without a file

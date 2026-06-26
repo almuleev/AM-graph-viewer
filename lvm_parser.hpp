@@ -18,12 +18,19 @@ struct ParseStats {
     int max_columns = 0;      // widest row seen
 };
 
+struct LoadOptions {
+    bool use_time_window = false;
+    double time_start = 0.0;
+    double time_end = 0.0;
+};
+
 // Parsed dataset: a time vector and aligned channel columns.
 struct Dataset {
     std::vector<double> time;                  // first column (X / time)
     std::vector<std::string> names;            // channel names, e.g. "Channel_1"
     std::vector<std::vector<double>> channels; // one vector per channel, aligned with time
     ParseStats stats;
+    bool partial = false;                      // true when loading stopped early by options
     bool ok = false;
     std::string error;
 
@@ -33,6 +40,8 @@ struct Dataset {
 
 // Read and parse a file. Returns ok=false with `error` set on failure.
 Dataset read_lvm_file(const std::string& path, bool verbose = false);
+Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool verbose = false);
+bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error);
 
 // Rebuild a monotonically increasing timeline (mirrors the Python "prepare"
 // step that flattens Multi_Headings sections which reset local time).

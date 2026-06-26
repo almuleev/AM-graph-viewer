@@ -56,6 +56,81 @@ double parse_cell(const std::string& cell, bool& is_numeric) {
 }  // namespace
 
 Dataset read_lvm_file(const std::string& path, bool verbose) {
+    return read_lvm_file(path, LoadOptions{}, verbose);
+}
+
+bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        error = "Cannot open file: " + path;
+        return false;
+    }
+
+    bool have_time = false;
+    double first_time = 0.0;
+    double last_time = 0.0;
+    double prev_raw_time = 0.0;
+    double prev_adjusted_time = 0.0;
+    double time_offset = 0.0;
+    double fallback_step = 1e-6;
+
+    std::string raw_line;
+    while (std::getline(in, raw_line)) {
+        const std::string line = strip(raw_line);
+        if (line.empty()) continue;
+        if (starts_with(line, "***End_of_Header***")) continue;
+        if (starts_with(line, "***") || is_metadata_line(line)) continue;
+
+        std::vector<double> parsed;
+        int numeric_count = 0;
+        std::string field;
+        auto flush_field = [&]() {
+            bool is_numeric = false;
+            const std::string cell = strip(field);
+            const double v = parse_cell(cell, is_numeric);
+            parsed.push_back(v);
+            if (is_numeric) ++numeric_count;
+            field.clear();
+        };
+        for (char ch : line) {
+            if (ch == ',') ch = '.';
+            if (ch == '\t') flush_field();
+            else field.push_back(ch);
+        }
+        flush_field();
+        if (numeric_count < 2 || parsed.empty() || std::isnan(parsed[0])) continue;
+
+        const double raw_time = parsed[0];
+        double adjusted_time = raw_time;
+        if (have_time) {
+            const double diff = raw_time - prev_raw_time;
+            if (diff > 0.0) fallback_step = diff;
+            adjusted_time = raw_time + time_offset;
+            if (adjusted_time <= prev_adjusted_time) {
+                time_offset = prev_adjusted_time + fallback_step - raw_time;
+                adjusted_time = raw_time + time_offset;
+            }
+        } else {
+            first_time = raw_time;
+        }
+
+        have_time = true;
+        prev_raw_time = raw_time;
+        prev_adjusted_time = adjusted_time;
+        last_time = adjusted_time;
+    }
+
+    if (!have_time) {
+        error = "No numeric data found. Expected time + numeric channel columns in a .lvm or tab-separated .txt file.";
+        return false;
+    }
+
+    out_start = first_time;
+    out_end = last_time;
+    return true;
+}
+
+Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool verbose) {
     Dataset ds;
 
     std::ifstream in(path, std::ios::binary);
@@ -76,6 +151,11 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
 
     std::string raw_line;
     long long line_index = 0;
+    bool have_time_state = false;
+    double prev_raw_time = 0.0;
+    double prev_adjusted_time = 0.0;
+    double time_offset = 0.0;
+    double fallback_step = 1e-6;
     for (; std::getline(in, raw_line); ++line_index) {
         const std::string line = strip(raw_line);
         if (line.empty()) continue;
@@ -114,6 +194,35 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
         const int part_count = static_cast<int>(parsed.size());
         if (numeric_count < 2) continue;
 
+        bool keep_row = true;
+        if (options.use_time_window) {
+            const double raw_time = parsed.empty() ? std::nan("") : parsed[0];
+            if (std::isnan(raw_time)) continue;
+
+            double adjusted_time = raw_time;
+            if (have_time_state) {
+                const double diff = raw_time - prev_raw_time;
+                if (diff > 0.0) fallback_step = diff;
+                adjusted_time = raw_time + time_offset;
+                if (adjusted_time <= prev_adjusted_time) {
+                    time_offset = prev_adjusted_time + fallback_step - raw_time;
+                    adjusted_time = raw_time + time_offset;
+                }
+            }
+
+            have_time_state = true;
+            prev_raw_time = raw_time;
+            prev_adjusted_time = adjusted_time;
+
+            if (adjusted_time < options.time_start) {
+                keep_row = false;
+            } else if (adjusted_time > options.time_end) {
+                ds.partial = true;
+                break;
+            }
+            parsed[0] = adjusted_time;
+        }
+
         if (!section_has_data) {
             section_has_data = true;
             ++section_hits;
@@ -122,6 +231,8 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
                 // (Section/line indices only; values omitted for brevity.)
             }
         }
+
+        if (!keep_row) continue;
 
         // Widen the column store to fit this row, back-filling earlier rows.
         if (part_count > static_cast<int>(columns.size())) {
@@ -150,9 +261,9 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
     ds.stats.max_columns = static_cast<int>(columns.size());
 
     if (row_count == 0 || columns.empty()) {
-        ds.error =
-            "No numeric data found. Expected time + numeric channel columns in "
-            "a .lvm or tab-separated .txt file.";
+        ds.error = options.use_time_window
+            ? "No data found in the selected time range."
+            : "No numeric data found. Expected time + numeric channel columns in a .lvm or tab-separated .txt file.";
         return ds;
     }
 
@@ -180,7 +291,12 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
     }
     ds.names = std::move(kept_names);
     ds.ok = !ds.channels.empty();
-    if (!ds.ok) ds.error = "No data channels available.";
+    if (ds.time.empty() && options.use_time_window) {
+        ds.ok = false;
+        ds.error = "No data found in the selected time range.";
+    } else if (!ds.ok) {
+        ds.error = "No data channels available.";
+    }
     return ds;
 }
 

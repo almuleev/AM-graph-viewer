@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.3
+
+- Исправлено обрезание текста Light mode на приветственном экране и в настройках.
+- Подсказка Light mode теперь помещается целиком и не подрезается по нижней границе.
+- Обновлена версия релиза для текущего набора UI-исправлений.
+- Fixed Light mode text clipping on the welcome screen and in Settings.
+- The Light mode hint now fits fully and no longer gets clipped at the bottom.
+- Bumped the release version for the current UI polish pass.
+
 ## v0.10.2
 
 - Добавлен `undo/redo` для изменений в настройках каналов и точек: видимость, переименование, цвета, коэффициенты и параметры отображения точек теперь откатываются через `Ctrl+Z` / `Ctrl+Shift+Z`.

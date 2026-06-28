@@ -5918,7 +5918,7 @@ LRESULT CALLBACK HotkeysDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             g_hotkeys_dialog.list = CreateWindowExW(
                 0, L"LISTBOX", L"",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | LBS_NOINTEGRALHEIGHT,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT,
                 pad, list_y, list_w, list_h, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_HOTKEYS_DIALOG_LIST)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -6655,8 +6655,31 @@ void show_hotkeys() {
         atom = RegisterClassExW(&wc);
     }
 
-    const SIZE client_size = hotkeys_dialog_client_size();
-    RECT dlg_rc{ 0, 0, client_size.cx, client_size.cy };
+    if (g_hotkeys_dialog.wnd && IsWindow(g_hotkeys_dialog.wnd)) {
+        ShowWindow(g_hotkeys_dialog.wnd, SW_RESTORE);
+        SetForegroundWindow(g_hotkeys_dialog.wnd);
+        if (g_hotkeys_dialog.list) SetFocus(g_hotkeys_dialog.list);
+        return;
+    }
+
+    RECT work_area{};
+    if (HMONITOR monitor = MonitorFromWindow(g.main ? g.main : GetDesktopWindow(), MONITOR_DEFAULTTONEAREST)) {
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoW(monitor, &mi)) work_area = mi.rcWork;
+    }
+    if (work_area.right <= work_area.left || work_area.bottom <= work_area.top) {
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
+    }
+
+    const SIZE desired_client_size = hotkeys_dialog_client_size();
+    const int max_client_w = max(420, static_cast<int>((work_area.right - work_area.left) - 24));
+    const int max_client_h = max(300, static_cast<int>((work_area.bottom - work_area.top) - 24));
+    RECT dlg_rc{
+        0, 0,
+        min(static_cast<int>(desired_client_size.cx), max_client_w),
+        min(static_cast<int>(desired_client_size.cy), max_client_h)
+    };
     AdjustWindowRectEx(&dlg_rc, WS_CAPTION | WS_SYSMENU | WS_POPUP, FALSE, WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW);
 
     g_hotkeys_dialog.done = false;
@@ -6674,24 +6697,23 @@ void show_hotkeys() {
     RECT mr{}, wr{};
     GetWindowRect(g.main, &mr);
     GetWindowRect(g_hotkeys_dialog.wnd, &wr);
+    const int window_w = wr.right - wr.left;
+    const int window_h = wr.bottom - wr.top;
+    int x = mr.left + ((mr.right - mr.left) - window_w) / 2;
+    int y = mr.top + ((mr.bottom - mr.top) - window_h) / 2;
+    x = std::clamp(x,
+        static_cast<int>(work_area.left),
+        max(static_cast<int>(work_area.left), static_cast<int>(work_area.right - window_w)));
+    y = std::clamp(y,
+        static_cast<int>(work_area.top),
+        max(static_cast<int>(work_area.top), static_cast<int>(work_area.bottom - window_h)));
     SetWindowPos(
         g_hotkeys_dialog.wnd, HWND_TOP,
-        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
-        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
+        x, y,
         0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-    EnableWindow(g.main, FALSE);
+    ShowWindow(g_hotkeys_dialog.wnd, SW_SHOWNORMAL);
+    UpdateWindow(g_hotkeys_dialog.wnd);
     if (g_hotkeys_dialog.list) SetFocus(g_hotkeys_dialog.list);
-
-    MSG msg;
-    while (!g_hotkeys_dialog.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (!IsDialogMessageW(g_hotkeys_dialog.wnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-
-    EnableWindow(g.main, TRUE);
-    SetForegroundWindow(g.main);
 }
 
 void show_about() {

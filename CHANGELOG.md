@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.10.5
+
+- Доработана работа с пропущенными промежутками: подписи внутри графика убраны, сами разрывы по-прежнему выделяются, а подробная информация теперь открывается отдельным окном по клику.
+- Окно горячих клавиш больше не блокирует основное приложение: оно открывается в пределах рабочей области экрана, при нехватке высоты использует прокрутку и не мешает дальнейшей работе с главным окном.
+- Упрощена сборка проекта: версия приложения теперь передаётся через define, а generated-файл `build_version.hpp` удалён из репозитория.
+- Reworked gap handling: inline labels are removed from the plot, the highlighted gaps remain visible, and detailed information is now shown in a separate dialog on click.
+- The hotkeys window no longer blocks the main app: it stays within the monitor work area, uses scrolling when vertical space is limited, and keeps the rest of the UI interactive.
+- Simplified the build pipeline by passing the app version through a define and removing the generated `build_version.hpp` file from the repository.
+
 ## v0.10.4
 
 - Переработан welcome-экран: стартовая страница теперь устойчиво адаптируется к разным размерам окна, получила переключатели темы и более согласованную компоновку.

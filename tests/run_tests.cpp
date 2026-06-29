@@ -143,6 +143,17 @@ void test_make_monotonic_equal_times() {
 }
 
 void test_drop_duplicate_time() {
+void test_make_monotonic_backward_jump() {
+    std::printf("test_make_monotonic_backward_jump\n");
+    std::vector<double> t = {0.0, 0.1, 0.05, 0.15};
+    lvm::make_monotonic(t);
+
+    bool increasing = true;
+    for (std::size_t i = 1; i < t.size(); ++i) increasing = increasing && (t[i] > t[i - 1]);
+    check(increasing, "backward jumps are pushed forward to stay strictly increasing");
+    check(t[2] > t[1], "reordered point is moved ahead of the previous sample");
+}
+
     std::printf("test_drop_duplicate_time\n");
     // Channel_1 duplicates time exactly; Channel_2 is real data.
     const std::string content =
@@ -252,3 +263,4 @@ int main() {
     std::printf("\n%d checks, %d failure(s)\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;
 }
+    test_make_monotonic_backward_jump();

@@ -3873,7 +3873,9 @@ bool start_async_load_task(const std::wstring& wpath, const double* fragment_sta
             if (result->ok) {
                 const std::vector<double> raw_time = result->ds.raw_time.empty() ? result->ds.time : result->ds.raw_time;
                 lvm::drop_duplicate_time_channels(result->ds, raw_time);
-                if (!load_options.use_time_window && !result->ds.time_rebuilt_from_headers) {
+                if (!load_options.use_time_window) {
+                    // Sectioned LabVIEW exports can still contain small backward jumps
+                    // between blocks; normalize them so the plot stays strictly ordered.
                     lvm::make_monotonic(result->ds.time);
                 }
                 if (!hide_channels) {

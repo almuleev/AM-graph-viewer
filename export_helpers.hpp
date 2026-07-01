@@ -30,7 +30,6 @@ const wchar_t* export_prompt_continue_text(bool english);
 const wchar_t* export_prompt_cancel_text(bool english);
 const wchar_t* export_apply_processing_text(bool english);
 const wchar_t* export_processing_settings_text(bool english);
-const wchar_t* export_apply_processing_note_text(bool english);
 const wchar_t* export_include_channel_names_text(bool english);
 const wchar_t* export_include_points_text(bool english);
 const wchar_t* export_include_markers_text(bool english);

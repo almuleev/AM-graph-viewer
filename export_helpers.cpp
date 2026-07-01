@@ -106,12 +106,6 @@ const wchar_t* export_processing_settings_text(bool english) {
         : L"Сохранить формулы и фильтр только как настройки";
 }
 
-const wchar_t* export_apply_processing_note_text(bool english) {
-    return english
-        ? L"When off, data are exported raw and formulas/filter are saved as settings only."
-        : L"Если выключено, данные выгружаются без изменений, а формулы/фильтр сохраняются только как настройки.";
-}
-
 const wchar_t* export_include_channel_names_text(bool english) {
     return english ? L"Channel names" : L"Названия каналов";
 }

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.3
+
+- Упрощён экспорт: отдельные действия для `TXT`, `CSV` и `LVM` сведены в единый `Save as…` с выбором формата, области выгрузки и режима обработки данных.
+- Simplified export: separate `TXT`, `CSV`, and `LVM` actions were merged into one `Save as…` flow with format, range, and processing-mode selection.
+- В окне экспорта оставлены дополнительные опции для точек, маркеров, направляющих, формул, фильтра и настроек графика.
+- The export dialog still lets you include points, markers, guide lines, formulas, filter settings, and graph settings.
+- Убран лишний поясняющий текст и уплотнена компоновка окна экспорта.
+- Removed the extra explanatory note and tightened the export dialog layout.
+
 ## v0.11.1
 
 - Расширен экспорт: теперь отдельно выбираются область выгрузки, состав сохраняемых данных и режим обработки формул/фильтра.

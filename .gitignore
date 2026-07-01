@@ -37,3 +37,4 @@ LVM-graph-viewer-v*-win-x64.exe
 lvm_viewer.ini
 gcm-diagnose.log
 release_notes_*.md
+.vscode/

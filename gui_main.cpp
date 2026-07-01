@@ -143,6 +143,7 @@ enum {
 
     IDC_SIDE_TAB_CHANNELS = 4200,
     IDC_SIDE_TAB_POINTS,
+    IDC_SIDE_TAB_FILTER,
     IDC_SIDE_CHANNEL_COLOR,
     IDC_SIDE_CHANNEL_HINT,
     IDC_SIDE_GLOBAL_FORMULA_EDIT,
@@ -168,6 +169,17 @@ enum {
     IDC_SIDE_PT_INVDT,
     IDC_SIDE_PT_DIST,
     IDC_SIDE_PT_SNAP,
+    IDC_SIDE_FILTER_ENABLE,
+    IDC_SIDE_FILTER_MODE_LABEL,
+    IDC_SIDE_FILTER_MODE,
+    IDC_SIDE_FILTER_TOPOLOGY_LABEL,
+    IDC_SIDE_FILTER_TOPOLOGY,
+    IDC_SIDE_FILTER_LOW_LABEL,
+    IDC_SIDE_FILTER_LOW_VALUE,
+    IDC_SIDE_FILTER_LOW_TRACK,
+    IDC_SIDE_FILTER_HIGH_LABEL,
+    IDC_SIDE_FILTER_HIGH_VALUE,
+    IDC_SIDE_FILTER_HIGH_TRACK,
 
     IDC_SET_LANG_RU = 5000,
     IDC_SET_LANG_EN,
@@ -199,7 +211,6 @@ enum {
     IDC_SET_AXIS_X_LABEL_EDIT,
     IDC_SET_AXIS_Y_LABEL_STATIC,
     IDC_SET_AXIS_Y_LABEL_EDIT,
-
     IDC_SET_GROUP_GENERAL = 5150,
     IDC_SET_GROUP_TRANSFORM,
     IDC_SET_GROUP_POINTS,
@@ -544,14 +555,14 @@ static const Strings kRu = {
     L"AM Graph Viewer",
     L"Файл", L"Вид", L"Точки", L"Линии", L"Маркеры", L"Справка",
     L"Открыть файл…\tCtrl+O", L"Сохранить PNG…\tCtrl+S", L"Выгрузить CSV…\tCtrl+E", L"Отменить\tCtrl+Z", L"Повторить\tCtrl+Shift+Z", L"Выход\tAlt+F4",
-    L"Время / Гц\tM", L"Увеличить\t+", L"Уменьшить\t−", L"Сбросить вид\tHome", L"Автомасштабирование", L"Сглаживание\tC", L"Вертикальное панорамирование\tP", L"Play / Pause\tПробел", L"Тёмная тема\tT", L"Скорость",
+    L"Время / Гц\tM", L"Увеличить\t+", L"Уменьшить\t−", L"Сбросить вид\tHome", L"Автомасштабирование", L"Сглаживание\tC", L"Вертикальное панорамирование\tP", L"Старт/стоп\tПробел", L"Тёмная тема\tT", L"Скорость воспроизведения",
     L"Точки\tV", L"Настройки", L"Очистить\tDelete",
     L"Вертикальная\tL", L"Горизонтальная\tH", L"Очистить",
     L"Добавить\tK", L"Очистить",
     L"Горячие клавиши\tF1", L"О программе",
-    L"Открыть", L"PNG", L"CSV", L"Время/Гц", L"▶ Старт", L"⏸ Пауза", L"Точки", L"Сброс", L"АвтоМасштаб", L"Настройки",
+    L"Открыть", L"PNG", L"CSV", L"Время/Гц", L"Старт", L"Стоп", L"Точки", L"Сброс", L"АвтоМасштаб", L"Настройки",
     L"Каналы",
-    L"Время", L"Гц (FFT)", L"Каналов", L"Точек", L"Окно", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость",
+    L"Время", L"Гц (FFT)", L"Каналов", L"Точек", L"Окно", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость воспроизведения",
     L"Время, c", L"Частота, Гц",
     L"Показывать номер точки", L"Показывать координату X", L"Показывать координату Y", L"Расстояние между точками по X (Δx)", L"Расстояние между точками по Y (Δy)", L"Частота 1/Δt", L"Расстояние d (по прямой)",
     L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Гц", L"d=%.5g",
@@ -562,9 +573,9 @@ static const Strings kRu = {
     L"AM Graph Viewer", L"Просмотрщик сигналов LabVIEW (.lvm / .txt)",
     L"РљР°Рє СЂР°Р±РѕС‚Р°С‚СЊ СЃ РїСЂРёР»РѕР¶РµРЅРёРµРј:\r   вЂў  В«РћС‚РєСЂС‹С‚СЊ С„Р°Р№Р»В» (O) вЂ” Р·Р°РіСЂСѓР·РёС‚Рµ .lvm РёР»Рё .txt.\r   вЂў  В«Р’СЂРµРјСЏ / Р“С†В» (M) вЂ” РіСЂР°С„РёРє СЃРёРіРЅР°Р»Р° РёР»Рё РµРіРѕ СЃРїРµРєС‚СЂ (Р‘РџР¤).\r   вЂў  В«РР·РјРµСЂРµРЅРёРµВ» (V) вЂ” РєР»РёРєР°Р№С‚Рµ С‚РѕС‡РєРё РЅР° РіСЂР°С„РёРєРµ. Р§С‚Рѕ РїРѕРєР°Р·С‹РІР°С‚СЊ\r       Сѓ С‚РѕС‡РµРє Рё РїСЂРёРјР°РіРЅРёС‡РёРІР°РЅРёРµ вЂ” РІ РѕРєРЅРµ В«РќР°СЃС‚СЂРѕР№РєРё С‚РѕС‡РµРєВ».\r   вЂў  РљРѕР»РµСЃРѕ РјС‹С€Рё вЂ” РјР°СЃС€С‚Р°Р±, С‚СЏРіР° Р›РљРњ вЂ” РїСЂРѕРєСЂСѓС‚РєР° РїРѕ РІСЂРµРјРµРЅРё.\r   вЂў  В«Р¤РёРєСЃ. YВ» вЂ” Р·Р°С„РёРєСЃРёСЂРѕРІР°С‚СЊ РјР°СЃС€С‚Р°Р± РїРѕ РІС‹СЃРѕС‚Рµ.\r   вЂў  РџСЂРѕР±РµР» вЂ” РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё (1 СЃ = 1 СЃ).\r   вЂў  F1 вЂ” РїРѕР»РЅС‹Р№ СЃРїРёСЃРѕРє РіРѕСЂСЏС‡РёС… РєР»Р°РІРёС€.",
     L"Открыть файл", L"Настройки точек…", L"Горячие клавиши", L"Начать работу",
-    L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  E / Ctrl+E\t— CSV\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Play / Pause\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
+    L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  E / Ctrl+E\t— CSV\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Старт/стоп\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
     L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
-    L"Открыть файл…", L"PNG", L"CSV", L"Переключить Время / Гц", L"Воспроизведение", L"Пауза", L"Режим измерения точек", L"Сбросить вид", L"Автомасштабирование", L"Настройки точек",
+    L"Открыть файл…", L"PNG", L"CSV", L"Переключить Время / Гц", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"Автомасштабирование", L"Настройки точек",
     L"Русский", L"English", L"Язык",
     L"Лёгкий режим",
     L"   |   Лёгкий режим: открыт только выбранный временной фрагмент",
@@ -606,14 +617,14 @@ static const Strings kEn = {
     L"AM Graph Viewer",
     L"File", L"View", L"Points", L"Lines", L"Markers", L"Help",
     L"Open file…\tCtrl+O", L"Save PNG…\tCtrl+S", L"Export CSV…\tCtrl+E", L"Undo\tCtrl+Z", L"Redo\tCtrl+Shift+Z", L"Exit\tAlt+F4",
-    L"Time / Hz\tM", L"Zoom in\t+", L"Zoom out\t−", L"Reset view\tHome", L"Auto zoom", L"Smoothing\tC", L"Vertical pan\tP", L"Play / Pause\tSpace", L"Dark theme\tT", L"Speed",
+    L"Time / Hz\tM", L"Zoom in\t+", L"Zoom out\t−", L"Reset view\tHome", L"Auto zoom", L"Smoothing\tC", L"Vertical pan\tP", L"Play / Pause\tSpace", L"Dark theme\tT", L"Playback speed",
     L"Points\tV", L"Settings", L"Clear\tDelete",
     L"Vertical\tL", L"Horizontal\tH", L"Clear",
     L"Add\tK", L"Clear",
     L"Keyboard shortcuts\tF1", L"About",
     L"Open", L"PNG", L"CSV", L"Time/Hz", L"▶ Play", L"⏸ Pause", L"Points", L"Reset", L"Auto zoom", L"Settings",
     L"Channels",
-    L"Time", L"Hz (FFT)", L"Channels", L"Points", L"Window", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Speed",
+    L"Time", L"Hz (FFT)", L"Channels", L"Points", L"Window", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Playback speed",
     L"Time, s", L"Frequency, Hz",
     L"Show point number", L"Show X coordinate", L"Show Y coordinate", L"Distance along X (Δx)", L"Distance along Y (Δy)", L"Frequency 1/Δt", L"Straight-line distance d",
     L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Hz", L"d=%.5g",
@@ -707,6 +718,20 @@ enum class AsyncLoadStage : unsigned char {
     LoadingFile = 2
 };
 
+enum FilterMode {
+    FilterModeLowPass = 0,
+    FilterModeHighPass = 1,
+    FilterModeBandPass = 2,
+    FilterModeBandStop = 3,
+};
+
+enum FilterTopology {
+    FilterTopologyButterworth = 0,
+    FilterTopologyBessel = 1,
+    FilterTopologyChebyshev = 2,
+    FilterTopologyLinkwitzRiley = 3,
+};
+
 struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
@@ -727,6 +752,8 @@ struct App {
     std::vector<double> channel_transform_add;
     std::vector<std::vector<double>> transformed_channel_cache;
     std::vector<char> transformed_channel_cache_valid;
+    std::vector<std::vector<double>> filtered_channel_cache;
+    std::vector<char> filtered_channel_cache_valid;
     bool has_non_identity_formula = false;
     bool has_non_affine_formula = false;
     bool freq_mode = false;
@@ -807,6 +834,11 @@ struct App {
     int active_marker = -1;
     bool light_mode = false;
     bool show_gap_markers = true;
+    bool noise_threshold_enabled = false;
+    double noise_threshold_min = -std::numeric_limits<double>::infinity();
+    double noise_threshold_max = std::numeric_limits<double>::infinity();
+    int noise_threshold_mode = FilterModeBandPass;
+    int noise_threshold_topology = FilterTopologyButterworth;
     bool gap_details_visible = false;
     double gap_details_duration = 0.0;
     long long gap_details_missing_samples = 0;
@@ -847,18 +879,32 @@ struct App {
     std::vector<int> toolbar_seps;
 
     bool side_panel_visible = true;
-    int side_panel_tab = 0; // 0 = channels, 1 = points
+    int side_panel_tab = 0; // 0 = channels, 1 = points, 2 = filter
     int side_selected_channel = -1;
     int side_scroll_y = 0;
     int side_scroll_max = 0;
     int side_content_height_channels = 0;
     int side_content_height_points = 0;
+    int side_content_height_filter = 0;
     HWND side_tab_channels = nullptr;
     HWND side_tab_points = nullptr;
+    HWND side_tab_filter = nullptr;
     HWND side_channel_hint = nullptr;
+    HWND side_filter_enable = nullptr;
+    HWND side_filter_mode_label = nullptr;
+    HWND side_filter_mode = nullptr;
+    HWND side_filter_topology_label = nullptr;
+    HWND side_filter_topology = nullptr;
+    HWND side_filter_low_label = nullptr;
+    HWND side_filter_low_value = nullptr;
+    HWND side_filter_low_track = nullptr;
+    HWND side_filter_high_label = nullptr;
+    HWND side_filter_high_value = nullptr;
+    HWND side_filter_high_track = nullptr;
     HWND side_global_formula_label = nullptr;
     HWND side_global_formula_edit = nullptr;
     HWND side_global_formula_apply = nullptr;
+    HWND side_channel_separator = nullptr;
     HWND side_channel_formula_label = nullptr;
     HWND side_formula_edit = nullptr;
     HWND side_channel_color = nullptr;
@@ -876,7 +922,9 @@ struct App {
     HWND side_point_group_color = nullptr;
     HWND side_point_label_groups = nullptr;
     bool updating_axis_label_edits = false;
+    bool updating_noise_threshold_edits = false;
     std::vector<HWND> side_channel_controls;
+    std::vector<HWND> side_filter_controls;
     std::vector<HWND> side_point_controls;
 
     HWND settings_wnd = nullptr; // measurement-point settings panel (modeless)
@@ -969,6 +1017,11 @@ struct SettingsSnapshot {
     double y_lock_max = 1.0;
     bool auto_y_amp = true;
     double y_amp_max = 1.0;
+    bool noise_threshold_enabled = false;
+    double noise_threshold_min = -std::numeric_limits<double>::infinity();
+    double noise_threshold_max = std::numeric_limits<double>::infinity();
+    int noise_threshold_mode = FilterModeBandPass;
+    int noise_threshold_topology = FilterTopologyButterworth;
 };
 
 struct UndoAction {
@@ -1001,11 +1054,23 @@ bool side_panel_hit_test(const POINT& pt);
 void scroll_side_panel(int delta);
 void load_side_transform_controls();
 std::wstring format_edit_number(double value);
+std::wstring format_optional_edit_number(double value);
 COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
 void ensure_channel_formula_vectors();
 void invalidate_formula_runtime();
 void invalidate_formula_runtime_channel(std::size_t channel_index);
 void invalidate_transformed_channel_cache();
+void invalidate_filtered_channel_cache();
+void normalize_filter_bounds();
+double current_filter_sample_step();
+double current_filter_nyquist();
+double clamp_filter_cutoff(double hz, double nyquist);
+double filter_slider_to_frequency(int pos, double nyquist);
+int frequency_to_filter_slider(double hz, double nyquist);
+std::wstring filter_frequency_text(double hz);
+double transformed_channel_sample(std::size_t channel_index, std::size_t row_index);
+double rendered_channel_sample(std::size_t channel_index, std::size_t row_index);
+void ensure_filtered_channel_cache(std::size_t channel_index);
 void ensure_transformed_channel_cache(std::size_t channel_index);
 void load_channel_formulas_from_ini();
 void finish_channel_rename(bool apply);
@@ -1013,6 +1078,7 @@ void save_runtime_settings();
 void set_status();
 void sync_menu();
 void clear_spectrum_cache_state();
+void invalidate_plot_analysis_cache();
 void compute_spectrum();
 void compute_spectrum_from_current_source();
 bool ensure_current_spectrum();
@@ -1037,6 +1103,62 @@ void save_runtime_settings_now();
 
 const wchar_t* gap_markers_toggle_text() {
     return (g_str == &kEn) ? L"Show gap markers" : L"Показывать разрывы";
+}
+
+const wchar_t* filter_toggle_text() {
+    return (g_str == &kEn) ? L"Signal filter" : L"Фильтр сигнала";
+}
+
+const wchar_t* filter_low_cutoff_text() {
+    return (g_str == &kEn) ? L"Low cutoff:" : L"Нижняя граница:";
+}
+
+const wchar_t* filter_high_cutoff_text() {
+    return (g_str == &kEn) ? L"High cutoff:" : L"Верхняя граница:";
+}
+
+const wchar_t* filter_section_title_text() {
+    return (g_str == &kEn) ? L"Filter" : L"Фильтр";
+}
+
+const wchar_t* filter_mode_label_text() {
+    return (g_str == &kEn) ? L"Mode:" : L"Режим:";
+}
+
+const wchar_t* filter_topology_label_text() {
+    return (g_str == &kEn) ? L"Topology:" : L"Топология:";
+}
+
+const wchar_t* filter_mode_lowpass_text() {
+    return (g_str == &kEn) ? L"Low-pass" : L"НЧ";
+}
+
+const wchar_t* filter_mode_highpass_text() {
+    return (g_str == &kEn) ? L"High-pass" : L"ВЧ";
+}
+
+const wchar_t* filter_mode_bandpass_text() {
+    return (g_str == &kEn) ? L"Band-pass" : L"Полосовой";
+}
+
+const wchar_t* filter_mode_bandstop_text() {
+    return (g_str == &kEn) ? L"Band-stop" : L"Режекторный";
+}
+
+const wchar_t* filter_topology_butterworth_text() {
+    return (g_str == &kEn) ? L"Butterworth" : L"Баттерворт";
+}
+
+const wchar_t* filter_topology_bessel_text() {
+    return (g_str == &kEn) ? L"Bessel" : L"Бессель";
+}
+
+const wchar_t* filter_topology_chebyshev_text() {
+    return (g_str == &kEn) ? L"Chebyshev" : L"Чебышёв";
+}
+
+const wchar_t* filter_topology_linkwitz_text() {
+    return (g_str == &kEn) ? L"Linkwitz-Riley" : L"Линквиц-Райли";
 }
 
 const wchar_t* side_global_formula_label_text() {
@@ -1071,6 +1193,10 @@ const wchar_t* point_group_new_button_text() {
     return g_str == &kEn ? L"Start new group" : L"Новая группа";
 }
 
+const wchar_t* point_group_empty_text() {
+    return g_str == &kEn ? L"No point groups yet" : L"Групп точек пока нет";
+}
+
 const wchar_t* side_panel_button_text() {
     return (g_str == &kEn) ? L"Panel" : L"Панель";
 }
@@ -1083,12 +1209,16 @@ const wchar_t* side_tab_points_text() {
     return (g_str == &kEn) ? L"Points" : L"Точки";
 }
 
+const wchar_t* side_tab_filter_text() {
+    return (g_str == &kEn) ? L"Filter" : L"Фильтр";
+}
+
 const wchar_t* side_channel_color_button_text() {
     return (g_str == &kEn) ? L"Channel colour…" : L"Цвет канала…";
 }
 
 const wchar_t* side_channel_hint_text() {
-    return L"";
+    return filter_section_title_text();
 }
 
 const wchar_t* side_formula_apply_selected_text() {
@@ -1713,6 +1843,11 @@ SettingsSnapshot capture_settings_snapshot() {
     snapshot.global_formula = g.global_formula;
     snapshot.channel_formulas = g.channel_formulas;
     snapshot.snap_to_data = g.snap_to_data;
+    snapshot.noise_threshold_enabled = g.noise_threshold_enabled;
+    snapshot.noise_threshold_min = g.noise_threshold_min;
+    snapshot.noise_threshold_max = g.noise_threshold_max;
+    snapshot.noise_threshold_mode = g.noise_threshold_mode;
+    snapshot.noise_threshold_topology = g.noise_threshold_topology;
     snapshot.marker_color = g.marker_color;
     snapshot.point_groups = g.point_groups;
     snapshot.active_point_group = g.active_point_group;
@@ -1781,6 +1916,11 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
            a.global_formula != b.global_formula ||
            a.channel_formulas != b.channel_formulas ||
            a.snap_to_data != b.snap_to_data ||
+           a.noise_threshold_enabled != b.noise_threshold_enabled ||
+           a.noise_threshold_min != b.noise_threshold_min ||
+           a.noise_threshold_max != b.noise_threshold_max ||
+           a.noise_threshold_mode != b.noise_threshold_mode ||
+           a.noise_threshold_topology != b.noise_threshold_topology ||
            a.marker_color != b.marker_color ||
            !same_point_groups(a.point_groups, b.point_groups) ||
            a.active_point_group != b.active_point_group ||
@@ -1825,6 +1965,8 @@ void rebuild_formula_cache_from_state() {
 }
 
 void recompute_transforms_from_state() {
+    invalidate_plot_analysis_cache();
+    invalidate_filtered_channel_cache();
     clear_spectrum_cache_state();
     if (g.freq_mode) compute_spectrum();
     sync_menu();
@@ -1839,6 +1981,12 @@ void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
     g.channel_formulas = snapshot.channel_formulas;
     rebuild_formula_cache_from_state();
     g.snap_to_data = snapshot.snap_to_data;
+    g.noise_threshold_enabled = snapshot.noise_threshold_enabled;
+    g.noise_threshold_min = snapshot.noise_threshold_min;
+    g.noise_threshold_max = snapshot.noise_threshold_max;
+    g.noise_threshold_mode = snapshot.noise_threshold_mode;
+    g.noise_threshold_topology = snapshot.noise_threshold_topology;
+    normalize_filter_bounds();
     g.marker_color = snapshot.marker_color;
     g.point_groups = snapshot.point_groups;
     g.active_point_group = snapshot.active_point_group;
@@ -2233,29 +2381,40 @@ bool build_time_window_dataset(const lvm::Dataset& in, double start, double end,
                     in.time.begin() + static_cast<std::ptrdiff_t>(hi));
     for (std::size_t out_index = 0; out_index < channel_indices.size(); ++out_index) {
         const std::size_t c = channel_indices[out_index];
-        out.channels[out_index].reserve(hi - lo);
+        auto& dst = out.channels[out_index];
+        dst.reserve(hi - lo);
         const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
             ? g.channel_transform_kind[c]
             : TransformRuntimeKind::Identity;
         if (kind == TransformRuntimeKind::Identity) {
-            out.channels[out_index].insert(out.channels[out_index].end(),
-                                   in.channels[c].begin() + static_cast<std::ptrdiff_t>(lo),
-                                   in.channels[c].begin() + static_cast<std::ptrdiff_t>(hi));
+            const std::size_t base = dst.size();
+            dst.insert(dst.end(),
+                       in.channels[c].begin() + static_cast<std::ptrdiff_t>(lo),
+                       in.channels[c].begin() + static_cast<std::ptrdiff_t>(hi));
+            if (g.noise_threshold_enabled) {
+                for (std::size_t i = base; i < dst.size(); ++i) {
+                    dst[i] = rendered_channel_sample(c, lo + (i - base));
+                }
+            }
             continue;
         }
         if (kind == TransformRuntimeKind::Affine) {
-            const double mul = g.channel_transform_mul[c];
-            const double add = g.channel_transform_add[c];
             for (std::size_t r = lo; r < hi; ++r) {
-                out.channels[out_index].push_back(in.channels[c][r] * mul + add);
+                dst.push_back(rendered_channel_sample(c, r));
             }
             continue;
         }
         ensure_transformed_channel_cache(c);
         const auto& cache = g.transformed_channel_cache[c];
-        out.channels[out_index].insert(out.channels[out_index].end(),
-                               cache.begin() + static_cast<std::ptrdiff_t>(lo),
-                               cache.begin() + static_cast<std::ptrdiff_t>(hi));
+        const std::size_t base = dst.size();
+        dst.insert(dst.end(),
+                   cache.begin() + static_cast<std::ptrdiff_t>(lo),
+                   cache.begin() + static_cast<std::ptrdiff_t>(hi));
+        if (g.noise_threshold_enabled) {
+            for (std::size_t i = base; i < dst.size(); ++i) {
+                dst[i] = rendered_channel_sample(c, lo + (i - base));
+            }
+        }
     }
     return true;
 }
@@ -2470,6 +2629,7 @@ void hide_ui_controls() {
     for (HWND c : g.checks) ShowWindow(c, SW_HIDE);
     for (HWND c : g.check_labels) ShowWindow(c, SW_HIDE);
     for (HWND c : g.side_channel_controls) ShowWindow(c, SW_HIDE);
+    for (HWND c : g.side_filter_controls) ShowWindow(c, SW_HIDE);
     for (HWND c : g.side_point_controls) ShowWindow(c, SW_HIDE);
     if (g.channel_edit) ShowWindow(g.channel_edit, SW_HIDE);
     if (g.status) ShowWindow(g.status, SW_HIDE);
@@ -2501,6 +2661,85 @@ int side_selected_point_group() {
     return static_cast<int>(SendMessageW(g.side_point_group_list, LB_GETITEMDATA, sel, 0));
 }
 
+void populate_filter_mode_combo(HWND combo) {
+    if (!combo) return;
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    auto add = [&](const wchar_t* text, int value) {
+        int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)));
+        SendMessageW(combo, CB_SETITEMDATA, idx, static_cast<LPARAM>(value));
+    };
+    add(filter_mode_lowpass_text(), FilterModeLowPass);
+    add(filter_mode_highpass_text(), FilterModeHighPass);
+    add(filter_mode_bandpass_text(), FilterModeBandPass);
+    add(filter_mode_bandstop_text(), FilterModeBandStop);
+    SendMessageW(combo, CB_SETMINVISIBLE, 4, 0);
+    SendMessageW(combo, CB_SETDROPPEDWIDTH, 220, 0);
+}
+
+void populate_filter_topology_combo(HWND combo) {
+    if (!combo) return;
+    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+    auto add = [&](const wchar_t* text, int value) {
+        int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)));
+        SendMessageW(combo, CB_SETITEMDATA, idx, static_cast<LPARAM>(value));
+    };
+    add(filter_topology_butterworth_text(), FilterTopologyButterworth);
+    add(filter_topology_bessel_text(), FilterTopologyBessel);
+    add(filter_topology_chebyshev_text(), FilterTopologyChebyshev);
+    add(filter_topology_linkwitz_text(), FilterTopologyLinkwitzRiley);
+    SendMessageW(combo, CB_SETMINVISIBLE, 4, 0);
+    SendMessageW(combo, CB_SETDROPPEDWIDTH, 220, 0);
+}
+
+void sync_filter_controls_from_state() {
+    const double nyquist = current_filter_nyquist();
+    const bool has_signal = has_data() && nyquist > 0.0;
+    const bool filter_active = has_signal && g.noise_threshold_enabled;
+    const bool filter_configurable = has_signal;
+
+    if (g.side_filter_enable) {
+        SetWindowTextW(g.side_filter_enable, filter_toggle_text());
+        set_toggle_checked(g.side_filter_enable, g.noise_threshold_enabled);
+        EnableWindow(g.side_filter_enable, has_signal);
+    }
+    if (g.side_filter_mode_label) SetWindowTextW(g.side_filter_mode_label, filter_mode_label_text());
+    if (g.side_filter_topology_label) SetWindowTextW(g.side_filter_topology_label, filter_topology_label_text());
+    if (g.side_filter_low_label) SetWindowTextW(g.side_filter_low_label, filter_low_cutoff_text());
+    if (g.side_filter_high_label) SetWindowTextW(g.side_filter_high_label, filter_high_cutoff_text());
+
+    if (g.side_filter_mode) {
+        populate_filter_mode_combo(g.side_filter_mode);
+        SendMessageW(g.side_filter_mode, CB_SETCURSEL,
+            std::clamp(g.noise_threshold_mode,
+                       static_cast<int>(FilterModeLowPass),
+                       static_cast<int>(FilterModeBandStop)), 0);
+        EnableWindow(g.side_filter_mode, filter_configurable);
+    }
+    if (g.side_filter_topology) {
+        populate_filter_topology_combo(g.side_filter_topology);
+        SendMessageW(g.side_filter_topology, CB_SETCURSEL,
+            std::clamp(g.noise_threshold_topology,
+                       static_cast<int>(FilterTopologyButterworth),
+                       static_cast<int>(FilterTopologyLinkwitzRiley)), 0);
+        EnableWindow(g.side_filter_topology, filter_configurable);
+    }
+
+    g.updating_noise_threshold_edits = true;
+    if (g.side_filter_low_value) SetWindowTextW(g.side_filter_low_value, filter_frequency_text(g.noise_threshold_min).c_str());
+    if (g.side_filter_high_value) SetWindowTextW(g.side_filter_high_value, filter_frequency_text(g.noise_threshold_max).c_str());
+    if (g.side_filter_low_track) {
+        SendMessageW(g.side_filter_low_track, TBM_SETRANGE, TRUE, MAKELONG(0, 1000));
+        SendMessageW(g.side_filter_low_track, TBM_SETPOS, TRUE, frequency_to_filter_slider(g.noise_threshold_min, nyquist));
+        EnableWindow(g.side_filter_low_track, filter_configurable);
+    }
+    if (g.side_filter_high_track) {
+        SendMessageW(g.side_filter_high_track, TBM_SETRANGE, TRUE, MAKELONG(0, 1000));
+        SendMessageW(g.side_filter_high_track, TBM_SETPOS, TRUE, frequency_to_filter_slider(g.noise_threshold_max, nyquist));
+        EnableWindow(g.side_filter_high_track, filter_configurable);
+    }
+    g.updating_noise_threshold_edits = false;
+}
+
 void load_side_transform_controls() {
     const bool formulas_ready = !g.formula_ini_deferred;
     const std::wstring default_formula = default_channel_formula_text();
@@ -2527,6 +2766,7 @@ void load_side_transform_controls() {
     if (g.side_formula_apply_visible) EnableWindow(g.side_formula_apply_visible, has_data());
     if (g.side_formula_reset_selected) EnableWindow(g.side_formula_reset_selected, valid);
     if (g.side_formula_reset_all) EnableWindow(g.side_formula_reset_all, has_data());
+    sync_filter_controls_from_state();
 }
 
 void load_side_point_group_controls() {
@@ -2563,16 +2803,33 @@ void load_side_point_group_controls() {
 void populate_side_point_group_list() {
     if (!g.side_point_group_list) return;
     const int previous = side_selected_point_group();
+    SendMessageW(g.side_point_group_list, WM_SETREDRAW, FALSE, 0);
     SendMessageW(g.side_point_group_list, LB_RESETCONTENT, 0, 0);
     normalize_active_point_group();
     int selected_index = LB_ERR;
-    for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
-        std::wstring label = point_group_list_label(i, g.point_groups[i]);
-        int idx = static_cast<int>(SendMessageW(g.side_point_group_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
-        SendMessageW(g.side_point_group_list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
-        if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+    if (g.point_groups.empty()) {
+        const int idx = static_cast<int>(SendMessageW(
+            g.side_point_group_list, LB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(point_group_empty_text())));
+        if (idx != LB_ERR) {
+            SendMessageW(g.side_point_group_list, LB_SETITEMDATA, idx, static_cast<LPARAM>(-1));
+            selected_index = idx;
+            g.side_scroll_y = 0;
+        }
+    } else {
+        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            std::wstring label = point_group_list_label(i, g.point_groups[i]);
+            int idx = static_cast<int>(SendMessageW(g.side_point_group_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
+            SendMessageW(g.side_point_group_list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
+            if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+        }
     }
-    if (selected_index != LB_ERR) SendMessageW(g.side_point_group_list, LB_SETCURSEL, selected_index, 0);
+    if (selected_index != LB_ERR) {
+        SendMessageW(g.side_point_group_list, LB_SETCURSEL, selected_index, 0);
+        SendMessageW(g.side_point_group_list, LB_SETTOPINDEX, selected_index, 0);
+    }
+    SendMessageW(g.side_point_group_list, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(g.side_point_group_list, nullptr, TRUE);
     load_side_point_group_controls();
 }
 
@@ -2587,6 +2844,7 @@ bool side_panel_hit_test(const POINT& pt) {
 void update_side_panel_scrollbar(int viewport_top, int content_height) {
     g.side_content_height_channels = max(g.side_content_height_channels, 0);
     g.side_content_height_points = max(g.side_content_height_points, 0);
+    g.side_content_height_filter = max(g.side_content_height_filter, 0);
     RECT rc{};
     GetClientRect(g.main, &rc);
     const int viewport_bottom = rc.bottom - kBottomBar - 6;
@@ -2602,26 +2860,31 @@ void scroll_side_panel(int delta) {
     if (next == g.side_scroll_y) return;
     g.side_scroll_y = next;
     layout();
-    InvalidateRect(g.main, nullptr, FALSE);
+    RedrawWindow(g.main, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 void set_side_panel_tab(int tab) {
-    g.side_panel_tab = (tab == 1) ? 1 : 0;
+    g.side_panel_tab = (tab >= 0 && tab <= 2) ? tab : 0;
     const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
     const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
+    const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible();
     if (g.show_all_btn) ShowWindow(g.show_all_btn, show_channels ? SW_SHOW : SW_HIDE);
     if (g.hide_all_btn) ShowWindow(g.hide_all_btn, show_channels ? SW_SHOW : SW_HIDE);
     for (HWND h : g.side_channel_controls) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.side_filter_controls) if (h) ShowWindow(h, show_filter ? SW_SHOW : SW_HIDE);
     for (HWND h : g.side_point_controls) if (h) ShowWindow(h, show_points ? SW_SHOW : SW_HIDE);
     for (HWND h : g.checks) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
     for (HWND h : g.check_labels) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
     if (!show_channels && g.channel_edit) ShowWindow(g.channel_edit, SW_HIDE);
     if (g.side_tab_channels) InvalidateRect(g.side_tab_channels, nullptr, FALSE);
     if (g.side_tab_points) InvalidateRect(g.side_tab_points, nullptr, FALSE);
+    if (g.side_tab_filter) InvalidateRect(g.side_tab_filter, nullptr, FALSE);
     if (show_channels) {
         load_side_transform_controls();
     } else if (show_points) {
         populate_side_point_group_list();
+    } else if (show_filter) {
+        sync_filter_controls_from_state();
     }
 }
 
@@ -2629,6 +2892,7 @@ void apply_side_panel_visibility() {
     const bool show = g.side_panel_visible && !welcome_visible();
     if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show ? SW_SHOW : SW_HIDE);
     if (g.side_tab_points) ShowWindow(g.side_tab_points, show ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_filter) ShowWindow(g.side_tab_filter, show ? SW_SHOW : SW_HIDE);
     set_side_panel_tab(g.side_panel_tab);
 }
 
@@ -2637,9 +2901,16 @@ void refresh_side_panel_controls() {
     if (g.sidepanel_btn) SetWindowTextW(g.sidepanel_btn, side_panel_button_text());
     if (g.side_tab_channels) SetWindowTextW(g.side_tab_channels, side_tab_channels_text());
     if (g.side_tab_points) SetWindowTextW(g.side_tab_points, side_tab_points_text());
+    if (g.side_tab_filter) SetWindowTextW(g.side_tab_filter, side_tab_filter_text());
     if (g.side_channel_hint) SetWindowTextW(g.side_channel_hint, side_channel_hint_text());
+    if (g.side_filter_enable) SetWindowTextW(g.side_filter_enable, filter_toggle_text());
+    if (g.side_filter_mode_label) SetWindowTextW(g.side_filter_mode_label, filter_mode_label_text());
+    if (g.side_filter_topology_label) SetWindowTextW(g.side_filter_topology_label, filter_topology_label_text());
+    if (g.side_filter_low_label) SetWindowTextW(g.side_filter_low_label, filter_low_cutoff_text());
+    if (g.side_filter_high_label) SetWindowTextW(g.side_filter_high_label, filter_high_cutoff_text());
     if (g.side_global_formula_label) SetWindowTextW(g.side_global_formula_label, side_global_formula_label_text());
     if (g.side_global_formula_apply) SetWindowTextW(g.side_global_formula_apply, side_global_formula_apply_text());
+    if (g.side_channel_separator) SetWindowTextW(g.side_channel_separator, L"");
     if (g.side_channel_formula_label) SetWindowTextW(g.side_channel_formula_label, side_channel_formula_label_text());
     if (g.side_channel_color) SetWindowTextW(g.side_channel_color, side_channel_color_button_text());
     if (g.side_point_group_visible) SetWindowTextW(g.side_point_group_visible, point_group_visible_text());
@@ -2670,6 +2941,7 @@ void refresh_side_panel_controls() {
         SetWindowTextW(ctl, item.text);
         set_toggle_checked(ctl, item.value);
     }
+    sync_filter_controls_from_state();
     apply_side_panel_visibility();
 }
 
@@ -2731,22 +3003,24 @@ void layout() {
     const int viewport_bottom = ch - kBottomBar - 6;
     const int channels_viewport_top = kTopBar + 78;
     const int points_viewport_top = kTopBar + 48;
+    const int content_w = max(60, panel_w - panel_pad_left - panel_pad_right);
 
     MoveWindow(g.show_all_btn, panel_x, kTopBar + 42, 86, 28, FALSE);
     MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, FALSE);
-    if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, 132, 28, FALSE);
-    if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + 136, kTopBar + 8, 132, 28, FALSE);
+    const int tab_gap = 4;
+    const int tab_w = max(84, (content_w - tab_gap * 2) / 3);
+    if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, tab_w, 28, FALSE);
+    if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + tab_w + tab_gap, kTopBar + 8, tab_w, 28, FALSE);
+    if (g.side_tab_filter) MoveWindow(g.side_tab_filter, panel_x + (tab_w + tab_gap) * 2, kTopBar + 8, tab_w, 28, FALSE);
     apply_side_panel_visibility();
 
-    const int channels_content_estimate =
-        122 + static_cast<int>(g.checks.size()) * 26 + 8 + 20 + 24 + 26 + 32 + 28 + 34 + 28 + 34 + 28;
-    const int points_content_estimate = 390;
-    const int active_viewport_top = (g.side_panel_tab == 0) ? channels_viewport_top : points_viewport_top;
-    const int active_content_estimate = (g.side_panel_tab == 0) ? channels_content_estimate : points_content_estimate;
-    const int viewport_height = max(0, viewport_bottom - active_viewport_top);
-    const int content_w = max(60, panel_w - panel_pad_left - panel_pad_right);
     const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
     const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
+    const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible();
+    const int channels_content_top = channels_viewport_top;
+    const int points_content_top = points_viewport_top;
+    const int filter_viewport_top = points_viewport_top;
+    const int active_viewport_top = (g.side_panel_tab == 0) ? channels_content_top : (g.side_panel_tab == 1 ? points_content_top : filter_viewport_top);
 
     auto place_scrolled = [&](HWND ctl, int x0, int y_rel, int w, int h, int viewport_top, bool visible_in_tab) {
         if (!ctl) return;
@@ -2756,18 +3030,19 @@ void layout() {
         if (visible) MoveWindow(ctl, x0, y_abs, max(1, w), max(1, h), FALSE);
     };
 
-    if (g.side_channel_hint) ShowWindow(g.side_channel_hint, SW_HIDE);
     int y = 0;
-    place_scrolled(g.side_global_formula_label, panel_x, y, content_w, 20, channels_viewport_top, show_channels);
+    place_scrolled(g.side_global_formula_label, panel_x, y, content_w, 20, channels_content_top, show_channels);
     y += 24;
-    place_scrolled(g.side_global_formula_edit, panel_x, y, content_w, 26, channels_viewport_top, show_channels);
+    place_scrolled(g.side_global_formula_edit, panel_x, y, content_w, 26, channels_content_top, show_channels);
     y += 32;
-    place_scrolled(g.side_global_formula_apply, panel_x, y, content_w, 28, channels_viewport_top, show_channels);
+    place_scrolled(g.side_global_formula_apply, panel_x, y, content_w, 28, channels_content_top, show_channels);
     y += 38;
+    place_scrolled(g.side_channel_separator, panel_x, y, content_w, 2, channels_content_top, show_channels);
+    y += 14;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
-        place_scrolled(g.checks[i], panel_x, y + 2, 18, 20, channels_viewport_top, show_channels);
+        place_scrolled(g.checks[i], panel_x, y + 2, 18, 20, channels_content_top, show_channels);
         if (i < g.check_labels.size()) {
-            place_scrolled(g.check_labels[i], panel_x + 24, y, max(60, content_w - 28), 24, channels_viewport_top, show_channels);
+            place_scrolled(g.check_labels[i], panel_x + 24, y, max(60, content_w - 28), 24, channels_content_top, show_channels);
         }
         y += 26;
     }
@@ -2784,20 +3059,43 @@ void layout() {
 
     if (g.side_formula_edit && g.side_channel_color && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
         int cy = y + 8;
-        place_scrolled(g.side_channel_formula_label, panel_x, cy, content_w, 20, channels_viewport_top, show_channels);
+        place_scrolled(g.side_channel_formula_label, panel_x, cy, content_w, 20, channels_content_top, show_channels);
         cy += 24;
-        place_scrolled(g.side_formula_edit, panel_x, cy, content_w, 26, channels_viewport_top, show_channels);
+        place_scrolled(g.side_formula_edit, panel_x, cy, content_w, 26, channels_content_top, show_channels);
         cy += 32;
-        place_scrolled(g.side_channel_color, panel_x, cy, content_w, 28, channels_viewport_top, show_channels);
+        place_scrolled(g.side_channel_color, panel_x, cy, content_w, 28, channels_content_top, show_channels);
         cy += 34;
         const int button_w = max(80, (content_w - 6) / 2);
-        place_scrolled(g.side_formula_apply_selected, panel_x, cy, button_w, 28, channels_viewport_top, show_channels);
-        place_scrolled(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, channels_viewport_top, show_channels);
+        place_scrolled(g.side_formula_apply_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
+        place_scrolled(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
         cy += 34;
-        place_scrolled(g.side_formula_reset_selected, panel_x, cy, button_w, 28, channels_viewport_top, show_channels);
-        place_scrolled(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, channels_viewport_top, show_channels);
+        place_scrolled(g.side_formula_reset_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
+        place_scrolled(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
         g.side_content_height_channels = cy + 28;
     }
+
+    int fy = 0;
+    place_scrolled(g.side_channel_hint, panel_x, fy, content_w, 20, filter_viewport_top, show_filter);
+    fy += 24;
+    place_scrolled(g.side_filter_enable, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 30;
+    place_scrolled(g.side_filter_mode_label, panel_x, fy + 2, 76, 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_mode, panel_x + 80, fy, max(84, content_w - 80), 26, filter_viewport_top, show_filter);
+    fy += 32;
+    place_scrolled(g.side_filter_topology_label, panel_x, fy + 2, 76, 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_topology, panel_x + 80, fy, max(84, content_w - 80), 26, filter_viewport_top, show_filter);
+    fy += 34;
+    place_scrolled(g.side_filter_low_label, panel_x, fy, max(72, content_w - 92), 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_low_value, panel_x + max(72, content_w - 92) + 6, fy, 86, 20, filter_viewport_top, show_filter);
+    fy += 22;
+    place_scrolled(g.side_filter_low_track, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 32;
+    place_scrolled(g.side_filter_high_label, panel_x, fy, max(72, content_w - 92), 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_high_value, panel_x + max(72, content_w - 92) + 6, fy, 86, 20, filter_viewport_top, show_filter);
+    fy += 22;
+    place_scrolled(g.side_filter_high_track, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 36;
+    g.side_content_height_filter = fy + 28;
 
     const int points_left = panel_x;
     const int col_gap = 6;
@@ -2838,7 +3136,9 @@ void layout() {
     if (g.side_point_group_delete) place_scrolled(g.side_point_group_delete, points_left + (content_w - 6) / 2 + 6, py, (content_w - 6) / 2, 28, points_viewport_top, show_points);
     g.side_content_height_points = py + 28;
 
-    update_side_panel_scrollbar(active_viewport_top, g.side_panel_tab == 0 ? g.side_content_height_channels : g.side_content_height_points);
+    update_side_panel_scrollbar(active_viewport_top,
+                                g.side_panel_tab == 0 ? g.side_content_height_channels :
+                                (g.side_panel_tab == 1 ? g.side_content_height_points : g.side_content_height_filter));
 
     MoveWindow(g.status, 8, ch - kBottomBar + 4, cw - 16, 20, FALSE);
 }
@@ -2901,7 +3201,7 @@ void fill_rounded_rect(HDC dc, const RECT& r, COLORREF fill, COLORREF border, in
 void draw_welcome_action_button(HDC dc, const RECT& r, const wchar_t* txt, bool pressed, bool primary, bool outlined);
 
 const wchar_t* speed_menu_text() {
-    return (g_str == &kEn) ? L"Speed" : L"Скорость";
+    return (g_str == &kEn) ? L"Playback speed" : L"Скорость воспроизведения";
 }
 
 const wchar_t* speed_prompt_title_text() {
@@ -4346,7 +4646,12 @@ ChannelRenderView make_channel_render_view(std::size_t channel_index) {
     view.kind = (channel_index < g.channel_transform_kind.size())
         ? g.channel_transform_kind[channel_index]
         : TransformRuntimeKind::Identity;
-    if (view.kind == TransformRuntimeKind::Affine) {
+    if (g.noise_threshold_enabled) {
+        ensure_filtered_channel_cache(channel_index);
+        if (channel_index < g.filtered_channel_cache.size()) {
+            view.cache = &g.filtered_channel_cache[channel_index];
+        }
+    } else if (view.kind == TransformRuntimeKind::Affine) {
         view.mul = g.channel_transform_mul[channel_index];
         view.add = g.channel_transform_add[channel_index];
     } else if (view.kind == TransformRuntimeKind::CachedFormula) {
@@ -4358,10 +4663,14 @@ ChannelRenderView make_channel_render_view(std::size_t channel_index) {
 
 inline double channel_render_value(const ChannelRenderView& view, std::size_t sample_index) {
     if (!view.raw || sample_index >= view.raw->size()) return std::nan("");
-    if (view.cache) return (*view.cache)[sample_index];
-    const double raw = (*view.raw)[sample_index];
-    if (view.kind == TransformRuntimeKind::Affine) return raw * view.mul + view.add;
-    return raw;
+    double value;
+    if (view.cache) {
+        value = (*view.cache)[sample_index];
+    } else {
+        const double raw = (*view.raw)[sample_index];
+        value = (view.kind == TransformRuntimeKind::Affine) ? (raw * view.mul + view.add) : raw;
+    }
+    return value;
 }
 
 bool any_visible_channel() {
@@ -5854,6 +6163,7 @@ std::string current_channel_label(std::size_t ci) {
 void invalidate_formula_runtime() {
     g.formula_runtime_dirty = true;
     invalidate_transformed_channel_cache();
+    invalidate_filtered_channel_cache();
     invalidate_plot_analysis_cache();
 }
 
@@ -5864,6 +6174,11 @@ void invalidate_formula_runtime_channel(std::size_t channel_index) {
     } else {
         invalidate_transformed_channel_cache();
     }
+    if (channel_index < g.filtered_channel_cache_valid.size()) {
+        g.filtered_channel_cache_valid[channel_index] = 0;
+    } else {
+        invalidate_filtered_channel_cache();
+    }
     invalidate_plot_analysis_cache();
 }
 
@@ -5871,6 +6186,12 @@ void invalidate_transformed_channel_cache() {
     const std::size_t n = g.ds.channel_count();
     g.transformed_channel_cache.resize(n);
     g.transformed_channel_cache_valid.assign(n, 0);
+}
+
+void invalidate_filtered_channel_cache() {
+    const std::size_t n = g.ds.channel_count();
+    g.filtered_channel_cache.resize(n);
+    g.filtered_channel_cache_valid.assign(n, 0);
 }
 
 void ensure_channel_formula_storage() {
@@ -5998,6 +6319,11 @@ std::wstring format_edit_number(double value) {
     return buf;
 }
 
+std::wstring format_optional_edit_number(double value) {
+    if (!std::isfinite(value)) return L"";
+    return format_edit_number(value);
+}
+
 bool parse_wide_double_text(const wchar_t* text, double& out) {
     if (!text) return false;
     std::wstring s = text;
@@ -6012,6 +6338,292 @@ bool parse_wide_double_text(const wchar_t* text, double& out) {
     if (*end != 0) return false;
     out = value;
     return true;
+}
+
+constexpr double kFilterSliderRange = 1000.0;
+constexpr double kFilterSliderGamma = 4.0;
+constexpr double kButterworthQ = 0.70710678118654752440;
+constexpr double kBesselQ = 0.57735026918962576451;
+
+struct BiquadCoefficients {
+    double b0 = 1.0;
+    double b1 = 0.0;
+    double b2 = 0.0;
+    double a1 = 0.0;
+    double a2 = 0.0;
+};
+
+struct BiquadState {
+    double z1 = 0.0;
+    double z2 = 0.0;
+};
+
+double current_filter_sample_step() {
+    if (!has_data() || g.ds.time.size() < 2) return 0.0;
+    if (g.cached_global_gap_step_ready && g.cached_global_gap_step > 0.0 && std::isfinite(g.cached_global_gap_step)) {
+        return g.cached_global_gap_step;
+    }
+    const double step = effective_time_gap_step(g.ds.time, 0, g.ds.time.size());
+    if (step > 0.0 && std::isfinite(step)) {
+        g.cached_global_gap_step = step;
+        g.cached_global_gap_step_ready = true;
+        return step;
+    }
+    return 0.0;
+}
+
+double current_filter_nyquist() {
+    const double step = current_filter_sample_step();
+    return (step > 0.0) ? (0.5 / step) : 0.0;
+}
+
+double clamp_filter_cutoff(double hz, double nyquist) {
+    if (!std::isfinite(hz) || hz < 0.0) hz = 0.0;
+    if (nyquist > 0.0 && hz > nyquist) hz = nyquist;
+    return hz;
+}
+
+void normalize_filter_bounds() {
+    g.noise_threshold_min = std::isfinite(g.noise_threshold_min) ? std::max(0.0, g.noise_threshold_min) : 0.0;
+    g.noise_threshold_max = std::isfinite(g.noise_threshold_max) ? std::max(0.0, g.noise_threshold_max) : 0.0;
+    if (g.noise_threshold_min > g.noise_threshold_max) {
+        std::swap(g.noise_threshold_min, g.noise_threshold_max);
+    }
+}
+
+double filter_slider_to_frequency(int pos, double nyquist) {
+    if (!(nyquist > 0.0)) return 0.0;
+    pos = std::clamp(pos, 0, static_cast<int>(kFilterSliderRange));
+    if (pos <= 0) return 0.0;
+    const double t = static_cast<double>(pos) / kFilterSliderRange;
+    return nyquist * std::pow(t, kFilterSliderGamma);
+}
+
+int frequency_to_filter_slider(double hz, double nyquist) {
+    if (!(nyquist > 0.0) || !(hz > 0.0)) return 0;
+    hz = clamp_filter_cutoff(hz, nyquist);
+    if (!(hz > 0.0)) return 0;
+    const double t = std::pow(hz / nyquist, 1.0 / kFilterSliderGamma);
+    return std::clamp(static_cast<int>(std::lround(t * kFilterSliderRange)), 0, static_cast<int>(kFilterSliderRange));
+}
+
+std::wstring filter_frequency_text(double hz) {
+    if (!(hz > 0.0) || !std::isfinite(hz)) {
+        return g_str == &kEn ? L"off" : L"выкл";
+    }
+    wchar_t buf[64];
+    if (hz >= 1000.0) {
+        swprintf(buf, 64, g_str == &kEn ? L"%.6g kHz" : L"%.6g кГц", hz / 1000.0);
+    } else {
+        swprintf(buf, 64, g_str == &kEn ? L"%.6g Hz" : L"%.6g Гц", hz);
+    }
+    return buf;
+}
+
+BiquadCoefficients design_biquad(FilterMode mode, int topology, double cutoff_hz, double sample_rate) {
+    BiquadCoefficients coeffs;
+    if (!(sample_rate > 0.0) || !(cutoff_hz > 0.0) || !std::isfinite(cutoff_hz)) return coeffs;
+    if (mode != FilterModeLowPass && mode != FilterModeHighPass) return coeffs;
+    cutoff_hz = std::clamp(cutoff_hz, 0.0, sample_rate * 0.499);
+    if (!(cutoff_hz > 0.0)) return coeffs;
+    const double q = (topology == FilterTopologyBessel) ? kBesselQ :
+                     (topology == FilterTopologyChebyshev) ? 0.92 :
+                     kButterworthQ;
+    const double omega = 2.0 * 3.14159265358979323846 * cutoff_hz / sample_rate;
+    const double sn = std::sin(omega);
+    const double cs = std::cos(omega);
+    const double alpha = sn / (2.0 * q);
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a0 = 1.0, a1 = 0.0, a2 = 0.0;
+    if (mode == FilterModeLowPass) {
+        b0 = (1.0 - cs) * 0.5;
+        b1 = 1.0 - cs;
+        b2 = (1.0 - cs) * 0.5;
+    } else {
+        b0 = (1.0 + cs) * 0.5;
+        b1 = -(1.0 + cs);
+        b2 = (1.0 + cs) * 0.5;
+    }
+    a0 = 1.0 + alpha;
+    a1 = -2.0 * cs;
+    a2 = 1.0 - alpha;
+    if (!(std::abs(a0) > 0.0)) return coeffs;
+    coeffs.b0 = b0 / a0;
+    coeffs.b1 = b1 / a0;
+    coeffs.b2 = b2 / a0;
+    coeffs.a1 = a1 / a0;
+    coeffs.a2 = a2 / a0;
+    return coeffs;
+}
+
+double process_biquad_sample(const BiquadCoefficients& coeffs, BiquadState& state, double input) {
+    const double output = coeffs.b0 * input + state.z1;
+    state.z1 = coeffs.b1 * input - coeffs.a1 * output + state.z2;
+    state.z2 = coeffs.b2 * input - coeffs.a2 * output;
+    return output;
+}
+
+double transformed_channel_sample(std::size_t channel_index, std::size_t row_index) {
+    if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
+    const auto& column = g.ds.channels[channel_index];
+    if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
+
+    const double raw = column[row_index];
+    if (std::isnan(raw)) return raw;
+    if (!g.has_non_identity_formula || channel_index >= g.channel_transform_kind.size()) {
+        return raw;
+    }
+    const TransformRuntimeKind kind = g.channel_transform_kind[channel_index];
+    if (kind == TransformRuntimeKind::Identity) return raw;
+    if (kind == TransformRuntimeKind::Affine) {
+        return raw * g.channel_transform_mul[channel_index] + g.channel_transform_add[channel_index];
+    }
+    ensure_transformed_channel_cache(channel_index);
+    if (channel_index < g.transformed_channel_cache.size() &&
+        row_index < g.transformed_channel_cache[channel_index].size()) {
+        return g.transformed_channel_cache[channel_index][row_index];
+    }
+    return transform_channel_value(channel_index, raw);
+}
+
+double rendered_channel_sample(std::size_t channel_index, std::size_t row_index) {
+    if (g.noise_threshold_enabled) {
+        ensure_filtered_channel_cache(channel_index);
+        if (channel_index < g.filtered_channel_cache.size() &&
+            row_index < g.filtered_channel_cache[channel_index].size()) {
+            return g.filtered_channel_cache[channel_index][row_index];
+        }
+    }
+    return transformed_channel_sample(channel_index, row_index);
+}
+
+void ensure_filtered_channel_cache(std::size_t channel_index) {
+    ensure_channel_formula_vectors();
+    if (!g.noise_threshold_enabled || channel_index >= g.ds.channel_count()) return;
+    if (channel_index >= g.filtered_channel_cache_valid.size()) invalidate_filtered_channel_cache();
+    if (g.filtered_channel_cache_valid[channel_index]) return;
+
+    const auto& time = g.ds.time;
+    const auto& src = g.ds.channels[channel_index];
+    auto& dst = g.filtered_channel_cache[channel_index];
+    dst.resize(src.size());
+    if (src.empty() || time.empty()) {
+        g.filtered_channel_cache_valid[channel_index] = 1;
+        return;
+    }
+
+    const double step = current_filter_sample_step();
+    const double nyquist = (step > 0.0) ? (0.5 / step) : 0.0;
+    if (!(nyquist > 0.0)) {
+        for (std::size_t i = 0; i < src.size(); ++i) dst[i] = transformed_channel_sample(channel_index, i);
+        g.filtered_channel_cache_valid[channel_index] = 1;
+        return;
+    }
+
+    const double sample_rate = 1.0 / step;
+    const double gap_threshold = step * 64.0;
+    const int mode = (g.noise_threshold_mode >= FilterModeLowPass && g.noise_threshold_mode <= FilterModeBandStop)
+        ? g.noise_threshold_mode
+        : FilterModeLowPass;
+    const int topology = (g.noise_threshold_topology == FilterTopologyBessel)
+        ? FilterTopologyBessel
+        : (g.noise_threshold_topology == FilterTopologyChebyshev)
+            ? FilterTopologyChebyshev
+            : (g.noise_threshold_topology == FilterTopologyLinkwitzRiley)
+                ? FilterTopologyLinkwitzRiley
+                : FilterTopologyButterworth;
+    const double low_cutoff = clamp_filter_cutoff(g.noise_threshold_min, nyquist);
+    const double high_cutoff = clamp_filter_cutoff(g.noise_threshold_max, nyquist);
+    const BiquadCoefficients lowpass = design_biquad(FilterModeLowPass, topology, high_cutoff, sample_rate);
+    const BiquadCoefficients highpass = design_biquad(FilterModeHighPass, topology, low_cutoff, sample_rate);
+    const bool linkwitz_riley = topology == FilterTopologyLinkwitzRiley;
+    const BiquadCoefficients lowpass_lr = design_biquad(FilterModeLowPass, FilterTopologyButterworth, high_cutoff, sample_rate);
+    const BiquadCoefficients highpass_lr = design_biquad(FilterModeHighPass, FilterTopologyButterworth, low_cutoff, sample_rate);
+
+    BiquadState stage1{};
+    BiquadState stage2{};
+    BiquadState stage3{};
+    BiquadState stage4{};
+    bool have_segment = false;
+    double prev_time = 0.0;
+    for (std::size_t i = 0; i < src.size(); ++i) {
+        const double input = transformed_channel_sample(channel_index, i);
+        const double tt = time[i];
+        const bool finite = std::isfinite(input) && std::isfinite(tt);
+        if (!finite) {
+            dst[i] = input;
+            stage1 = {};
+            stage2 = {};
+            have_segment = false;
+            prev_time = tt;
+            continue;
+        }
+        if (have_segment) {
+            const double dt = tt - prev_time;
+            if (!(dt > 0.0) || !std::isfinite(dt) || dt > gap_threshold) {
+                stage1 = {};
+                stage2 = {};
+                have_segment = false;
+            }
+        }
+
+        double output = input;
+        if (linkwitz_riley) {
+            switch (mode) {
+                case FilterModeHighPass: {
+                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
+                    output = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
+                    break;
+                }
+                case FilterModeBandPass: {
+                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
+                    const double hp2 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
+                    const double bp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage3, hp2) : hp2;
+                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage4, bp1) : bp1;
+                    break;
+                }
+                case FilterModeBandStop: {
+                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
+                    const double hp2 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
+                    const double bp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage3, hp2) : hp2;
+                    const double bp2 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage4, bp1) : bp1;
+                    output = input - bp2;
+                    break;
+                }
+                case FilterModeLowPass:
+                default: {
+                    const double lp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage1, input) : input;
+                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage2, lp1) : lp1;
+                    break;
+                }
+            }
+        } else {
+            switch (mode) {
+                case FilterModeHighPass:
+                    output = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
+                    break;
+                case FilterModeBandPass: {
+                    const double hp = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
+                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage2, hp) : hp;
+                    break;
+                }
+                case FilterModeBandStop: {
+                    const double hp = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
+                    const double bp = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage2, hp) : hp;
+                    output = input - bp;
+                    break;
+                }
+                case FilterModeLowPass:
+                default:
+                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage1, input) : input;
+                    break;
+            }
+        }
+        dst[i] = output;
+        have_segment = true;
+        prev_time = tt;
+    }
+    g.filtered_channel_cache_valid[channel_index] = 1;
 }
 
 void reset_channel_transform(std::size_t ci) {
@@ -6056,6 +6668,7 @@ void on_signal_transform_changed(bool preserve_history = false) {
     g.auto_y = true;
     g.auto_y_amp = true;
     if (g.autoy) SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0);
+    invalidate_plot_analysis_cache();
     clear_spectrum_cache_state();
     if (g.freq_mode) compute_spectrum();
     sync_menu();
@@ -6068,22 +6681,7 @@ double export_time_channel_value(std::size_t channel_index, std::size_t row_inde
     if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
     const auto& column = g.ds.channels[channel_index];
     if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
-
-    const double raw = column[row_index];
-    if (std::isnan(raw)) return raw;
-    if (!g.has_non_identity_formula || channel_index >= g.channel_transform_kind.size()) return raw;
-
-    const TransformRuntimeKind kind = g.channel_transform_kind[channel_index];
-    if (kind == TransformRuntimeKind::Identity) return raw;
-    if (kind == TransformRuntimeKind::Affine) {
-        return raw * g.channel_transform_mul[channel_index] + g.channel_transform_add[channel_index];
-    }
-    ensure_transformed_channel_cache(channel_index);
-    if (channel_index < g.transformed_channel_cache.size() &&
-        row_index < g.transformed_channel_cache[channel_index].size()) {
-        return g.transformed_channel_cache[channel_index][row_index];
-    }
-    return transform_channel_value(channel_index, raw);
+    return rendered_channel_sample(channel_index, row_index);
 }
 
 bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool csv) {
@@ -6336,23 +6934,8 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
     if (lo >= hi) return false;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
-        const auto& col = g.ds.channels[c];
-        const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
-            ? g.channel_transform_kind[c]
-            : TransformRuntimeKind::Identity;
-        const std::vector<double>* cache = nullptr;
-        double mul = 1.0;
-        double add = 0.0;
-        if (kind == TransformRuntimeKind::Affine) {
-            mul = g.channel_transform_mul[c];
-            add = g.channel_transform_add[c];
-        } else if (kind == TransformRuntimeKind::CachedFormula) {
-            ensure_transformed_channel_cache(c);
-            cache = &g.transformed_channel_cache[c];
-        }
         for (std::size_t i = lo; i < hi; ++i) {
-            const double y = cache ? (*cache)[i]
-                                   : (kind == TransformRuntimeKind::Affine ? (col[i] * mul + add) : col[i]);
+            const double y = rendered_channel_sample(c, i);
             if (!std::isfinite(y)) continue;
             const double x = t[i];
             const double px = to_px(x);
@@ -6467,6 +7050,15 @@ double read_ini_double(const wchar_t* section, const wchar_t* key, double def_va
     return def_value;
 }
 
+double read_ini_optional_double(const wchar_t* section, const wchar_t* key, double def_value) {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    wchar_t buf[64]{};
+    GetPrivateProfileStringW(section, key, L"", buf, 64, g_config_path.c_str());
+    double value = def_value;
+    if (parse_wide_double_text(buf, value)) return value;
+    return def_value;
+}
+
 std::wstring trim_wide_ascii(const std::wstring& text) {
     const wchar_t* ws = L" \t\r\n\f\v";
     const std::size_t begin = text.find_first_not_of(ws);
@@ -6490,6 +7082,16 @@ std::wstring normalize_axis_label_text(const std::wstring& text, const wchar_t* 
 
 void write_ini_double(const wchar_t* section, const wchar_t* key, double value) {
     if (g_config_path.empty()) g_config_path = app_config_path();
+    std::wstring text = format_edit_number(value);
+    WritePrivateProfileStringW(section, key, text.c_str(), g_config_path.c_str());
+}
+
+void write_ini_optional_double(const wchar_t* section, const wchar_t* key, double value) {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    if (!std::isfinite(value)) {
+        WritePrivateProfileStringW(section, key, L"", g_config_path.c_str());
+        return;
+    }
     std::wstring text = format_edit_number(value);
     WritePrivateProfileStringW(section, key, text.c_str(), g_config_path.c_str());
 }
@@ -6538,9 +7140,21 @@ void load_runtime_settings() {
     g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
     g.light_mode = read_ini_int(L"ui", L"light_mode", g.light_mode ? 1 : 0) != 0;
     g.show_gap_markers = read_ini_int(L"ui", L"show_gap_markers", g.show_gap_markers ? 1 : 0) != 0;
+    g.noise_threshold_enabled = read_ini_int(L"ui", L"filter_enabled", g.noise_threshold_enabled ? 1 : 0) != 0;
+    g.noise_threshold_mode = read_ini_int(L"ui", L"filter_mode", g.noise_threshold_mode);
+    g.noise_threshold_topology = read_ini_int(L"ui", L"filter_topology", g.noise_threshold_topology);
+    g.noise_threshold_min = read_ini_optional_double(L"ui", L"filter_low_cutoff", g.noise_threshold_min);
+    g.noise_threshold_max = read_ini_optional_double(L"ui", L"filter_high_cutoff", g.noise_threshold_max);
+    g.noise_threshold_mode = std::clamp(g.noise_threshold_mode,
+                                        static_cast<int>(FilterModeLowPass),
+                                        static_cast<int>(FilterModeBandStop));
+    g.noise_threshold_topology = std::clamp(g.noise_threshold_topology,
+                                            static_cast<int>(FilterTopologyButterworth),
+                                            static_cast<int>(FilterTopologyLinkwitzRiley));
+    normalize_filter_bounds();
     g.side_panel_visible = read_ini_int(L"ui", L"side_panel_visible", g.side_panel_visible ? 1 : 0) != 0;
     g.side_panel_tab = read_ini_int(L"ui", L"side_panel_tab", g.side_panel_tab);
-    if (g.side_panel_tab != 1) g.side_panel_tab = 0;
+    if (g.side_panel_tab < 0 || g.side_panel_tab > 2) g.side_panel_tab = 0;
     g.play_speed = read_ini_double(L"ui", L"play_speed", g.play_speed);
     if (!(g.play_speed > 0.0) || !std::isfinite(g.play_speed)) g.play_speed = 1.0;
     g.light_mode_open_start = read_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
@@ -6591,8 +7205,17 @@ void save_runtime_settings_now() {
     WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", g_config_path.c_str());
+    normalize_filter_bounds();
+    WritePrivateProfileStringW(L"ui", L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"filter_mode", std::to_wstring(g.noise_threshold_mode).c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"filter_topology", std::to_wstring(g.noise_threshold_topology).c_str(), g_config_path.c_str());
+    write_ini_optional_double(L"ui", L"filter_low_cutoff", g.noise_threshold_min);
+    write_ini_optional_double(L"ui", L"filter_high_cutoff", g.noise_threshold_max);
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_enabled", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_min", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_max", nullptr, g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"side_panel_visible", g.side_panel_visible ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"side_panel_tab", g.side_panel_tab == 1 ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"side_panel_tab", std::to_wstring(std::clamp(g.side_panel_tab, 0, 2)).c_str(), g_config_path.c_str());
     write_ini_double(L"ui", L"play_speed", g.play_speed);
     write_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
     write_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
@@ -6718,7 +7341,7 @@ std::wstring command_name(int command) {
         case IDM_VISMOOTH: return en ? L"Smoothing" : L"Сглаживание";
         case IDM_VPAN: return en ? L"Vertical pan" : L"Вертикальное панорамирование";
         case IDM_THEME: return en ? L"Dark theme" : L"Тёмная тема";
-        case IDC_PLAY: return en ? L"Play / Pause" : L"Play / Pause";
+        case IDC_PLAY: return en ? L"Play / Pause" : L"Старт/стоп";
         case IDC_ZOOMIN: return en ? L"Zoom in" : L"Увеличить";
         case IDC_ZOOMOUT: return en ? L"Zoom out" : L"Уменьшить";
         case IDC_PANLEFT: return en ? L"Pan left" : L"Сдвиг влево";
@@ -6776,7 +7399,7 @@ std::wstring welcome_features_text() {
 const wchar_t* welcome_author_credit_text() {
     return (g_str == &kEn)
         ? L"Application developed by Alexander Muleev  |  al.muleev@gmail.com"
-        : L"Приложение разработал Мулеев Александр  |  al.muleev@gmail.com";
+        : L"Приложение разработал Александр Мулеев  |  al.muleev@gmail.com";
 }
 
 const wchar_t* welcome_actions_title_text() {
@@ -7589,6 +8212,7 @@ bool is_side_toggle_id(int id) {
            id == IDC_SIDE_PT_INVDT ||
            id == IDC_SIDE_PT_DIST ||
            id == IDC_SIDE_PT_SNAP ||
+           id == IDC_SIDE_FILTER_ENABLE ||
            id == IDC_SIDE_POINT_GROUP_VISIBLE;
 }
 
@@ -7999,7 +8623,7 @@ HMENU make_menu() {
         std::wstring autoy_text = menu_text(en ? L"Auto zoom" : L"Автомасштабирование", IDC_AUTOY);
         std::wstring smooth_text = menu_text(en ? L"Smoothing" : L"Сглаживание", IDM_VISMOOTH);
         std::wstring vpan_text = menu_text(en ? L"Vertical pan" : L"Вертикальное панорамирование", IDM_VPAN);
-        std::wstring play_text = menu_text(L"Play / Pause", IDC_PLAY);
+        std::wstring play_text = menu_text(en ? L"Play / Pause" : L"Старт/стоп", IDC_PLAY);
         std::wstring theme_text = menu_text(en ? L"Dark theme" : L"Тёмная тема", IDM_THEME);
         append_menu_item_owner_draw(view, IDM_MODE_TIME, mode_time_text);
         append_menu_item_owner_draw(view, IDM_MODE_FREQ, mode_freq_text);
@@ -8014,8 +8638,8 @@ HMENU make_menu() {
         append_menu_item_owner_draw(view, IDM_VISMOOTH, smooth_text);
         append_menu_item_owner_draw(view, IDM_VPAN, vpan_text);
         append_menu_item_owner_draw(view, IDC_PLAY, play_text);
-        append_menu_item_owner_draw(view, IDM_THEME, theme_text);
         append_menu_item_owner_draw(view, IDM_SPEED_CUSTOM, speed_menu_text());
+        append_menu_item_owner_draw(view, IDM_THEME, theme_text);
         append_menu_popup_owner_draw(bar, view, en ? L"View" : L"Вид");
 
         HMENU tools = CreatePopupMenu();
@@ -8086,7 +8710,7 @@ HMENU make_menu() {
         std::wstring autoy_text = menu_text(en ? L"Auto zoom" : L"Автомасштабирование", IDC_AUTOY);
         std::wstring smooth_text = menu_text(en ? L"Smoothing" : L"Сглаживание", IDM_VISMOOTH);
         std::wstring vpan_text = menu_text(en ? L"Vertical pan" : L"Вертикальное панорамирование", IDM_VPAN);
-        std::wstring play_text = menu_text(L"Play / Pause", IDC_PLAY);
+        std::wstring play_text = menu_text(en ? L"Play / Pause" : L"Старт/стоп", IDC_PLAY);
         std::wstring theme_text = menu_text(en ? L"Dark theme" : L"Тёмная тема", IDM_THEME);
         append_menu_item_owner_draw(view, IDM_MODE_TIME, mode_time_text);
         append_menu_item_owner_draw(view, IDM_MODE_FREQ, mode_freq_text);
@@ -8101,8 +8725,8 @@ HMENU make_menu() {
         append_menu_item_owner_draw(view, IDM_VISMOOTH, smooth_text);
         append_menu_item_owner_draw(view, IDM_VPAN, vpan_text);
         append_menu_item_owner_draw(view, IDC_PLAY, play_text);
-        append_menu_item_owner_draw(view, IDM_THEME, theme_text);
         append_menu_item_owner_draw(view, IDM_SPEED_CUSTOM, speed_menu_text());
+        append_menu_item_owner_draw(view, IDM_THEME, theme_text);
         append_menu_popup_owner_draw(bar, view, menu_view);
 
         HMENU meas = CreatePopupMenu();
@@ -8165,9 +8789,9 @@ HMENU make_menu() {
     append_menu_item_owner_draw(view, IDC_AUTOY, (g_str == &kEn) ? L"Auto zoom" : L"Автомасштабирование");
     append_menu_item_owner_draw(view, IDM_VISMOOTH, L"Сглаживание\tC");
     append_menu_item_owner_draw(view, IDM_VPAN, L"Вертикальное панорамирование\tP");
-    append_menu_item_owner_draw(view, IDC_PLAY, L"Play / Pause\tПробел");
-    append_menu_item_owner_draw(view, IDM_THEME, L"Тёмная тема\tT");
+    append_menu_item_owner_draw(view, IDC_PLAY, L"Старт/стоп\tПробел");
     append_menu_item_owner_draw(view, IDM_SPEED_CUSTOM, speed_menu_text());
+    append_menu_item_owner_draw(view, IDM_THEME, L"Тёмная тема\tT");
     append_menu_popup_owner_draw(bar, view, L"Вид");
 
     HMENU meas = CreatePopupMenu();
@@ -8448,27 +9072,27 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return mk(L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP, x, y, w, h, id);
             };
             const bool en = (g_str == &kEn);
-            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 176, IDC_SET_GROUP_GENERAL);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 226, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
-            mkcheck(g_str->light_mode, 28, 70, 278, 28, IDC_SET_LIGHT_MODE);
-            mkcheck(gap_markers_toggle_text(), 28, 102, 278, 28, IDC_SET_GAP_MARKERS);
-            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 136, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 132, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
-            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 164, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 160, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            mkcheck(g_str->light_mode, 28, 64, 278, 28, IDC_SET_LIGHT_MODE);
+            mkcheck(gap_markers_toggle_text(), 28, 92, 278, 28, IDC_SET_GAP_MARKERS);
+            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 148, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
+            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 144, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 176, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
+            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 172, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 198, 510, 188, IDC_SET_GROUP_HOTKEYS);
-            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 222, 240, 146, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 230, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 230, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 230, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 262, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 282, 214, 260, IDC_SET_HOTKEY_KEY);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 246, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, 24, 270, 240, 146, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 278, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 278, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 278, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 310, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 330, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 320, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 320, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 354, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 368, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 368, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 402, 100, 28, IDC_SET_HOTKEY_CLEAR);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -8666,7 +9290,7 @@ void open_settings() {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
             g.settings_wnd = CreateWindowExW(
             WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 436,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 536,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;
@@ -9090,12 +9714,36 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             g.side_tab_channels = mk(side_tab_channels_text(), IDC_SIDE_TAB_CHANNELS, 0);
             g.side_tab_points = mk(side_tab_points_text(), IDC_SIDE_TAB_POINTS, 0);
+            g.side_tab_filter = mk(side_tab_filter_text(), IDC_SIDE_TAB_FILTER, 0);
             g.side_channel_hint = mk_panel_ctl(L"STATIC", side_channel_hint_text(),
-                                               SS_LEFT | SS_NOPREFIX, IDC_SIDE_CHANNEL_HINT, g.side_channel_controls);
+                                               SS_LEFT | SS_NOPREFIX, IDC_SIDE_CHANNEL_HINT, g.side_filter_controls);
+            g.side_filter_enable = mk_panel_ctl(L"BUTTON", filter_toggle_text(),
+                                                BS_OWNERDRAW, IDC_SIDE_FILTER_ENABLE, g.side_filter_controls);
+            g.side_filter_mode_label = mk_panel_ctl(L"STATIC", filter_mode_label_text(),
+                                                    SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_mode = mk_panel_ctl(L"COMBOBOX", L"",
+                                              CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER,
+                                              IDC_SIDE_FILTER_MODE, g.side_filter_controls);
+            g.side_filter_topology_label = mk_panel_ctl(L"STATIC", filter_topology_label_text(),
+                                                        SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_topology = mk_panel_ctl(L"COMBOBOX", L"",
+                                                  CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER,
+                                                  IDC_SIDE_FILTER_TOPOLOGY, g.side_filter_controls);
+            g.side_filter_low_label = mk_panel_ctl(L"STATIC", filter_low_cutoff_text(),
+                                                   SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_low_value = mk_panel_ctl(L"STATIC", L"", SS_RIGHT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_low_track = mk_panel_ctl(TRACKBAR_CLASS, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
+                                                   IDC_SIDE_FILTER_LOW_TRACK, g.side_filter_controls);
+            g.side_filter_high_label = mk_panel_ctl(L"STATIC", filter_high_cutoff_text(),
+                                                    SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_high_value = mk_panel_ctl(L"STATIC", L"", SS_RIGHT | SS_NOPREFIX, 0, g.side_filter_controls);
+            g.side_filter_high_track = mk_panel_ctl(TRACKBAR_CLASS, L"", TBS_HORZ | TBS_NOTICKS | WS_TABSTOP,
+                                                    IDC_SIDE_FILTER_HIGH_TRACK, g.side_filter_controls);
             g.side_global_formula_label = mk_panel_ctl(L"STATIC", side_global_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
             g.side_global_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                       WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_FORMULA_EDIT, g.side_channel_controls);
             g.side_global_formula_apply = mk_panel_btn(side_global_formula_apply_text(), IDC_SIDE_GLOBAL_FORMULA_APPLY, g.side_channel_controls);
+            g.side_channel_separator = mk_panel_ctl(L"STATIC", L"", SS_ETCHEDHORZ, 0, g.side_channel_controls);
             g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
             g.side_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_FORMULA_EDIT, g.side_channel_controls);
@@ -9121,7 +9769,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             g.side_point_color_current = mk_panel_btn(point_current_color_button_text(), IDC_SIDE_POINT_COLOR_CURRENT, g.side_point_controls);
             g.side_point_label_groups = mk_panel_ctl(L"STATIC", point_group_list_title(), SS_LEFT, 0, g.side_point_controls);
-            g.side_point_group_list = mk_panel_ctl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, IDC_SIDE_POINT_GROUP_LIST, g.side_point_controls);
+            g.side_point_group_list = mk_panel_ctl(L"LISTBOX", L"", LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER, IDC_SIDE_POINT_GROUP_LIST, g.side_point_controls);
             g.side_point_group_visible = mk_panel_ctl(L"BUTTON", point_group_visible_text(), BS_OWNERDRAW, IDC_SIDE_POINT_GROUP_VISIBLE, g.side_point_controls);
             g.side_point_group_color = mk_panel_btn(point_selected_group_color_button_text(), IDC_SIDE_POINT_GROUP_COLOR, g.side_point_controls);
             g.side_point_group_new = mk_panel_btn(point_group_new_button_text(), IDC_SIDE_POINT_GROUP_NEW, g.side_point_controls);
@@ -9200,6 +9848,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 measure_owner_draw_menu(mis);
                 return TRUE;
             }
+            if (mis && mis->CtlType == ODT_COMBOBOX &&
+                (mis->CtlID == IDC_SIDE_FILTER_MODE || mis->CtlID == IDC_SIDE_FILTER_TOPOLOGY)) {
+                measure_settings_combo_item(mis);
+                return TRUE;
+            }
             break;
         }
         case WM_PAINT: {
@@ -9213,6 +9866,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
             if (dis && dis->CtlType == ODT_MENU) {
                 draw_owner_draw_menu(dis);
+                return TRUE;
+            }
+            if (dis && dis->CtlType == ODT_COMBOBOX &&
+                (dis->CtlID == IDC_SIDE_FILTER_MODE || dis->CtlID == IDC_SIDE_FILTER_TOPOLOGY)) {
+                draw_settings_combo_item(dis);
                 return TRUE;
             }
             HWND btn = dis->hwndItem;
@@ -9252,12 +9910,34 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 active = g.side_panel_tab == 0;
             } else if (btn == g.side_tab_points) {
                 active = g.side_panel_tab == 1;
+            } else if (btn == g.side_tab_filter) {
+                active = g.side_panel_tab == 2;
             }
             bool hover = (btn == g.hovered_btn);
             wchar_t txt[128];
             GetWindowTextW(btn, txt, 128);
             draw_themed_button(dc, r, txt, pressed, active, hover);
             return TRUE;
+        }
+        case WM_HSCROLL: {
+            HWND ctl = reinterpret_cast<HWND>(lp);
+            if (!ctl || g.updating_noise_threshold_edits) return 0;
+            const int ctl_id = GetDlgCtrlID(ctl);
+            if (ctl_id != IDC_SIDE_FILTER_LOW_TRACK && ctl_id != IDC_SIDE_FILTER_HIGH_TRACK) return 0;
+            const double nyquist = current_filter_nyquist();
+            if (!(nyquist > 0.0)) return 0;
+            if (ctl_id == IDC_SIDE_FILTER_LOW_TRACK) {
+                g.noise_threshold_min = filter_slider_to_frequency(static_cast<int>(SendMessageW(ctl, TBM_GETPOS, 0, 0)), nyquist);
+            } else {
+                g.noise_threshold_max = filter_slider_to_frequency(static_cast<int>(SendMessageW(ctl, TBM_GETPOS, 0, 0)), nyquist);
+            }
+            normalize_filter_bounds();
+            recompute_transforms_from_state();
+            save_runtime_settings();
+            refresh_side_panel_controls();
+            set_status();
+            InvalidateRect(hwnd, nullptr, TRUE);
+            return 0;
         }
         case WM_TIMER:
             if (LOWORD(wp) == kRuntimeSettingsSaveTimerId) {
@@ -9380,6 +10060,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_TAB_POINTS:
                     g.side_scroll_y = 0;
                     set_side_panel_tab(1);
+                    save_runtime_settings();
+                    layout();
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                case IDC_SIDE_TAB_FILTER:
+                    g.side_scroll_y = 0;
+                    set_side_panel_tab(2);
                     save_runtime_settings();
                     layout();
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -9805,6 +10492,62 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (g.settings_wnd) refresh_settings_controls();
                     refresh_side_panel_controls();
                     InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+                case IDC_SIDE_FILTER_ENABLE: {
+                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
+                        const SettingsSnapshot before = capture_settings_snapshot();
+                        toggle_checked_state(GetDlgItem(hwnd, id));
+                        g.noise_threshold_enabled = is_toggle_checked(GetDlgItem(hwnd, id));
+                        normalize_filter_bounds();
+                        record_settings_change(before);
+                        recompute_transforms_from_state();
+                        save_runtime_settings();
+                        refresh_side_panel_controls();
+                        set_status();
+                        InvalidateRect(hwnd, nullptr, TRUE);
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_FILTER_MODE: {
+                    if (HIWORD(wp) == CBN_SELCHANGE && !g.updating_noise_threshold_edits) {
+                        HWND combo = GetDlgItem(hwnd, id);
+                        const int sel = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+                        if (sel != CB_ERR) {
+                            const SettingsSnapshot before = capture_settings_snapshot();
+                            const int value = static_cast<int>(SendMessageW(combo, CB_GETITEMDATA, sel, 0));
+                            g.noise_threshold_mode = std::clamp(value,
+                                                                static_cast<int>(FilterModeLowPass),
+                                                                static_cast<int>(FilterModeBandStop));
+                            normalize_filter_bounds();
+                            record_settings_change(before);
+                            recompute_transforms_from_state();
+                            save_runtime_settings();
+                            refresh_side_panel_controls();
+                            set_status();
+                            InvalidateRect(hwnd, nullptr, TRUE);
+                        }
+                    }
+                    return 0;
+                }
+                case IDC_SIDE_FILTER_TOPOLOGY: {
+                    if (HIWORD(wp) == CBN_SELCHANGE && !g.updating_noise_threshold_edits) {
+                        HWND combo = GetDlgItem(hwnd, id);
+                        const int sel = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+                        if (sel != CB_ERR) {
+                            const SettingsSnapshot before = capture_settings_snapshot();
+                            const int value = static_cast<int>(SendMessageW(combo, CB_GETITEMDATA, sel, 0));
+                            g.noise_threshold_topology = std::clamp(value,
+                                                                    static_cast<int>(FilterTopologyButterworth),
+                                                                    static_cast<int>(FilterTopologyLinkwitzRiley));
+                            record_settings_change(before);
+                            recompute_transforms_from_state();
+                            save_runtime_settings();
+                            refresh_side_panel_controls();
+                            set_status();
+                            InvalidateRect(hwnd, nullptr, TRUE);
+                        }
+                    }
                     return 0;
                 }
                 default: break;

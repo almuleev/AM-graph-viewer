@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.11.1
+
+- Расширен экспорт: теперь отдельно выбираются область выгрузки, состав сохраняемых данных и режим обработки формул/фильтра.
+- Added richer export controls: the export range, included data, and formula/filter handling can now be configured independently.
+- Обновлён диалог экспорта и описания опций в интерфейсе.
+- Updated the export dialog and the option descriptions in the UI.
+
 ## v0.11.0
 
 - Ребрендинг проекта: основное имя приложения изменено на `AM Graph Viewer`, а release-файл теперь называется `AMGraphViewer-v0.11.0-win-x64.exe`.

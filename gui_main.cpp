@@ -12,11 +12,11 @@
 //     the rendered values) and a purely visual Catmull-Rom spline that
 //     curves between samples without moving the underlying data points.
 //   - Playback / pause that sweeps a playhead through the time signal.
-//   - Export the visible segment to PNG (GDI+) or CSV.
+//   - Export the visible segment to PNG (GDI+), CSV, TXT, or LVM.
 //   - Keyboard shortcuts (see РЎРїСЂР°РІРєР° в†’ Р“РѕСЂСЏС‡РёРµ РєР»Р°РІРёС€Рё / F1).
 //
 // Build:
-//   g++ -std=c++17 -O2 -municode -static -mwindows -o AMGraphViewer-v0.11.0-win-x64.exe
+//   g++ -std=c++17 -O2 -municode -static -mwindows -o AMGraphViewer-v0.11.1-win-x64.exe
 //       gui_main.cpp lvm_parser.cpp fft.cpp analysis.cpp
 //       -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 #ifndef UNICODE
@@ -70,6 +70,7 @@ enum {
     IDC_SAVEPNG,
     IDC_SAVECSV,
     IDC_SAVETXT,
+    IDC_SAVELVM,
     IDC_MODE,
     IDC_PLAY,
     IDC_MEASURE,
@@ -88,6 +89,15 @@ enum {
     IDC_EXPORT_SCOPE_CURRENT,
     IDC_EXPORT_SCOPE_FRAGMENT,
     IDC_EXPORT_SCOPE_RAW,
+    IDC_EXPORT_APPLY_SETTINGS,
+    IDC_EXPORT_APPLY_DATA,
+    IDC_EXPORT_INCLUDE_CHANNEL_NAMES,
+    IDC_EXPORT_INCLUDE_POINTS,
+    IDC_EXPORT_INCLUDE_MARKERS,
+    IDC_EXPORT_INCLUDE_GUIDES,
+    IDC_EXPORT_INCLUDE_FORMULAS,
+    IDC_EXPORT_INCLUDE_FILTER,
+    IDC_EXPORT_INCLUDE_GRAPH_SETTINGS,
 
     // Menu-only commands (no toolbar button).
     IDM_EXIT = 1100,
@@ -365,16 +375,55 @@ struct ExportPromptState {
     HWND current_radio = nullptr;
     HWND fragment_radio = nullptr;
     HWND raw_radio = nullptr;
+    HWND processing_apply_radio = nullptr;
+    HWND processing_settings_radio = nullptr;
+    HWND include_channel_names_check = nullptr;
+    HWND include_points_check = nullptr;
+    HWND include_markers_check = nullptr;
+    HWND include_guides_check = nullptr;
+    HWND include_formulas_check = nullptr;
+    HWND include_filter_check = nullptr;
+    HWND include_graph_settings_check = nullptr;
     bool done = false;
     bool accepted = false;
-    ExportDataScope selected_scope = ExportDataScope::CurrentView;
+    ExportRangeMode selected_range = ExportRangeMode::Visible;
+    bool apply_processing_to_data = true;
+    bool include_channel_names = true;
+    bool include_points = true;
+    bool include_markers = true;
+    bool include_guides = true;
+    bool include_formulas = true;
+    bool include_filter_settings = true;
+    bool include_graph_settings = true;
     std::wstring title;
     std::wstring intro;
     std::wstring current_text;
     std::wstring fragment_text;
     std::wstring raw_text;
+    std::wstring processing_apply_text;
+    std::wstring processing_settings_text;
+    std::wstring processing_note;
+    std::wstring channel_names_text;
+    std::wstring points_text;
+    std::wstring markers_text;
+    std::wstring guides_text;
+    std::wstring formulas_text;
+    std::wstring filter_text;
+    std::wstring graph_settings_text;
     std::wstring continue_text;
     std::wstring cancel_text;
+};
+
+struct ExportOptions {
+    ExportRangeMode selected_range = ExportRangeMode::Visible;
+    bool apply_processing_to_data = true;
+    bool include_channel_names = true;
+    bool include_points = true;
+    bool include_markers = true;
+    bool include_guides = true;
+    bool include_formulas = true;
+    bool include_filter_settings = true;
+    bool include_graph_settings = true;
 };
 
 ExportPromptState g_export_prompt;
@@ -574,7 +623,7 @@ static const Strings kRu = {
     L"РљР°Рє СЂР°Р±РѕС‚Р°С‚СЊ СЃ РїСЂРёР»РѕР¶РµРЅРёРµРј:\r   вЂў  В«РћС‚РєСЂС‹С‚СЊ С„Р°Р№Р»В» (O) вЂ” Р·Р°РіСЂСѓР·РёС‚Рµ .lvm РёР»Рё .txt.\r   вЂў  В«Р’СЂРµРјСЏ / Р“С†В» (M) вЂ” РіСЂР°С„РёРє СЃРёРіРЅР°Р»Р° РёР»Рё РµРіРѕ СЃРїРµРєС‚СЂ (Р‘РџР¤).\r   вЂў  В«РР·РјРµСЂРµРЅРёРµВ» (V) вЂ” РєР»РёРєР°Р№С‚Рµ С‚РѕС‡РєРё РЅР° РіСЂР°С„РёРєРµ. Р§С‚Рѕ РїРѕРєР°Р·С‹РІР°С‚СЊ\r       Сѓ С‚РѕС‡РµРє Рё РїСЂРёРјР°РіРЅРёС‡РёРІР°РЅРёРµ вЂ” РІ РѕРєРЅРµ В«РќР°СЃС‚СЂРѕР№РєРё С‚РѕС‡РµРєВ».\r   вЂў  РљРѕР»РµСЃРѕ РјС‹С€Рё вЂ” РјР°СЃС€С‚Р°Р±, С‚СЏРіР° Р›РљРњ вЂ” РїСЂРѕРєСЂСѓС‚РєР° РїРѕ РІСЂРµРјРµРЅРё.\r   вЂў  В«Р¤РёРєСЃ. YВ» вЂ” Р·Р°С„РёРєСЃРёСЂРѕРІР°С‚СЊ РјР°СЃС€С‚Р°Р± РїРѕ РІС‹СЃРѕС‚Рµ.\r   вЂў  РџСЂРѕР±РµР» вЂ” РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё (1 СЃ = 1 СЃ).\r   вЂў  F1 вЂ” РїРѕР»РЅС‹Р№ СЃРїРёСЃРѕРє РіРѕСЂСЏС‡РёС… РєР»Р°РІРёС€.",
     L"Открыть файл", L"Настройки точек…", L"Горячие клавиши", L"Начать работу",
     L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  E / Ctrl+E\t— CSV\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Старт/стоп\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
-    L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
+    L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV/TXT/LVM.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
     L"Открыть файл…", L"PNG", L"CSV", L"Переключить Время / Гц", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"Автомасштабирование", L"Настройки точек",
     L"Русский", L"English", L"Язык",
     L"Лёгкий режим",
@@ -636,7 +685,7 @@ static const Strings kEn = {
     L"How to use the app:\r   •  «Open file» (O) — load a .lvm or .txt.\r   •  «Time / Hz» (M) — signal plot or its FFT spectrum.\r   •  «Measure» (V) — click points on the plot. What to show\r       at points and snapping — in the «Point settings» window.\r   •  Mouse wheel — zoom, left-drag — pan.\r   •  «Lock Y» — freeze the vertical scale.\r   •  Space — real-time playback (1 s = 1 s).\r   •  F1 — full list of keyboard shortcuts.",
     L"Open file", L"Point settings…", L"Keyboard shortcuts", L"Start working",
     L"Files\n  O / Ctrl+O\t— Open\n  S / Ctrl+S\t— PNG\n  E / Ctrl+E\t— CSV\n  Ctrl+Z\t— Undo\n  Ctrl+Shift+Z\t— Redo\n\nView\n  M\t— Time / Hz\n  C\t— Smoothing\n  + / ↑\t— Zoom in\n  − / ↓\t— Zoom out\n  ← / →\t— Pan left / right\n  Home\t— Reset view\n  Ctrl+Home\t— Go to start\n  Ctrl+End\t— Go to end\n  Space\t— Play / Pause\n\nLines and markers\n  L\t— Vertical line\n  H\t— Horizontal line\n  K\t— Marker\n  Esc\t— Cancel adding\n\nPoints\n  V\t— Measure mode on/off\n  Delete\t— Clear points\n\nMouse\n  Wheel\t— Zoom under cursor\n  Shift+wheel\t— Pan left / right\n  Ctrl+wheel\t— Zoom Y\n  Alt+wheel\t— Pan up/down (Y)\n  Left-drag\t— Pan (toggle vertical via View)\n  Left-click\t— Drop point / line / marker (in mode)\n  Right-click\t— Clear points\n\n  F1\t— This help",
-    L"AM Graph Viewer — LabVIEW signal viewer (.lvm / .txt)\n\nNative Win32 + GDI/GDI+ application, no external\ndependencies, no Qt. Time and spectrum (FFT), measurements\nwith snapping, guide lines, visual smoothing, PNG/CSV export.\n\nBuild: build_gui.ps1 (MinGW g++) or make gui.",
+    L"AM Graph Viewer — LabVIEW signal viewer (.lvm / .txt)\n\nNative Win32 + GDI/GDI+ application, no external\ndependencies, no Qt. Time and spectrum (FFT), measurements\nwith snapping, guide lines, visual smoothing, PNG/CSV/TXT/LVM export.\n\nBuild: build_gui.ps1 (MinGW g++) or make gui.",
     L"Open file…", L"PNG", L"CSV", L"Toggle Time / Hz", L"Playback", L"Pause", L"Measurement point mode", L"Reset view", L"Auto zoom", L"Point settings",
     L"Русский", L"English", L"Language",
     L"Light mode",
@@ -3605,16 +3654,52 @@ LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-ExportDataScope export_prompt_selected_scope() {
+ExportRangeMode export_prompt_selected_range() {
     if (g_export_prompt.raw_radio &&
         SendMessageW(g_export_prompt.raw_radio, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-        return ExportDataScope::RawData;
+        return ExportRangeMode::Whole;
     }
     if (g_export_prompt.fragment_radio &&
         SendMessageW(g_export_prompt.fragment_radio, BM_GETCHECK, 0, 0) == BST_CHECKED) {
-        return ExportDataScope::LoadedFragment;
+        return ExportRangeMode::Visible;
     }
-    return ExportDataScope::CurrentView;
+    return ExportRangeMode::Selected;
+}
+
+void sync_export_prompt_state_from_controls() {
+    g_export_prompt.selected_range = export_prompt_selected_range();
+    if (g_export_prompt.processing_apply_radio) {
+        g_export_prompt.apply_processing_to_data =
+            SendMessageW(g_export_prompt.processing_apply_radio, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_channel_names_check) {
+        g_export_prompt.include_channel_names =
+            SendMessageW(g_export_prompt.include_channel_names_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_points_check) {
+        g_export_prompt.include_points =
+            SendMessageW(g_export_prompt.include_points_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_markers_check) {
+        g_export_prompt.include_markers =
+            SendMessageW(g_export_prompt.include_markers_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_guides_check) {
+        g_export_prompt.include_guides =
+            SendMessageW(g_export_prompt.include_guides_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_formulas_check) {
+        g_export_prompt.include_formulas =
+            SendMessageW(g_export_prompt.include_formulas_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_filter_check) {
+        g_export_prompt.include_filter_settings =
+            SendMessageW(g_export_prompt.include_filter_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
+    if (g_export_prompt.include_graph_settings_check) {
+        g_export_prompt.include_graph_settings =
+            SendMessageW(g_export_prompt.include_graph_settings_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    }
 }
 
 LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -3626,10 +3711,15 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             RECT client{};
             GetClientRect(hwnd, &client);
             const int client_w = std::max(0, static_cast<int>(client.right - client.left));
-            const int content_w = std::max(420, client_w - 36);
+            const int content_w = std::max(680, client_w - 36);
             const int intro_h = 34;
-            const int choice_h = 52;
-            const int choice_gap = 10;
+            const int choice_h = 46;
+            const int choice_gap = 8;
+            const int section_h = 20;
+            const int option_h = 24;
+            const int radio_h = 28;
+            const int col_gap = 16;
+            const int col_w = (content_w - col_gap) / 2;
             auto mkstatic = [&](const std::wstring& text, int x, int y, int w, int h) {
                 HWND ctl = CreateWindowExW(0, L"STATIC", text.c_str(),
                                            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
@@ -3638,25 +3728,55 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
                 return ctl;
             };
+            auto mkradio = [&](const std::wstring& text, int x, int y, int w, int h, int id, DWORD extra_style = 0) {
+                HWND ctl = CreateWindowExW(
+                    0, L"BUTTON", text.c_str(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE | extra_style,
+                    x, y, w, h, hwnd,
+                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                return ctl;
+            };
+            auto mkcheck = [&](const std::wstring& text, int x, int y, int w, int h, int id) {
+                HWND ctl = CreateWindowExW(
+                    0, L"BUTTON", text.c_str(),
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE,
+                    x, y, w, h, hwnd,
+                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                return ctl;
+            };
             mkstatic(g_export_prompt.intro, 18, 16, content_w, intro_h);
-            g_export_prompt.current_radio = CreateWindowExW(
-                0, L"BUTTON", g_export_prompt.current_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE | WS_GROUP,
-                18, 56, content_w, choice_h, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_EXPORT_SCOPE_CURRENT)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            g_export_prompt.fragment_radio = CreateWindowExW(
-                0, L"BUTTON", g_export_prompt.fragment_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE,
-                18, 56 + choice_h + choice_gap, content_w, choice_h, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_EXPORT_SCOPE_FRAGMENT)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            g_export_prompt.raw_radio = CreateWindowExW(
-                0, L"BUTTON", g_export_prompt.raw_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE,
-                18, 56 + (choice_h + choice_gap) * 2, content_w, choice_h + 8, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_EXPORT_SCOPE_RAW)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            g_export_prompt.current_radio = mkradio(
+                g_export_prompt.current_text, 18, 56, content_w, choice_h,
+                IDC_EXPORT_SCOPE_CURRENT, WS_GROUP);
+            g_export_prompt.fragment_radio = mkradio(
+                g_export_prompt.fragment_text, 18, 56 + choice_h + choice_gap, content_w, choice_h,
+                IDC_EXPORT_SCOPE_FRAGMENT);
+            g_export_prompt.raw_radio = mkradio(
+                g_export_prompt.raw_text, 18, 56 + (choice_h + choice_gap) * 2, content_w, choice_h + 2,
+                IDC_EXPORT_SCOPE_RAW);
+
+            mkstatic(export_range_title_text(g_str == &kEn), 18, 214, content_w, section_h);
+            g_export_prompt.processing_settings_radio = mkradio(
+                g_export_prompt.processing_settings_text, 18, 238, content_w, radio_h,
+                IDC_EXPORT_APPLY_SETTINGS, WS_GROUP);
+            g_export_prompt.processing_apply_radio = mkradio(
+                g_export_prompt.processing_apply_text, 18, 266, content_w, radio_h,
+                IDC_EXPORT_APPLY_DATA);
+            mkstatic(g_export_prompt.processing_note, 36, 298, content_w - 18, 30);
+
+            mkstatic(g_str == &kEn ? L"Include in the file:" : L"Что сохранять в файл:", 18, 332, content_w, section_h);
+            g_export_prompt.include_channel_names_check = mkcheck(g_export_prompt.channel_names_text, 18, 356, col_w, option_h, IDC_EXPORT_INCLUDE_CHANNEL_NAMES);
+            g_export_prompt.include_formulas_check = mkcheck(g_export_prompt.formulas_text, 18 + col_w + col_gap, 356, col_w, option_h, IDC_EXPORT_INCLUDE_FORMULAS);
+            g_export_prompt.include_points_check = mkcheck(g_export_prompt.points_text, 18, 384, col_w, option_h, IDC_EXPORT_INCLUDE_POINTS);
+            g_export_prompt.include_filter_check = mkcheck(g_export_prompt.filter_text, 18 + col_w + col_gap, 384, col_w, option_h, IDC_EXPORT_INCLUDE_FILTER);
+            g_export_prompt.include_markers_check = mkcheck(g_export_prompt.markers_text, 18, 412, col_w, option_h, IDC_EXPORT_INCLUDE_MARKERS);
+            g_export_prompt.include_graph_settings_check = mkcheck(g_export_prompt.graph_settings_text, 18 + col_w + col_gap, 412, col_w, option_h, IDC_EXPORT_INCLUDE_GRAPH_SETTINGS);
+            g_export_prompt.include_guides_check = mkcheck(g_export_prompt.guides_text, 18, 440, col_w, option_h, IDC_EXPORT_INCLUDE_GUIDES);
+
             const int continue_w = prompt_button_width(dc, g_export_prompt.continue_text.c_str(), 120);
             const int cancel_w = prompt_button_width(dc, g_export_prompt.cancel_text.c_str(), 100);
             const int button_gap = 10;
@@ -3665,7 +3785,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (button_x + total_w > client_w - 16) {
                 button_x = std::max(16, client_w - 16 - total_w);
             }
-            const int button_y = 260;
+            const int button_y = 482;
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", g_export_prompt.continue_text.c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
@@ -3678,15 +3798,38 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 button_x + continue_w + button_gap, button_y, cancel_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            if (g_export_prompt.current_radio) SendMessageW(g_export_prompt.current_radio, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_export_prompt.fragment_radio) SendMessageW(g_export_prompt.fragment_radio, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_export_prompt.raw_radio) SendMessageW(g_export_prompt.raw_radio, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            if (g_export_prompt.current_radio) SendMessageW(g_export_prompt.current_radio, BM_SETCHECK,
+                g_export_prompt.selected_range == ExportRangeMode::Selected ? BST_CHECKED : BST_UNCHECKED, 0);
+            if (g_export_prompt.fragment_radio) SendMessageW(g_export_prompt.fragment_radio, BM_SETCHECK,
+                g_export_prompt.selected_range == ExportRangeMode::Visible ? BST_CHECKED : BST_UNCHECKED, 0);
+            if (g_export_prompt.raw_radio) SendMessageW(g_export_prompt.raw_radio, BM_SETCHECK,
+                g_export_prompt.selected_range == ExportRangeMode::Whole ? BST_CHECKED : BST_UNCHECKED, 0);
+            if (g_export_prompt.processing_settings_radio) SendMessageW(g_export_prompt.processing_settings_radio, BM_SETCHECK,
+                g_export_prompt.apply_processing_to_data ? BST_UNCHECKED : BST_CHECKED, 0);
+            if (g_export_prompt.processing_apply_radio) SendMessageW(g_export_prompt.processing_apply_radio, BM_SETCHECK,
+                g_export_prompt.apply_processing_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
+            auto set_check = [&](HWND ctl, bool on) {
+                if (ctl) SendMessageW(ctl, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
+            };
+            set_check(g_export_prompt.include_channel_names_check, g_export_prompt.include_channel_names);
+            set_check(g_export_prompt.include_points_check, g_export_prompt.include_points);
+            set_check(g_export_prompt.include_markers_check, g_export_prompt.include_markers);
+            set_check(g_export_prompt.include_guides_check, g_export_prompt.include_guides);
+            set_check(g_export_prompt.include_formulas_check, g_export_prompt.include_formulas);
+            set_check(g_export_prompt.include_filter_check, g_export_prompt.include_filter_settings);
+            set_check(g_export_prompt.include_graph_settings_check, g_export_prompt.include_graph_settings);
             if (ok) SendMessageW(ok, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
             if (cancel) SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_export_prompt.current_radio) {
-                SendMessageW(g_export_prompt.current_radio, BM_SETCHECK, BST_CHECKED, 0);
-                SetFocus(g_export_prompt.current_radio);
+            HWND focus_target = g_export_prompt.current_radio;
+            if (g_export_prompt.selected_range == ExportRangeMode::Visible && g_export_prompt.fragment_radio) {
+                focus_target = g_export_prompt.fragment_radio;
+            } else if (g_export_prompt.selected_range == ExportRangeMode::Whole && g_export_prompt.raw_radio) {
+                focus_target = g_export_prompt.raw_radio;
             }
+            if (focus_target) {
+                SetFocus(focus_target);
+            }
+            sync_export_prompt_state_from_controls();
             SelectObject(dc, old_font);
             ReleaseDC(hwnd, dc);
             return 0;
@@ -3696,10 +3839,19 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_EXPORT_SCOPE_CURRENT:
                 case IDC_EXPORT_SCOPE_FRAGMENT:
                 case IDC_EXPORT_SCOPE_RAW:
-                    g_export_prompt.selected_scope = export_prompt_selected_scope();
+                case IDC_EXPORT_APPLY_SETTINGS:
+                case IDC_EXPORT_APPLY_DATA:
+                case IDC_EXPORT_INCLUDE_CHANNEL_NAMES:
+                case IDC_EXPORT_INCLUDE_POINTS:
+                case IDC_EXPORT_INCLUDE_MARKERS:
+                case IDC_EXPORT_INCLUDE_GUIDES:
+                case IDC_EXPORT_INCLUDE_FORMULAS:
+                case IDC_EXPORT_INCLUDE_FILTER:
+                case IDC_EXPORT_INCLUDE_GRAPH_SETTINGS:
+                    sync_export_prompt_state_from_controls();
                     return 0;
                 case IDOK:
-                    g_export_prompt.selected_scope = export_prompt_selected_scope();
+                    sync_export_prompt_state_from_controls();
                     g_export_prompt.accepted = true;
                     DestroyWindow(hwnd);
                     return 0;
@@ -3753,6 +3905,15 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_export_prompt.current_radio = nullptr;
             g_export_prompt.fragment_radio = nullptr;
             g_export_prompt.raw_radio = nullptr;
+            g_export_prompt.processing_apply_radio = nullptr;
+            g_export_prompt.processing_settings_radio = nullptr;
+            g_export_prompt.include_channel_names_check = nullptr;
+            g_export_prompt.include_points_check = nullptr;
+            g_export_prompt.include_markers_check = nullptr;
+            g_export_prompt.include_guides_check = nullptr;
+            g_export_prompt.include_formulas_check = nullptr;
+            g_export_prompt.include_filter_check = nullptr;
+            g_export_prompt.include_graph_settings_check = nullptr;
             return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -3909,7 +4070,7 @@ bool prompt_light_mode_window(double range_start, double range_end, double& out_
     return true;
 }
 
-bool prompt_export_scope(ExportDataScope& out_scope) {
+bool prompt_export_options(ExportOptions& out_options) {
     static ATOM atom = 0;
     if (!atom) {
         WNDCLASSEXW wc{};
@@ -3922,15 +4083,33 @@ bool prompt_export_scope(ExportDataScope& out_scope) {
         atom = RegisterClassExW(&wc);
     }
 
+    const bool en = (g_str == &kEn);
     g_export_prompt.done = false;
     g_export_prompt.accepted = false;
-    g_export_prompt.selected_scope = ExportDataScope::CurrentView;
-    const bool en = (g_str == &kEn);
+    g_export_prompt.selected_range = has_fft_window() ? ExportRangeMode::Selected : ExportRangeMode::Visible;
+    g_export_prompt.apply_processing_to_data = true;
+    g_export_prompt.include_channel_names = true;
+    g_export_prompt.include_points = true;
+    g_export_prompt.include_markers = true;
+    g_export_prompt.include_guides = true;
+    g_export_prompt.include_formulas = true;
+    g_export_prompt.include_filter_settings = true;
+    g_export_prompt.include_graph_settings = true;
     g_export_prompt.title = export_prompt_title_text(en);
     g_export_prompt.intro = export_prompt_intro_text(en);
-    g_export_prompt.current_text = export_scope_choice_text(ExportDataScope::CurrentView, en);
-    g_export_prompt.fragment_text = export_scope_choice_text(ExportDataScope::LoadedFragment, en);
-    g_export_prompt.raw_text = export_scope_choice_text(ExportDataScope::RawData, en);
+    g_export_prompt.current_text = export_range_choice_text(ExportRangeMode::Selected, en);
+    g_export_prompt.fragment_text = export_range_choice_text(ExportRangeMode::Visible, en);
+    g_export_prompt.raw_text = export_range_choice_text(ExportRangeMode::Whole, en);
+    g_export_prompt.processing_apply_text = export_apply_processing_text(en);
+    g_export_prompt.processing_settings_text = export_processing_settings_text(en);
+    g_export_prompt.processing_note = export_apply_processing_note_text(en);
+    g_export_prompt.channel_names_text = export_include_channel_names_text(en);
+    g_export_prompt.points_text = export_include_points_text(en);
+    g_export_prompt.markers_text = export_include_markers_text(en);
+    g_export_prompt.guides_text = export_include_guides_text(en);
+    g_export_prompt.formulas_text = export_include_formulas_text(en);
+    g_export_prompt.filter_text = export_include_filter_text(en);
+    g_export_prompt.graph_settings_text = export_include_graph_settings_text(en);
     g_export_prompt.continue_text = export_prompt_continue_text(en);
     g_export_prompt.cancel_text = export_prompt_cancel_text(en);
     g_export_prompt.wnd = CreateWindowExW(
@@ -3938,7 +4117,7 @@ bool prompt_export_scope(ExportDataScope& out_scope) {
         L"LvmExportPrompt",
         g_export_prompt.title.c_str(),
         WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 660, 330,
+        CW_USEDEFAULT, CW_USEDEFAULT, 784, 548,
         g.main, nullptr,
         reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
         nullptr);
@@ -3968,7 +4147,15 @@ bool prompt_export_scope(ExportDataScope& out_scope) {
     EnableWindow(g.main, TRUE);
     SetForegroundWindow(g.main);
     if (!g_export_prompt.accepted) return false;
-    out_scope = g_export_prompt.selected_scope;
+    out_options.selected_range = g_export_prompt.selected_range;
+    out_options.apply_processing_to_data = g_export_prompt.apply_processing_to_data;
+    out_options.include_channel_names = g_export_prompt.include_channel_names;
+    out_options.include_points = g_export_prompt.include_points;
+    out_options.include_markers = g_export_prompt.include_markers;
+    out_options.include_guides = g_export_prompt.include_guides;
+    out_options.include_formulas = g_export_prompt.include_formulas;
+    out_options.include_filter_settings = g_export_prompt.include_filter_settings;
+    out_options.include_graph_settings = g_export_prompt.include_graph_settings;
     return true;
 }
 
@@ -6684,12 +6871,592 @@ double export_time_channel_value(std::size_t channel_index, std::size_t row_inde
     return rendered_channel_sample(channel_index, row_index);
 }
 
-bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool csv) {
+double export_channel_sample(std::size_t channel_index, std::size_t row_index, bool apply_processing) {
+    if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
+    const auto& column = g.ds.channels[channel_index];
+    if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
+    if (!apply_processing) return column[row_index];
+    return rendered_channel_sample(channel_index, row_index);
+}
+
+std::wstring export_channel_label_text(std::size_t channel_index, bool include_names) {
+    if (!include_names) {
+        return L"Channel_" + std::to_wstring(channel_index + 1);
+    }
+    return channel_display_label(channel_index);
+}
+
+const wchar_t* export_scope_key(ExportDataScope scope) {
+    switch (scope) {
+        case ExportDataScope::CurrentView: return L"current_view";
+        case ExportDataScope::LoadedFragment: return L"loaded_fragment";
+        case ExportDataScope::RawData: return L"raw_data";
+    }
+    return L"current_view";
+}
+
+const wchar_t* export_range_source_key(ExportDataScope scope, bool selected_range) {
+    switch (scope) {
+        case ExportDataScope::CurrentView:
+            return selected_range ? L"selected" : L"visible";
+        case ExportDataScope::LoadedFragment:
+            return L"full_fragment";
+        case ExportDataScope::RawData:
+            return L"raw_data";
+    }
+    return L"visible";
+}
+
+const wchar_t* export_filter_mode_key(int mode) {
+    switch (mode) {
+        case FilterModeLowPass: return L"low_pass";
+        case FilterModeHighPass: return L"high_pass";
+        case FilterModeBandPass: return L"band_pass";
+        case FilterModeBandStop: return L"band_stop";
+    }
+    return L"band_pass";
+}
+
+const wchar_t* export_filter_topology_key(int topology) {
+    switch (topology) {
+        case FilterTopologyButterworth: return L"butterworth";
+        case FilterTopologyBessel: return L"bessel";
+        case FilterTopologyChebyshev: return L"chebyshev";
+        case FilterTopologyLinkwitzRiley: return L"linkwitz_riley";
+    }
+    return L"butterworth";
+}
+
+std::wstring export_color_triplet(COLORREF color) {
+    wchar_t buf[64]{};
+    swprintf(buf, 64, L"%u,%u,%u", static_cast<unsigned int>(GetRValue(color)),
+             static_cast<unsigned int>(GetGValue(color)), static_cast<unsigned int>(GetBValue(color)));
+    return buf;
+}
+
+std::wstring export_point_display_text(const PointDisplay& display) {
+    wchar_t buf[160]{};
+    swprintf(buf, 160, L"number=%d,x=%d,y=%d,dx=%d,dy=%d,inv_dt=%d,dist=%d",
+             display.number ? 1 : 0, display.x ? 1 : 0, display.y ? 1 : 0,
+             display.dx ? 1 : 0, display.dy ? 1 : 0, display.inv_dt ? 1 : 0,
+             display.dist ? 1 : 0);
+    return buf;
+}
+
+bool export_visible_or_selected_range(double& start, double& end, bool& selected_range) {
+    if (!has_data()) return false;
+    if (g.freq_mode) {
+        start = g.freq_start;
+        end = g.freq_end;
+        if (!std::isfinite(start) || !std::isfinite(end)) return false;
+        if (end < start) std::swap(start, end);
+        selected_range = false;
+        return end > start;
+    }
+    if (has_fft_window()) {
+        start = g.fft_window_start;
+        end = g.fft_window_end;
+        clamp_time_window(start, end);
+        selected_range = true;
+        return end > start;
+    }
+    start = g.win_start;
+    end = g.win_end;
+    clamp_time_window(start, end);
+    selected_range = false;
+    return end > start;
+}
+
+void write_export_comment(std::ofstream& out, const std::wstring& text, const char* line_end) {
+    out << "# " << to_acp(text.c_str()) << line_end;
+}
+
+void write_export_key_value(std::ofstream& out, const std::wstring& key, const std::wstring& value, const char* line_end) {
+    write_export_comment(out, key + L"=" + value, line_end);
+}
+
+void write_export_metadata(std::ofstream& out,
+                           ExportDataScope scope,
+                           bool selected_range,
+                           bool include_extra_data,
+                           bool csv,
+                           double range_start,
+                           double range_end) {
+    if (!include_extra_data) return;
+    const char* line_end = csv ? "\n" : "\r\n";
+
+    write_export_comment(out, L"[export]", line_end);
+    write_export_key_value(out, L"scope", export_scope_key(scope), line_end);
+    write_export_key_value(out, L"range_source", export_range_source_key(scope, selected_range), line_end);
+    write_export_key_value(out, L"plot_mode", g.freq_mode ? L"frequency" : L"time", line_end);
+    write_export_key_value(out, L"range_start", format_edit_number(range_start), line_end);
+    write_export_key_value(out, L"range_end", format_edit_number(range_end), line_end);
+    if (!g.file_name.empty()) {
+        write_export_key_value(out, L"source_file", g.file_name, line_end);
+    }
+    write_export_key_value(out, L"partial_fragment", g.current_file_partial ? L"1" : L"0", line_end);
+    write_export_comment(out, L"", line_end);
+
+    write_export_comment(out, L"[settings]", line_end);
+    write_export_key_value(out, L"axis_x_label", g.axis_x_label, line_end);
+    write_export_key_value(out, L"axis_y_label", g.axis_y_label, line_end);
+    write_export_key_value(out, L"marker_color", export_color_triplet(g.marker_color), line_end);
+    write_export_key_value(out, L"smoothing", g.visual_smooth ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"vertical_pan", g.vertical_pan ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"snap_to_data", g.snap_to_data ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"light_mode", g.light_mode ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"auto_y", g.auto_y ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"auto_y_amp", g.auto_y_amp ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"play_speed", format_edit_number(g.play_speed), line_end);
+    write_export_key_value(out, L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", line_end);
+    write_export_key_value(out, L"filter_mode", export_filter_mode_key(g.noise_threshold_mode), line_end);
+    write_export_key_value(out, L"filter_topology", export_filter_topology_key(g.noise_threshold_topology), line_end);
+    write_export_key_value(out, L"filter_low_cutoff", format_optional_edit_number(g.noise_threshold_min), line_end);
+    write_export_key_value(out, L"filter_high_cutoff", format_optional_edit_number(g.noise_threshold_max), line_end);
+    write_export_key_value(out, L"point_display", export_point_display_text(g.pdisp), line_end);
+    write_export_comment(out, L"", line_end);
+
+    write_export_comment(out, L"[channels]", line_end);
+    ensure_channel_formula_vectors();
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        std::wstring line = L"channel[" + std::to_wstring(c + 1) + L"] name=" + channel_display_label(c);
+        line += L", visible=";
+        line += (c < g.visible.size() && g.visible[c]) ? L"1" : L"0";
+        line += L", color=" + export_color_triplet(channel_color(c));
+        write_export_comment(out, line, line_end);
+    }
+    write_export_comment(out, L"", line_end);
+
+    write_export_comment(out, L"[formulas]", line_end);
+    write_export_key_value(out, L"global", g.global_formula, line_end);
+    for (std::size_t c = 0; c < g.channel_formulas.size(); ++c) {
+        write_export_key_value(out, L"channel[" + std::to_wstring(c + 1) + L"]", g.channel_formulas[c], line_end);
+    }
+    write_export_comment(out, L"", line_end);
+
+    if (!g.markers.empty()) {
+        write_export_comment(out, L"[markers]", line_end);
+        for (std::size_t i = 0; i < g.markers.size(); ++i) {
+            const auto& m = g.markers[i];
+            std::wstring line = L"marker[" + std::to_wstring(i + 1) + L"] label=" + m.label;
+            line += L", x=" + format_edit_number(m.x);
+            line += L", y=" + format_edit_number(m.y);
+            line += L", mode=" + std::wstring(m.freq ? L"frequency" : L"time");
+            line += L", snapped=" + std::wstring(m.snapped ? L"1" : L"0");
+            line += L", channel=" + std::to_wstring(m.channel);
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (!g.point_groups.empty()) {
+        write_export_comment(out, L"[point_groups]", line_end);
+        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            const auto& group = g.point_groups[i];
+            std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + group.name;
+            line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
+            line += L", color=" + export_color_triplet(group.color);
+            line += L", display=" + export_point_display_text(group.display);
+            write_export_comment(out, line, line_end);
+            for (std::size_t j = 0; j < group.points.size(); ++j) {
+                const auto& pt = group.points[j];
+                std::wstring point_line = L"  point[" + std::to_wstring(j + 1) + L"] x=" + format_edit_number(pt.first);
+                point_line += L", y=" + format_edit_number(pt.second);
+                write_export_comment(out, point_line, line_end);
+            }
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (!g.guides.empty()) {
+        write_export_comment(out, L"[guides]", line_end);
+        for (std::size_t i = 0; i < g.guides.size(); ++i) {
+            const auto& gl = g.guides[i];
+            std::wstring line = L"guide[" + std::to_wstring(i + 1) + L"] kind=" + (gl.vertical ? L"vertical" : L"horizontal");
+            line += L", value=" + format_edit_number(gl.value);
+            line += L", mode=" + std::wstring(gl.freq ? L"frequency" : L"time");
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+}
+
+const wchar_t* export_range_mode_key(ExportRangeMode range) {
+    switch (range) {
+        case ExportRangeMode::Selected: return L"selected";
+        case ExportRangeMode::Visible: return L"visible";
+        case ExportRangeMode::Whole: return L"whole";
+    }
+    return L"visible";
+}
+
+const wchar_t* export_processing_mode_key(bool apply_processing) {
+    return apply_processing ? L"applied_to_data" : L"settings_only";
+}
+
+bool export_range_bounds_for_mode(ExportRangeMode range, double& start, double& end, bool& actual_selected) {
+    if (!has_data()) return false;
+    actual_selected = false;
+    if (g.freq_mode) {
+        if (!ensure_current_spectrum()) return false;
+        actual_selected = (range == ExportRangeMode::Selected);
+        if (range == ExportRangeMode::Whole) {
+            start = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.front();
+            end = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.back();
+        } else {
+            start = g.freq_start;
+            end = g.freq_end;
+        }
+        if (!std::isfinite(start) || !std::isfinite(end)) return false;
+        if (end < start) std::swap(start, end);
+        return end > start;
+    }
+
+    switch (range) {
+        case ExportRangeMode::Selected:
+            if (has_fft_window()) {
+                start = g.fft_window_start;
+                end = g.fft_window_end;
+                clamp_time_window(start, end);
+                actual_selected = true;
+                return end > start;
+            }
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Visible:
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Whole:
+            start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+            end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+            return end > start;
+    }
+    return false;
+}
+
+void write_export_metadata(std::ofstream& out,
+                           const ExportOptions& opts,
+                           bool csv,
+                           double range_start,
+                           double range_end,
+                           bool actual_selected_range) {
+    const char* line_end = csv ? "\n" : "\r\n";
+
+    write_export_comment(out, L"[export]", line_end);
+    write_export_key_value(out, L"range_mode", export_range_mode_key(opts.selected_range), line_end);
+    write_export_key_value(out, L"range_source", actual_selected_range ? L"selected" : L"visible", line_end);
+    write_export_key_value(out, L"data_mode", export_processing_mode_key(opts.apply_processing_to_data), line_end);
+    write_export_key_value(out, L"plot_mode", g.freq_mode ? L"frequency" : L"time", line_end);
+    write_export_key_value(out, L"range_start", format_edit_number(range_start), line_end);
+    write_export_key_value(out, L"range_end", format_edit_number(range_end), line_end);
+    if (!g.file_name.empty()) {
+        write_export_key_value(out, L"source_file", g.file_name, line_end);
+    }
+    write_export_key_value(out, L"partial_fragment", g.current_file_partial ? L"1" : L"0", line_end);
+    write_export_comment(out, L"", line_end);
+
+    if (opts.include_graph_settings) {
+        write_export_comment(out, L"[graph_settings]", line_end);
+        write_export_key_value(out, L"axis_x_label", g.axis_x_label, line_end);
+        write_export_key_value(out, L"axis_y_label", g.axis_y_label, line_end);
+        write_export_key_value(out, L"marker_color", export_color_triplet(g.marker_color), line_end);
+        write_export_key_value(out, L"smoothing", g.visual_smooth ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"vertical_pan", g.vertical_pan ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"snap_to_data", g.snap_to_data ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"light_mode", g.light_mode ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"auto_y", g.auto_y ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"auto_y_amp", g.auto_y_amp ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"play_speed", format_edit_number(g.play_speed), line_end);
+        write_export_key_value(out, L"point_display", export_point_display_text(g.pdisp), line_end);
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_filter_settings) {
+        write_export_comment(out, L"[filter_settings]", line_end);
+        write_export_key_value(out, L"enabled", g.noise_threshold_enabled ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"mode", export_filter_mode_key(g.noise_threshold_mode), line_end);
+        write_export_key_value(out, L"topology", export_filter_topology_key(g.noise_threshold_topology), line_end);
+        write_export_key_value(out, L"low_cutoff", format_optional_edit_number(g.noise_threshold_min), line_end);
+        write_export_key_value(out, L"high_cutoff", format_optional_edit_number(g.noise_threshold_max), line_end);
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_channel_names) {
+        write_export_comment(out, L"[channels]", line_end);
+        ensure_channel_formula_vectors();
+        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+            std::wstring line = L"channel[" + std::to_wstring(c + 1) + L"] name=" + channel_display_label(c);
+            line += L", visible=";
+            line += (c < g.visible.size() && g.visible[c]) ? L"1" : L"0";
+            line += L", color=" + export_color_triplet(channel_color(c));
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_formulas) {
+        write_export_comment(out, L"[formulas]", line_end);
+        write_export_key_value(out, L"global", g.global_formula, line_end);
+        for (std::size_t c = 0; c < g.channel_formulas.size(); ++c) {
+            write_export_key_value(out, L"channel[" + std::to_wstring(c + 1) + L"]", g.channel_formulas[c], line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_points && !g.point_groups.empty()) {
+        write_export_comment(out, L"[point_groups]", line_end);
+        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            const auto& group = g.point_groups[i];
+            std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + group.name;
+            line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
+            line += L", color=" + export_color_triplet(group.color);
+            line += L", display=" + export_point_display_text(group.display);
+            write_export_comment(out, line, line_end);
+            for (std::size_t j = 0; j < group.points.size(); ++j) {
+                const auto& pt = group.points[j];
+                std::wstring point_line = L"point[" + std::to_wstring(j + 1) + L"] x=" + format_edit_number(pt.first);
+                point_line += L", y=" + format_edit_number(pt.second);
+                write_export_comment(out, point_line, line_end);
+            }
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_markers && !g.markers.empty()) {
+        write_export_comment(out, L"[markers]", line_end);
+        for (std::size_t i = 0; i < g.markers.size(); ++i) {
+            const auto& m = g.markers[i];
+            std::wstring line = L"marker[" + std::to_wstring(i + 1) + L"] label=" + m.label;
+            line += L", x=" + format_edit_number(m.x);
+            line += L", y=" + format_edit_number(m.y);
+            line += L", mode=" + std::wstring(m.freq ? L"frequency" : L"time");
+            line += L", snapped=" + std::wstring(m.snapped ? L"1" : L"0");
+            line += L", channel=" + std::to_wstring(m.channel);
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_guides && !g.guides.empty()) {
+        write_export_comment(out, L"[guides]", line_end);
+        for (std::size_t i = 0; i < g.guides.size(); ++i) {
+            const auto& gl = g.guides[i];
+            std::wstring line = L"guide[" + std::to_wstring(i + 1) + L"] kind=" + (gl.vertical ? L"vertical" : L"horizontal");
+            line += L", value=" + format_edit_number(gl.value);
+            line += L", mode=" + std::wstring(gl.freq ? L"frequency" : L"time");
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+}
+
+std::wstring lvm_current_date_text(const SYSTEMTIME& st);
+std::wstring lvm_current_time_text(const SYSTEMTIME& st);
+double lvm_export_nominal_delta_x();
+
+bool save_tabular_export(const std::wstring& path, bool csv, const ExportOptions& opts) {
     std::ofstream out(to_acp(path.c_str()), std::ios::binary);
     if (!out) return false;
 
     const char sep = csv ? ',' : '\t';
     const char* line_end = csv ? "\n" : "\r\n";
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool actual_selected_range = false;
+    if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+
+    if (g.freq_mode) {
+        std::vector<std::size_t> cols;
+        write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range);
+        out << to_acp(g_str->csv_freq);
+        for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
+            const int ci = (j < g.spec_channel_indices.size()) ? g.spec_channel_indices[j] : -1;
+            if (ci >= 0 && static_cast<std::size_t>(ci) < g.visible.size() && g.visible[static_cast<std::size_t>(ci)]) {
+                out << sep << to_acp(export_channel_label_text(static_cast<std::size_t>(ci), opts.include_channel_names).c_str());
+                cols.push_back(j);
+            }
+        }
+        if (cols.empty()) {
+            for (std::size_t j = 0; j < g.spec.amp.size(); ++j) cols.push_back(j);
+        }
+        out << line_end;
+        std::size_t begin = 0;
+        std::size_t end = g.spec.freqs.size();
+        if (opts.selected_range != ExportRangeMode::Whole) {
+            double start = export_start;
+            double finish = export_end;
+            if (start > finish) std::swap(start, finish);
+            const auto bounds = export_range_bounds(g.spec.freqs, start, finish);
+            begin = bounds.first;
+            end = bounds.second;
+        }
+        for (std::size_t k = begin; k < end; ++k) {
+            out << numfmt(g.spec.freqs[k]);
+            for (std::size_t j : cols) {
+                if (j < g.spec.amp.size() && k < g.spec.amp[j].size()) {
+                    out << sep << numfmt(g.spec.amp[j][k]);
+                } else {
+                    out << sep;
+                }
+            }
+            out << line_end;
+        }
+        return true;
+    }
+
+    std::vector<std::size_t> cols;
+    if (opts.selected_range != ExportRangeMode::Whole) {
+        // Selected range falls back to the visible view when no explicit window exists.
+        if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+    } else {
+        export_start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+        export_end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+    }
+    write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range);
+    out << to_acp(g_str->csv_time);
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        if (c < g.visible.size() && g.visible[c]) {
+            out << sep << to_acp(export_channel_label_text(c, opts.include_channel_names).c_str());
+            cols.push_back(c);
+        }
+    }
+    if (cols.empty()) {
+        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+            out << sep << to_acp(export_channel_label_text(c, opts.include_channel_names).c_str());
+            cols.push_back(c);
+        }
+    }
+    out << line_end;
+
+    std::size_t begin = 0;
+    std::size_t end = g.ds.rows();
+    if (opts.selected_range != ExportRangeMode::Whole && export_end > export_start) {
+        const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
+        begin = bounds.first;
+        end = bounds.second;
+    }
+    for (std::size_t r = begin; r < end; ++r) {
+        out << numfmt(g.ds.time[r]);
+        for (std::size_t c : cols) {
+            out << sep << numfmt(export_channel_sample(c, r, opts.apply_processing_to_data));
+        }
+        out << line_end;
+    }
+    return true;
+}
+
+bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
+    if (!has_data() || g.freq_mode) return false;
+
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool actual_selected_range = false;
+    if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+
+    const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
+    std::size_t begin = bounds.first;
+    std::size_t end = bounds.second;
+    if (begin >= end) return false;
+
+    std::vector<std::size_t> cols;
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        if (c < g.visible.size() && g.visible[c]) cols.push_back(c);
+    }
+    if (cols.empty()) {
+        cols.reserve(g.ds.channel_count());
+        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) cols.push_back(c);
+    }
+
+    std::ofstream out(to_acp(path.c_str()), std::ios::binary);
+    if (!out) return false;
+
+    const char* line_end = "\r\n";
+    SYSTEMTIME stamp{};
+    GetLocalTime(&stamp);
+    const std::wstring date_text = lvm_current_date_text(stamp);
+    const std::wstring time_text = lvm_current_time_text(stamp);
+    const std::wstring y_unit = g.axis_y_label.empty() ? L"Value" : g.axis_y_label;
+    const double delta_x = lvm_export_nominal_delta_x();
+    const std::wstring delta_x_text = format_edit_number(delta_x);
+    auto repeat_header = [&](const char* key, const std::wstring& value) {
+        out << key;
+        const std::string encoded = to_acp(value.c_str());
+        for (std::size_t i = 0; i < cols.size(); ++i) {
+            out << '\t' << encoded;
+        }
+        out << line_end;
+    };
+    auto clean_label = [](std::string text) {
+        for (char& ch : text) {
+            if (ch == '\t' || ch == '\r' || ch == '\n') ch = ' ';
+        }
+        return text;
+    };
+
+    write_export_metadata(out, opts, false, export_start, export_end, actual_selected_range);
+    out << "LabVIEW Measurement" << line_end;
+    out << "Writer_Version\t0.92" << line_end;
+    out << "Reader_Version\t1" << line_end;
+    out << "Separator\tTab" << line_end;
+    out << "Multi_Headings\tYes" << line_end;
+    out << "X_Columns\tMulti" << line_end;
+    out << "Time_Pref\tAbsolute" << line_end;
+    out << "Operator\t" << to_acp(L"AM Graph Viewer") << line_end;
+    out << "Date\t" << to_acp(date_text.c_str()) << line_end;
+    out << "Time\t" << to_acp(time_text.c_str()) << line_end;
+    out << "***End_of_Header***" << line_end << line_end;
+
+    out << "Channels\t" << cols.size() << line_end;
+    repeat_header("Samples", std::to_wstring(end - begin));
+    repeat_header("Date", date_text);
+    repeat_header("Time", time_text);
+    repeat_header("Y_Unit_Label", y_unit);
+    repeat_header("X_Dimension", L"Time");
+    repeat_header("X0", L"0");
+    repeat_header("Delta_X", delta_x_text);
+    out << "***End_of_Header***" << line_end;
+
+    std::string labels = "X_Value";
+    for (std::size_t i = 0; i < cols.size(); ++i) {
+        labels.push_back('\t');
+        labels += clean_label(to_acp(export_channel_label_text(cols[i], opts.include_channel_names).c_str()));
+        if (i + 1 < cols.size()) {
+            labels.push_back('\t');
+            labels += "X_Value";
+        }
+    }
+    labels += "\tComment";
+    out << labels << line_end;
+
+    for (std::size_t r = begin; r < end; ++r) {
+        std::string row = numfmt(g.ds.time[r]);
+        for (std::size_t c : cols) {
+            row.push_back('\t');
+            row += numfmt(g.ds.time[r]);
+            row.push_back('\t');
+            row += numfmt(export_channel_sample(c, r, opts.apply_processing_to_data));
+        }
+        row.push_back('\t');
+        out << row << line_end;
+    }
+    return true;
+}
+
+bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool csv, bool include_extra_data) {
+    std::ofstream out(to_acp(path.c_str()), std::ios::binary);
+    if (!out) return false;
+
+    const char sep = csv ? ',' : '\t';
+    const char* line_end = csv ? "\n" : "\r\n";
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool selected_range = false;
 
     if (scope == ExportDataScope::RawData) {
         const std::vector<double>& time_source = g.ds.raw_time.empty() ? g.ds.time : g.ds.raw_time;
@@ -6697,6 +7464,9 @@ bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool c
         for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
             row_count = std::min(row_count, g.ds.channels[c].size());
         }
+        export_start = row_count > 0 ? time_source.front() : 0.0;
+        export_end = row_count > 0 ? time_source[row_count - 1] : 0.0;
+        write_export_metadata(out, scope, false, include_extra_data, csv, export_start, export_end);
         out << to_acp(g_str->csv_time);
         for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
             out << sep << current_channel_label(c);
@@ -6716,6 +7486,14 @@ bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool c
     if (g.freq_mode) {
         if (!ensure_current_spectrum()) return false;
         std::vector<std::size_t> cols;
+        if (scope == ExportDataScope::CurrentView) {
+            export_start = g.freq_start;
+            export_end = g.freq_end;
+        } else {
+            export_start = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.front();
+            export_end = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.back();
+        }
+        write_export_metadata(out, scope, false, include_extra_data, csv, export_start, export_end);
         out << to_acp(g_str->csv_freq);
         for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
             const int ci = (j < g.spec_channel_indices.size()) ? g.spec_channel_indices[j] : -1;
@@ -6751,22 +7529,26 @@ bool save_tabular_export(const std::wstring& path, ExportDataScope scope, bool c
     }
 
     std::vector<std::size_t> cols;
-        out << to_acp(g_str->csv_time);
-        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
-            if (c < g.visible.size() && g.visible[c]) {
-                out << sep << current_channel_label(c);
-                cols.push_back(c);
-            }
+    if (scope == ExportDataScope::CurrentView) {
+        if (!export_visible_or_selected_range(export_start, export_end, selected_range)) return false;
+    } else {
+        export_start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+        export_end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+    }
+    write_export_metadata(out, scope, selected_range, include_extra_data, csv, export_start, export_end);
+    out << to_acp(g_str->csv_time);
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        if (c < g.visible.size() && g.visible[c]) {
+            out << sep << current_channel_label(c);
+            cols.push_back(c);
         }
+    }
     out << line_end;
 
     std::size_t begin = 0;
     std::size_t end = g.ds.rows();
-    if (scope == ExportDataScope::CurrentView) {
-        double start = g.win_start;
-        double finish = g.win_end;
-        clamp_time_window(start, finish);
-        const auto bounds = export_range_bounds(g.ds.time, start, finish);
+    if (scope == ExportDataScope::CurrentView && export_end > export_start) {
+        const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
         begin = bounds.first;
         end = bounds.second;
     }
@@ -6821,14 +7603,14 @@ void save_png_dialog() {
 
 void save_csv_dialog() {
     if (!has_data()) { MessageBoxW(g.main, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return; }
-    ExportDataScope scope = ExportDataScope::CurrentView;
-    if (!prompt_export_scope(scope)) return;
-    std::wstring def = export_default_name(file_stem(), scope, true, g.freq_mode);
+    ExportOptions opts;
+    if (!prompt_export_options(opts)) return;
+    std::wstring def = export_default_name(file_stem(), opts.selected_range, L".csv", g.freq_mode);
     std::wstring path;
     if (!save_dialog(path, g_str->filter_csv, L"csv", def)) return;
-    if (save_tabular_export(path, scope, true)) {
+    if (save_tabular_export(path, true, opts)) {
         const wchar_t* b = wcsrchr(path.c_str(), L'\\');
-        status_msg(export_status_prefix(L"CSV", scope, g_str == &kEn) + (b ? b + 1 : path.c_str()));
+        status_msg(export_status_prefix(L"CSV", opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
     } else {
         MessageBoxW(g.main, export_error_text(g_str == &kEn, true), g_str->msg_error_title, MB_ICONERROR);
     }
@@ -6842,16 +7624,179 @@ const wchar_t* txt_filter() {
 
 void save_txt_dialog() {
     if (!has_data()) { MessageBoxW(g.main, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return; }
-    ExportDataScope scope = ExportDataScope::CurrentView;
-    if (!prompt_export_scope(scope)) return;
-    std::wstring def = export_default_name(file_stem(), scope, false, g.freq_mode);
+    ExportOptions opts;
+    if (!prompt_export_options(opts)) return;
+    std::wstring def = export_default_name(file_stem(), opts.selected_range, L".txt", g.freq_mode);
     std::wstring path;
     if (!save_dialog(path, txt_filter(), L"txt", def)) return;
-    if (save_tabular_export(path, scope, false)) {
+    if (save_tabular_export(path, false, opts)) {
         const wchar_t* b = wcsrchr(path.c_str(), L'\\');
-        status_msg(export_status_prefix(L"TXT", scope, g_str == &kEn) + (b ? b + 1 : path.c_str()));
+        status_msg(export_status_prefix(L"TXT", opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
     } else {
         MessageBoxW(g.main, export_error_text(g_str == &kEn, false), g_str->msg_error_title, MB_ICONERROR);
+    }
+}
+
+const wchar_t* lvm_filter() {
+    return (g_str == &kEn)
+        ? L"LVM file\0*.lvm\0All files\0*.*\0"
+        : L"LVM файл\0*.lvm\0Все файлы\0*.*\0";
+}
+
+std::wstring lvm_current_date_text(const SYSTEMTIME& st) {
+    wchar_t buf[32]{};
+    swprintf(buf, 32, L"%04u/%02u/%02u",
+             static_cast<unsigned int>(st.wYear),
+             static_cast<unsigned int>(st.wMonth),
+             static_cast<unsigned int>(st.wDay));
+    return buf;
+}
+
+std::wstring lvm_current_time_text(const SYSTEMTIME& st) {
+    wchar_t buf[32]{};
+    swprintf(buf, 32, L"%02u:%02u:%02u,%03u",
+             static_cast<unsigned int>(st.wHour),
+             static_cast<unsigned int>(st.wMinute),
+             static_cast<unsigned int>(st.wSecond),
+             static_cast<unsigned int>(st.wMilliseconds));
+    return buf;
+}
+
+double lvm_export_nominal_delta_x() {
+    if (g.cached_global_gap_step_ready && g.cached_global_gap_step > 0.0) return g.cached_global_gap_step;
+    if (g.approx_dt > 0.0) return g.approx_dt;
+    if (g.ds.time.size() > 1) {
+        const double diff = g.ds.time[1] - g.ds.time[0];
+        if (std::isfinite(diff) && diff > 0.0) return diff;
+    }
+    return 1e-6;
+}
+
+bool save_lvm_export(const std::wstring& path) {
+    if (!has_data() || g.freq_mode) return false;
+
+    // LVM stores time-domain measurements, so we export the plotted time signal.
+    ensure_channel_formula_vectors();
+
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool selected_range = false;
+    if (!export_visible_or_selected_range(export_start, export_end, selected_range)) return false;
+    (void)selected_range;
+    if (export_end < export_start) std::swap(export_start, export_end);
+
+    const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
+    std::size_t begin = bounds.first;
+    std::size_t end = bounds.second;
+    if (begin >= end) return false;
+
+    std::vector<std::size_t> cols;
+    for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
+        if (c < g.visible.size() && g.visible[c]) cols.push_back(c);
+    }
+    if (cols.empty()) {
+        cols.reserve(g.ds.channel_count());
+        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) cols.push_back(c);
+    }
+
+    std::ofstream out(to_acp(path.c_str()), std::ios::binary);
+    if (!out) return false;
+
+    const char* line_end = "\r\n";
+    const std::size_t channel_count = cols.size();
+    SYSTEMTIME stamp{};
+    GetLocalTime(&stamp);
+    const std::wstring date_text = lvm_current_date_text(stamp);
+    const std::wstring time_text = lvm_current_time_text(stamp);
+    const std::wstring y_unit = g.axis_y_label.empty() ? L"Value" : g.axis_y_label;
+    const double delta_x = lvm_export_nominal_delta_x();
+    const std::wstring delta_x_text = format_edit_number(delta_x);
+    auto repeat_header = [&](const char* key, const std::wstring& value) {
+        out << key;
+        const std::string encoded = to_acp(value.c_str());
+        for (std::size_t i = 0; i < channel_count; ++i) {
+            out << '\t' << encoded;
+        }
+        out << line_end;
+    };
+    auto clean_label = [](std::string text) {
+        for (char& ch : text) {
+            if (ch == '\t' || ch == '\r' || ch == '\n') ch = ' ';
+        }
+        return text;
+    };
+
+    out << "LabVIEW Measurement" << line_end;
+    out << "Writer_Version\t0.92" << line_end;
+    out << "Reader_Version\t1" << line_end;
+    out << "Separator\tTab" << line_end;
+    out << "Multi_Headings\tYes" << line_end;
+    out << "X_Columns\tMulti" << line_end;
+    out << "Time_Pref\tAbsolute" << line_end;
+    out << "Operator\t" << to_acp(L"AM Graph Viewer") << line_end;
+    out << "Date\t" << to_acp(date_text.c_str()) << line_end;
+    out << "Time\t" << to_acp(time_text.c_str()) << line_end;
+    out << "***End_of_Header***" << line_end << line_end;
+
+    out << "Channels\t" << channel_count << line_end;
+    repeat_header("Samples", std::to_wstring(end - begin));
+    repeat_header("Date", date_text);
+    repeat_header("Time", time_text);
+    repeat_header("Y_Unit_Label", y_unit);
+    repeat_header("X_Dimension", L"Time");
+    repeat_header("X0", L"0");
+    repeat_header("Delta_X", delta_x_text);
+    out << "***End_of_Header***" << line_end;
+
+    std::string labels = "X_Value";
+    for (std::size_t i = 0; i < channel_count; ++i) {
+        labels.push_back('\t');
+        labels += clean_label(current_channel_label(cols[i]));
+        if (i + 1 < channel_count) {
+            labels.push_back('\t');
+            labels += "X_Value";
+        }
+    }
+    labels += "\tComment";
+    out << labels << line_end;
+
+    for (std::size_t r = begin; r < end; ++r) {
+        std::string row = numfmt(g.ds.time[r]);
+        for (std::size_t c : cols) {
+            row.push_back('\t');
+            row += numfmt(g.ds.time[r]);
+            row.push_back('\t');
+            row += numfmt(rendered_channel_sample(c, r));
+        }
+        row.push_back('\t');
+        out << row << line_end;
+    }
+    return true;
+}
+
+void save_lvm_dialog() {
+    if (!has_data()) { MessageBoxW(g.main, g_str->msg_openfirst, g_str->msg_nodata, MB_ICONINFORMATION); return; }
+    if (g.freq_mode) {
+        MessageBoxW(g.main,
+                    g_str == &kEn ? L"LVM export is available only in Time mode."
+                                   : L"Экспорт LVM доступен только в режиме Время.",
+                    g_str->msg_error_title, MB_ICONINFORMATION);
+        return;
+    }
+
+    ExportOptions opts;
+    if (!prompt_export_options(opts)) return;
+
+    std::wstring def = export_default_name(file_stem(), opts.selected_range, L".lvm", false);
+    std::wstring path;
+    if (!save_dialog(path, lvm_filter(), L"lvm", def)) return;
+    if (save_lvm_export(path, opts)) {
+        const wchar_t* b = wcsrchr(path.c_str(), L'\\');
+        status_msg(export_status_prefix(L"LVM", opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
+    } else {
+        MessageBoxW(g.main,
+                    g_str == &kEn ? L"Failed to export LVM." : L"Не удалось выгрузить LVM.",
+                    g_str->msg_error_title, MB_ICONERROR);
     }
 }
 
@@ -7108,13 +8053,11 @@ void load_channel_formulas_from_ini() {
         g.global_formula_rpn.clear();
         compile_formula_rpn(g.global_formula, g.global_formula_rpn, global_error, g_str == &kEn);
     }
-    const int stored_count = read_ini_int(L"transform", L"formula_count", static_cast<int>(g.channel_formulas.size()));
     for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
         wchar_t key_name[32]{};
         swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
         wchar_t buf[512]{};
-        const wchar_t* def = (static_cast<int>(i) < stored_count) ? default_channel_formula_text().c_str() : default_channel_formula_text().c_str();
-        GetPrivateProfileStringW(L"transform", key_name, def, buf, 512, g_config_path.c_str());
+        GetPrivateProfileStringW(L"transform", key_name, default_channel_formula_text().c_str(), buf, 512, g_config_path.c_str());
         g.channel_formulas[i] = normalize_formula_text(buf);
         g.channel_formula_rpn[i].clear();
         std::wstring error;
@@ -7221,6 +8164,8 @@ void save_runtime_settings_now() {
     write_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
     WritePrivateProfileStringW(L"ui", L"axis_x_label", g.axis_x_label.c_str(), g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"axis_y_label", g.axis_y_label.c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"x_label", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"y_label", nullptr, g_config_path.c_str());
 
     WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"points", L"x", g.pdisp.x ? L"1" : L"0", g_config_path.c_str());
@@ -7234,9 +8179,7 @@ void save_runtime_settings_now() {
     swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
     WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
     WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
-    wchar_t count_buf[32]{};
-    swprintf(count_buf, 32, L"%u", static_cast<unsigned int>(g.channel_formulas.size()));
-    WritePrivateProfileStringW(L"transform", L"formula_count", count_buf, g_config_path.c_str());
+    WritePrivateProfileStringW(L"transform", L"formula_count", nullptr, g_config_path.c_str());
     for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
         wchar_t key_name[32]{};
         swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
@@ -7391,8 +8334,8 @@ std::wstring welcome_features_text() {
               : L"Точки измерения, примагниченные маркеры и направляющие линии\r\n";
     out += en ? L"Channel rename, quick visibility control, and legend work\r\n"
               : L"Переименование каналов, быстрый контроль видимости и работа с легендой\r\n";
-    out += en ? L"PNG / CSV / TXT export, custom hotkeys, themes, and language switch"
-              : L"Экспорт PNG / CSV / TXT, настраиваемые горячие клавиши, темы и смена языка";
+    out += en ? L"PNG / CSV / TXT / LVM export, custom hotkeys, themes, and language switch"
+              : L"Экспорт PNG / CSV / TXT / LVM, настраиваемые горячие клавиши, темы и смена языка";
     return out;
 }
 
@@ -8591,6 +9534,7 @@ HMENU make_menu() {
     HMENU bar = CreateMenu();
     const wchar_t* savecsv_menu = (g_str == &kEn) ? L"Export CSV…" : L"Выгрузить CSV…";
     const wchar_t* savetxt_menu = (g_str == &kEn) ? L"Export TXT…" : L"Выгрузить TXT…";
+    const wchar_t* savelvm_menu = (g_str == &kEn) ? L"Export LVM…" : L"Выгрузить LVM…";
 
     {
         const bool en = (g_str == &kEn);
@@ -8605,6 +9549,7 @@ HMENU make_menu() {
         append_menu_item_owner_draw(file, IDC_SAVEPNG, save_png_text);
         append_menu_item_owner_draw(file, IDC_SAVECSV, save_csv_text);
         append_menu_item_owner_draw(file, IDC_SAVETXT, savetxt_menu);
+        append_menu_item_owner_draw(file, IDC_SAVELVM, savelvm_menu);
         AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
         append_menu_item_owner_draw(file, IDM_UNDO, undo_text);
         append_menu_item_owner_draw(file, IDM_REDO, redo_text);
@@ -8692,6 +9637,7 @@ HMENU make_menu() {
         append_menu_item_owner_draw(file, IDC_SAVEPNG, save_png_text);
         append_menu_item_owner_draw(file, IDC_SAVECSV, save_csv_text);
         append_menu_item_owner_draw(file, IDC_SAVETXT, savetxt_menu);
+        append_menu_item_owner_draw(file, IDC_SAVELVM, savelvm_menu);
         AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
         append_menu_item_owner_draw(file, IDM_UNDO, undo_text);
         append_menu_item_owner_draw(file, IDM_REDO, redo_text);
@@ -8770,6 +9716,7 @@ HMENU make_menu() {
     append_menu_item_owner_draw(file, IDC_SAVEPNG, L"Сохранить PNG…\tCtrl+S");
     append_menu_item_owner_draw(file, IDC_SAVECSV, (g_str == &kEn) ? L"Export CSV…\tCtrl+E" : L"Выгрузить CSV…\tCtrl+E");
     append_menu_item_owner_draw(file, IDC_SAVETXT, savetxt_menu);
+    append_menu_item_owner_draw(file, IDC_SAVELVM, savelvm_menu);
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);
     append_menu_item_owner_draw(file, IDM_UNDO, L"Отменить\tCtrl+Z");
     append_menu_item_owner_draw(file, IDM_REDO, L"Повторить\tCtrl+Shift+Z");
@@ -10004,6 +10951,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
                 case IDC_SAVECSV: save_csv_dialog(); return 0;
                 case IDC_SAVETXT: save_txt_dialog(); return 0;
+                case IDC_SAVELVM: save_lvm_dialog(); return 0;
                 case IDM_EXIT: DestroyWindow(hwnd); return 0;
                 case IDC_MODE:
                     set_mode(!g.freq_mode);

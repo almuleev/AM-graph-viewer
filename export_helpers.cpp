@@ -110,6 +110,10 @@ const wchar_t* export_include_channel_names_text(bool english) {
     return english ? L"Channel names" : L"Названия каналов";
 }
 
+const wchar_t* export_include_hidden_channels_text(bool english) {
+    return english ? L"Include hidden channels" : L"Сохранять скрытые каналы";
+}
+
 const wchar_t* export_include_points_text(bool english) {
     return english ? L"Points" : L"Точки";
 }

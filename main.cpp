@@ -1,6 +1,6 @@
 // LVM Reader CLI — a C++ command-line companion to the Python LVM Signal Viewer.
 //
-// Reads .lvm / tab-separated .txt files, reports structure and per-channel
+// Reads .lvm / tab-separated .txt / comma-separated .csv files, reports structure and per-channel
 // statistics, prints data rows, computes an FFT spectrum, and exports CSV.
 #include "analysis.hpp"
 #include "lvm_parser.hpp"
@@ -25,7 +25,7 @@ const int kDefaultPeaks = 5;
 void print_usage(const char* prog) {
     std::cout <<
         "LVM Reader CLI " << kVersion << "\n"
-        "Usage: " << prog << " <file.lvm|file.txt> [options]\n"
+        "Usage: " << prog << " <file.lvm|file.txt|file.csv> [options]\n"
         "\n"
         "Actions:\n"
         "  -i, --info          Show file structure / header info\n"

@@ -1,8 +1,9 @@
 // LVM parser (C++ port of the Python `read_lvm_file` / `prepare_loaded_data`).
 //
-// Parses LabVIEW Measurement (.lvm) files and tab-separated numeric .txt files
-// into a Time column plus numeric channel columns. The parsing rules mirror the
-// reference Python implementation in lvm_viewer.py so results stay consistent.
+// Parses LabVIEW Measurement (.lvm) files, tab-separated numeric .txt files,
+// and comma-separated .csv files into a Time column plus numeric channel
+// columns. The parsing rules mirror the reference Python implementation in
+// lvm_viewer.py so results stay consistent.
 #pragma once
 
 #include <atomic>
@@ -32,6 +33,7 @@ struct Dataset {
     std::vector<double> raw_time;              // original first column before any normalization
     std::vector<std::string> names;            // channel names, e.g. "Channel_1"
     std::vector<std::vector<double>> channels; // one vector per channel, aligned with time
+    std::vector<std::string> export_comments;  // optional `# ...` metadata from exported files
     ParseStats stats;
     bool partial = false;                      // true when loading stopped early by options
     bool time_rebuilt_from_headers = false;    // true when section Date/Time + X0 rebuilt the timeline

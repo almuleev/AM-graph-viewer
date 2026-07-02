@@ -93,7 +93,7 @@ make test
 - Language: `C++17`
 - GUI stack: `Win32 API + GDI/GDI+`
 - Recommended Windows toolchain: `MSYS2 / MinGW g++`
-- GUI output name follows the current git tag and is built as `AMGraphViewer-v0.11.1-win-x64.exe`
+- GUI output name follows the current git tag and is built as `AMGraphViewer-v0.11.4-win-x64.exe`
 
 ## Repository Layout
 

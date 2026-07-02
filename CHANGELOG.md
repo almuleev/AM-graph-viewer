@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.4
+
+- Добавлена возможность сохранять скрытые каналы при экспорте.
+- Added the ability to keep hidden channels in exported files.
+- Добавлена поддержка загрузки файлов `.csv` и восстановления экспортных настроек из встроенных комментариев.
+- Added `.csv` file loading and restored export settings from embedded comments.
+- Улучшена совместимость экспорта для TXT / CSV / LVM и частотного режима.
+- Improved export compatibility for TXT / CSV / LVM and frequency mode.
+
 ## v0.11.3
 
 - Упрощён экспорт: отдельные действия для `TXT`, `CSV` и `LVM` сведены в единый `Save as…` с выбором формата, области выгрузки и режима обработки данных.

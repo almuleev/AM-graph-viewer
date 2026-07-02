@@ -35,6 +35,16 @@ bool starts_with(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
+bool has_csv_extension(const std::string& path) {
+    const std::size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    if (path.size() - dot != 4) return false;
+    const char* ext = path.c_str() + dot;
+    return (ext[1] == 'c' || ext[1] == 'C') &&
+           (ext[2] == 's' || ext[2] == 'S') &&
+           (ext[3] == 'v' || ext[3] == 'V');
+}
+
 std::string first_cell(const std::string& line) {
     const auto tab = line.find('\t');
     return strip(tab == std::string::npos ? line : line.substr(0, tab));
@@ -47,11 +57,12 @@ std::string second_cell(const std::string& line) {
     return strip(line.substr(first_tab + 1, second_tab == std::string::npos ? std::string::npos : second_tab - first_tab - 1));
 }
 
-std::vector<std::string> split_tab_cells(const std::string& line) {
+std::vector<std::string> split_cells(const std::string& line, char delimiter, bool normalize_decimal_commas) {
     std::vector<std::string> cells;
     std::string field;
     for (char ch : line) {
-        if (ch == '\t') {
+        if (normalize_decimal_commas && ch == ',') ch = '.';
+        if (ch == delimiter) {
             cells.push_back(strip(field));
             field.clear();
         } else {
@@ -111,35 +122,18 @@ struct RowSummary {
     int numeric_count = 0;
 };
 
-RowSummary summarize_numeric_row(const std::string& line) {
+RowSummary summarize_numeric_row(const std::string& line, char delimiter, bool normalize_decimal_commas) {
     RowSummary summary;
-    std::string field;
-    field.reserve(32);
-    int column_index = 0;
-    auto flush_field = [&]() {
+    const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+    for (std::size_t i = 0; i < cells.size(); ++i) {
         bool is_numeric = false;
-        const std::string cell = strip(field);
-        const double value = parse_cell(cell, is_numeric);
-        if (column_index == 0) {
+        const double value = parse_cell(cells[i], is_numeric);
+        if (i == 0) {
             summary.first_numeric = is_numeric;
             summary.first_value = value;
         }
         if (is_numeric) ++summary.numeric_count;
-        field.clear();
-        ++column_index;
-    };
-
-    for (char ch : line) {
-        if (ch == ',') ch = '.';
-        if (ch == '\t') {
-            flush_field();
-            if (summary.first_numeric && summary.numeric_count >= 2) break;
-        } else {
-            field.push_back(ch);
-        }
-    }
-    if (!field.empty() || column_index == 0 || (!summary.first_numeric && summary.numeric_count < 2)) {
-        flush_field();
+        if (summary.first_numeric && summary.numeric_count >= 2) break;
     }
     return summary;
 }
@@ -261,6 +255,10 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
         return false;
     }
 
+    const bool csv_mode = has_csv_extension(path);
+    const char delimiter = csv_mode ? ',' : '\t';
+    const bool normalize_decimal_commas = !csv_mode;
+
     bool have_time = false;
     double first_time = 0.0;
     double last_time = 0.0;
@@ -283,18 +281,19 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
         }
         const std::string line = strip(raw_line);
         if (line.empty()) continue;
-        if (starts_with(line, "***End_of_Header***")) {
+        if (starts_with(line, "#")) continue;
+        if (!csv_mode && starts_with(line, "***End_of_Header***")) {
             activate_section_time(pending_section, have_section_anchor, section_anchor_seconds, active_section);
             pending_section.reset();
             continue;
         }
-        if (starts_with(line, "***")) continue;
-        if (is_metadata_line(line)) {
+        if (!csv_mode && starts_with(line, "***")) continue;
+        if (!csv_mode && is_metadata_line(line)) {
             update_section_metadata(line, pending_section);
             continue;
         }
 
-        const RowSummary row = summarize_numeric_row(line);
+        const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
         if (row.numeric_count < 2 || !row.first_numeric || std::isnan(row.first_value)) continue;
 
         const double raw_time = row.first_value;
@@ -321,7 +320,7 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
     }
 
     if (!have_time) {
-        error = "No numeric data found. Expected time + numeric channel columns in a .lvm or tab-separated .txt file.";
+        error = "No numeric data found. Expected time + numeric channel columns in a .lvm, tab-separated .txt, or .csv file.";
         return false;
     }
 
@@ -345,6 +344,10 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         ds.error = "Cannot open file: " + path;
         return ds;
     }
+
+    const bool csv_mode = has_csv_extension(path);
+    const char delimiter = csv_mode ? ',' : '\t';
+    const bool normalize_decimal_commas = !csv_mode;
 
     const double nan_value = std::nan("");
 
@@ -381,7 +384,13 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         const std::string line = strip(raw_line);
         if (line.empty()) continue;
 
-        if (starts_with(line, "***End_of_Header***")) {
+        if (starts_with(line, "#")) {
+            const std::string comment = strip(line.substr(1));
+            if (!comment.empty()) ds.export_comments.push_back(comment);
+            continue;
+        }
+
+        if (!csv_mode && starts_with(line, "***End_of_Header***")) {
             ++header_count;
             section_has_data = false;
             activate_section_time(pending_section, have_section_anchor, section_anchor_seconds, active_section);
@@ -389,46 +398,46 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
             pending_section.reset();
             continue;
         }
-        if (starts_with(line, "***")) {
+        if (!csv_mode && starts_with(line, "***")) {
             continue;
         }
-        if (header_count > 0 && !section_metadata_seen && column_labels.empty()) {
-            const RowSummary row = summarize_numeric_row(line);
+        if (!csv_mode && header_count > 0 && !section_metadata_seen && column_labels.empty()) {
+            const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
             if (row.numeric_count == 0) {
-                const std::vector<std::string> cells = split_tab_cells(line);
+                const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
                 if (cells.size() > 1) {
                     column_labels = std::move(cells);
                     continue;
                 }
             }
         }
-        if (is_metadata_line(line)) {
+        if (!csv_mode && is_metadata_line(line)) {
             if (header_count > 0) section_metadata_seen = true;
             update_section_metadata(line, pending_section);
             continue;
         }
 
-        // Normalize decimal commas, then split by tabs preserving positions.
+        if (csv_mode && column_labels.empty()) {
+            const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
+            if (row.numeric_count == 0) {
+                const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+                if (cells.size() > 1) {
+                    column_labels = std::move(cells);
+                    continue;
+                }
+            }
+        }
+
         std::vector<double> parsed;
         int numeric_count = 0;
-        std::string field;
-        auto flush_field = [&]() {
+        const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+        parsed.reserve(cells.size());
+        for (const std::string& cell : cells) {
             bool is_numeric = false;
-            const std::string cell = strip(field);
             const double v = parse_cell(cell, is_numeric);
             parsed.push_back(v);
             if (is_numeric) ++numeric_count;
-            field.clear();
-        };
-        for (char ch : line) {
-            if (ch == ',') ch = '.';
-            if (ch == '\t') {
-                flush_field();
-            } else {
-                field.push_back(ch);
-            }
         }
-        flush_field();
 
         const int part_count = static_cast<int>(parsed.size());
         if (numeric_count < 2) continue;
@@ -516,7 +525,7 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
     if (row_count == 0 || columns.empty()) {
         ds.error = options.use_time_window
             ? "No data found in the selected time range."
-            : "No numeric data found. Expected time + numeric channel columns in a .lvm or tab-separated .txt file.";
+            : "No numeric data found. Expected time + numeric channel columns in a .lvm, tab-separated .txt, or .csv file.";
         return ds;
     }
 

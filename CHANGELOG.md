@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.11.5
+
+- Вынесены обработчики хоткеев, настроек и связанных диалогов в `gui_settings_hotkeys.inc`, чтобы разгрузить `gui_main.cpp`.
+- Extracted hotkey, settings, and related dialog helpers into `gui_settings_hotkeys.inc` to keep `gui_main.cpp` smaller.
+- Удалены подтверждённые неиспользуемые переменные в фильтре и импорте метаданных экспорта.
+- Removed confirmed unused variables in the filter and export metadata import path.
+
 ## v0.11.4
 
 - Добавлена возможность сохранять скрытые каналы при экспорте.

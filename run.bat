@@ -5,7 +5,7 @@ cd /d "%~dp0"
 title AM Graph Viewer CLI
 
 echo This is the command-line analyzer.
-echo For the graphical viewer, launch "Start GUI.bat" or "AMGraphViewer-v0.11.5-win-x64.exe".
+echo For the graphical viewer, launch "Start GUI.bat" or "AMGraphViewer-v0.12.0-win-x64.exe".
 echo.
 
 set "EXE=%~dp0lvm_reader.exe"

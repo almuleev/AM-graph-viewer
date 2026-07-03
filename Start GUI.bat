@@ -13,7 +13,7 @@ if exist "%EXE%" (
 )
 
 echo [!] Graphical viewer not found in this folder.
-echo     Expected file: AMGraphViewer-v0.11.5-win-x64.exe
+echo     Expected file: AMGraphViewer-v0.12.0-win-x64.exe
 echo.
 echo     If you are building from source, run:
 echo     powershell -ExecutionPolicy Bypass -File .\build_gui.ps1

@@ -1,4 +1,4 @@
-// Hotkey, settings, and dialog helpers extracted from gui_main.cpp.
+﻿// Hotkey, settings, and dialog helpers extracted from gui_main.cpp.
 std::wstring hotkey_text(BYTE fvirt, WORD key) {
     if (key == 0) return g_str == &kEn ? L"Not assigned" : L"Не назначено";
     std::wstring out;
@@ -78,31 +78,28 @@ std::wstring hotkey_list_item_text(int command) {
     return command_name(command) + L"  [" + hotkey_display_text_for_command(command) + L"]";
 }
 
-std::wstring welcome_intro_text() {
-    return (g_str == &kEn)
-        ? L"A focused desktop viewer for LabVIEW logs: open .lvm, .txt, or .csv files, inspect signals in Time mode, and switch to Hz / FFT without losing context."
-        : L"Нативный просмотрщик логов LabVIEW: открывайте .lvm, .txt и .csv, изучайте сигналы во времени и быстро переходите к Hz / FFT по выбранному участку.";
-}
-
 std::wstring welcome_version_text() {
     return (g_str == &kEn)
         ? (std::wstring(L"Build: ") + APP_VERSION_W)
         : (std::wstring(L"Версия сборки: ") + APP_VERSION_W);
 }
 
-std::wstring welcome_features_text() {
-    const bool en = (g_str == &kEn);
-    std::wstring out;
-    out += en ? L"Time mode for navigation and Hz / FFT mode for the visible interval\r\n"
-              : L"Time-режим для навигации и Hz / FFT-режим для видимого участка\r\n";
-    out += en ? L"Measurement points, snapped markers, and guide lines\r\n"
-              : L"Точки измерения, примагниченные маркеры и направляющие линии\r\n";
-    out += en ? L"Channel rename, quick visibility control, and legend work\r\n"
-              : L"Переименование каналов, быстрый контроль видимости и работа с легендой\r\n";
-    out += en ? L"PNG and unified save-as export, custom hotkeys, themes, and language switch"
-              : L"PNG и единый Save as-экспорт, настраиваемые горячие клавиши, темы и смена языка";
-    return out;
+std::wstring welcome_intro_text() {
+    return (g_str == &kEn)
+        ? L"Open a file, choose how to work with it, and continue right away."
+        : L"Откройте файл, выберите удобный режим работы и сразу продолжайте.";
 }
+
+std::wstring welcome_features_text() {
+    return (g_str == &kEn)
+        ? L"Light mode opens only the required fragment.\r\nThe side panel keeps channels, points, formulas, and filters together.\r\nThemes, hotkeys, and export options are available from the interface."
+        : L"Лёгкий режим открывает только нужный фрагмент.\r\nБоковая панель объединяет каналы, точки, формулы и фильтры.\r\nТемы, горячие клавиши и экспорт доступны прямо в интерфейсе.";
+}
+
+const wchar_t* welcome_actions_title_text() {
+    return (g_str == &kEn) ? L"What to do next" : L"Что дальше";
+}
+
 
 const wchar_t* welcome_author_credit_text() {
     return (g_str == &kEn)
@@ -110,9 +107,6 @@ const wchar_t* welcome_author_credit_text() {
         : L"Приложение разработал Александр Мулеев  |  al.muleev@gmail.com";
 }
 
-const wchar_t* welcome_actions_title_text() {
-    return L"";
-}
 
 struct WelcomeLayout {
     RECT bounds{};
@@ -177,20 +171,11 @@ void layout_welcome_controls(HWND hwnd) {
     const int title_h = layout.compact ? 40 : (layout.stacked ? 46 : 52);
     const int subtitle_h = layout.compact ? 22 : 24;
     const int version_h = layout.compact ? 18 : 20;
-    const int intro_h = layout.compact ? 54 : (layout.stacked ? 64 : 76);
-
     place(IDW_TITLE, hx, hy, hw, title_h);
     hy += title_h + (layout.compact ? 6 : 8);
     place(IDW_SUBTITLE, hx, hy, hw, subtitle_h);
     hy += subtitle_h + (layout.compact ? 4 : 6);
     place(IDW_VERSION, hx, hy, hw, version_h);
-    hy += version_h + (layout.compact ? 10 : 12);
-    place(IDW_INTRO, hx, hy, hw, intro_h);
-    hy += intro_h + (layout.compact ? 12 : 18);
-
-    const int footer_reserve = layout.compact ? 18 : (layout.stacked ? 28 : 20);
-    const int feature_bottom = layout.hero.bottom - hero_pad - footer_reserve;
-    place(IDW_FEATURES, hx, hy, hw, max(72, feature_bottom - hy));
 
     const int action_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
     const int ax = layout.action.left + action_pad;
@@ -212,10 +197,14 @@ void layout_welcome_controls(HWND hwnd) {
     place(IDW_THEME_LIGHT, ax, ay, theme_w, segment_button_h);
     place(IDW_THEME_DARK, ax + aw - theme_w, ay, theme_w, segment_button_h);
     ay += segment_button_h + (layout.compact ? 12 : 16);
-    place(IDW_LIGHT_MODE, ax, ay, aw, 28);
-    ay += layout.compact ? 38 : 42;
-    place(IDW_ACTIONS_TITLE, ax, ay, aw, layout.compact ? 20 : 24);
-    ay += layout.compact ? 28 : 34;
+    place(IDW_PERF_LABEL, ax, ay, aw, 20);
+    ay += layout.compact ? 22 : 24;
+    place(IDW_PERF_FAST_OPEN, ax, ay, aw, segment_button_h);
+    ay += segment_button_h + (layout.compact ? 6 : 8);
+    place(IDW_PERF_FAST_WORK, ax, ay, aw, segment_button_h);
+    ay += segment_button_h + (layout.compact ? 6 : 8);
+    place(IDW_PERF_COMFORT, ax, ay, aw, segment_button_h);
+    ay += segment_button_h + (layout.compact ? 12 : 16);
     place(IDC_PTSETTINGS, ax, ay, aw, action_button_h);
     ay += action_button_h + button_gap;
     place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
@@ -996,12 +985,16 @@ bool is_settings_hotkey_modifier_id(int id) {
 }
 
 bool is_settings_checkbox_id(int id) {
-    return id == IDC_SET_LIGHT_MODE ||
+    return id == IDC_SET_PERF_FAST_OPEN ||
+           id == IDC_SET_PERF_FAST_WORK ||
+           id == IDC_SET_PERF_COMFORT ||
            id == IDC_SET_GAP_MARKERS;
 }
 
 bool is_welcome_checkbox_id(int id) {
-    return id == IDW_LIGHT_MODE;
+    return id == IDW_PERF_FAST_OPEN ||
+           id == IDW_PERF_FAST_WORK ||
+           id == IDW_PERF_COMFORT;
 }
 
 bool uses_manual_toggle_state(HWND hwnd) {
@@ -1009,7 +1002,9 @@ bool uses_manual_toggle_state(HWND hwnd) {
     const int id = GetDlgCtrlID(hwnd);
     return is_channel_checkbox_id(id) ||
            is_side_toggle_id(id) ||
-           id == IDC_SET_LIGHT_MODE ||
+           id == IDC_SET_PERF_FAST_OPEN ||
+           id == IDC_SET_PERF_FAST_WORK ||
+           id == IDC_SET_PERF_COMFORT ||
            id == IDC_SET_GAP_MARKERS ||
            is_welcome_checkbox_id(id) ||
            id == IDC_SET_HOTKEY_CTRL ||
@@ -1783,8 +1778,12 @@ void populate_point_group_list(HWND hwnd) {
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
-    if (HWND light = GetDlgItem(g.settings_wnd, IDC_SET_LIGHT_MODE)) SetWindowTextW(light, g_str->light_mode);
-    set_toggle_checked(GetDlgItem(g.settings_wnd, IDC_SET_LIGHT_MODE), g.light_mode);
+    sync_performance_mode_controls(
+        g.settings_wnd,
+        IDC_SET_PERF_LABEL,
+        IDC_SET_PERF_FAST_OPEN,
+        IDC_SET_PERF_FAST_WORK,
+        IDC_SET_PERF_COMFORT);
     set_toggle_checked(GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
     if (HWND gap = GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS)) SetWindowTextW(gap, gap_markers_toggle_text());
     if (HWND xlbl = GetDlgItem(g.settings_wnd, IDC_SET_AXIS_X_LABEL_STATIC)) SetWindowTextW(xlbl, axis_x_label_text());
@@ -1839,32 +1838,35 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return mk(L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP, x, y, w, h, id);
             };
             const bool en = (g_str == &kEn);
-            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 226, IDC_SET_GROUP_GENERAL);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 300, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
-            mkcheck(g_str->light_mode, 28, 64, 278, 28, IDC_SET_LIGHT_MODE);
-            mkcheck(gap_markers_toggle_text(), 28, 92, 278, 28, IDC_SET_GAP_MARKERS);
-            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 148, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 144, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
-            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 176, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 172, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            mk(L"STATIC", performance_mode_label_text(), SS_LEFT, 28, 64, 278, 20, IDC_SET_PERF_LABEL);
+            mkcheck(performance_fast_open_text(), 28, 88, 278, 28, IDC_SET_PERF_FAST_OPEN);
+            mkcheck(performance_fast_work_text(), 28, 116, 278, 28, IDC_SET_PERF_FAST_WORK);
+            mkcheck(performance_comfort_text(), 28, 144, 278, 28, IDC_SET_PERF_COMFORT);
+            mkcheck(gap_markers_toggle_text(), 28, 182, 278, 28, IDC_SET_GAP_MARKERS);
+            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 240, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
+            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 236, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 268, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
+            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 264, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 246, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 310, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
-                24, 270, 240, 146, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 278, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 278, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 278, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 310, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 330, 214, 260, IDC_SET_HOTKEY_KEY);
+                24, 334, 240, 146, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 342, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 342, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 342, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 374, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 394, 214, 260, IDC_SET_HOTKEY_KEY);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 368, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 368, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 402, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 432, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 432, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 466, 100, 28, IDC_SET_HOTKEY_CLEAR);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
-            set_toggle_checked(GetDlgItem(hwnd, IDC_SET_LIGHT_MODE), g.light_mode);
+            sync_performance_mode_controls(hwnd, IDC_SET_PERF_LABEL, IDC_SET_PERF_FAST_OPEN, IDC_SET_PERF_FAST_WORK, IDC_SET_PERF_COMFORT);
             set_toggle_checked(GetDlgItem(hwnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
             enable_file_drop_support(hwnd);
             return 0;
@@ -1881,13 +1883,19 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SET_LANG_EN:
                     if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); }
                     break;
-                case IDC_SET_LIGHT_MODE:
+                case IDC_SET_PERF_FAST_OPEN:
                     if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
-                        toggle_checked_state(ctl);
-                        g.light_mode = checked();
-                        invalidate_plot_analysis_cache();
-                        save_runtime_settings();
-                        refresh_settings_controls();
+                        apply_performance_mode(PerformanceMode::FastOpen);
+                    }
+                    return 0;
+                case IDC_SET_PERF_FAST_WORK:
+                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
+                        apply_performance_mode(PerformanceMode::FastWork);
+                    }
+                    return 0;
+                case IDC_SET_PERF_COMFORT:
+                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
+                        apply_performance_mode(PerformanceMode::Comfort);
                     }
                     return 0;
                 case IDC_SET_GAP_MARKERS:
@@ -2018,8 +2026,11 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (is_settings_checkbox_id(ctl_id)) {
                 const bool enabled = IsWindowEnabled(dis->hwndItem) != FALSE;
+                const bool radio = (ctl_id == IDC_SET_PERF_FAST_OPEN ||
+                                    ctl_id == IDC_SET_PERF_FAST_WORK ||
+                                    ctl_id == IDC_SET_PERF_COMFORT);
                 draw_themed_check_control(dis->hDC, dis->rcItem, txt,
-                    is_toggle_checked(dis->hwndItem), pressed, enabled, false, false);
+                    is_toggle_checked(dis->hwndItem), pressed, enabled, radio, false);
                 return TRUE;
             }
             draw_themed_button(dis->hDC, dis->rcItem, txt, pressed, false, false);

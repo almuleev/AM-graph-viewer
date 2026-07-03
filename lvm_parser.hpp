@@ -7,6 +7,8 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,11 +22,34 @@ struct ParseStats {
     int max_columns = 0;      // widest row seen
 };
 
+struct ScanIndexCheckpoint {
+    std::uint64_t offset = 0;  // file position for resuming at the next row
+    double adjusted_time = 0.0;
+    double prev_raw_time = 0.0;
+    double prev_adjusted_time = 0.0;
+    double time_offset = 0.0;
+    double fallback_step = 1e-6;
+    bool have_time_state = false;
+    bool have_section_anchor = false;
+    double section_anchor_seconds = 0.0;
+    bool active_section_valid = false;
+    double active_section_offset_seconds = 0.0;
+    double active_section_x0 = 0.0;
+};
+
+struct ScanIndex {
+    double range_start = 0.0;
+    double range_end = 0.0;
+    std::vector<std::string> column_labels;
+    std::vector<ScanIndexCheckpoint> checkpoints;
+};
+
 struct LoadOptions {
     bool use_time_window = false;
     double time_start = 0.0;
     double time_end = 0.0;
     const std::atomic<bool>* cancel_flag = nullptr;
+    std::shared_ptr<const ScanIndex> scan_index;
 };
 
 // Parsed dataset: a time vector and aligned channel columns.
@@ -48,7 +73,7 @@ struct Dataset {
 Dataset read_lvm_file(const std::string& path, bool verbose = false);
 Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool verbose = false);
 bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
-                      const std::atomic<bool>* cancel_flag = nullptr);
+                      const std::atomic<bool>* cancel_flag = nullptr, ScanIndex* out_index = nullptr);
 
 // Rebuild a monotonically increasing timeline (mirrors the Python "prepare"
 // step that flattens Multi_Headings sections which reset local time).

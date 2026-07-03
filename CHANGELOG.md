@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.12.0
+
+- Исправлено отображение русских и английских строк в меню, подсказках и справке; интерфейс снова показывает корректный текст.
+- Fixed broken Russian and English text in menus, tooltips, and help so the UI renders readable strings again.
+
 ## v0.11.5
 
 - Вынесены обработчики хоткеев, настроек и связанных диалогов в `gui_settings_hotkeys.inc`, чтобы разгрузить `gui_main.cpp`.

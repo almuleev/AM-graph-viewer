@@ -1,11 +1,11 @@
-// AM Graph Viewer вЂ” native Win32 GUI front end.
+// AM Graph Viewer - native Win32 GUI front end.
 //
 // Self-contained desktop viewer (no external GUI toolkit). Features:
-//   - Main menu bar (Р¤Р°Р№Р» / Р’РёРґ / РР·РјРµСЂРµРЅРёСЏ / Р›РёРЅРёРё / РЎРїСЂР°РІРєР°) + toolbar.
+//   - Main menu bar (File / View / Points / Lines / Markers / Help) + toolbar.
 //   - Time plot and FFT (Hz) spectrum, with zoom/pan on both axes.
 //   - Channel show/hide, colored legend, min/max envelope for dense data.
 //   - Measure tool with a settings menu: choose which read-outs to show
-//     (X, Y, О”x, О”y, 1/О”t, distance, point number) and optionally snap
+//     (X, Y, Δx, Δy, 1/Δt, distance, point number) and optionally snap
 //     markers to the nearest real data sample ("примагничивание").
 //   - Reference guide lines: add vertical / horizontal lines on the plot.
 //   - Two independent smoothing controls: a moving-average filter (changes
@@ -13,10 +13,10 @@
 //     curves between samples without moving the underlying data points.
 //   - Playback / pause that sweeps a playhead through the time signal.
 //   - Export the visible segment to PNG (GDI+) or unified Save as (TXT/CSV/LVM).
-//   - Keyboard shortcuts (see РЎРїСЂР°РІРєР° в†’ Р“РѕСЂСЏС‡РёРµ РєР»Р°РІРёС€Рё / F1).
+//   - Keyboard shortcuts (see Справка → Горячие клавиши / F1).
 //
 // Build:
-//   g++ -std=c++17 -O2 -municode -static -mwindows -o AMGraphViewer-v0.11.5-win-x64.exe
+//   g++ -std=c++17 -O2 -municode -static -mwindows -o AMGraphViewer-v0.12.0-win-x64.exe
 //       gui_main.cpp lvm_parser.cpp fft.cpp analysis.cpp
 //       -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 #ifndef UNICODE
@@ -215,6 +215,10 @@ enum {
     IDC_SET_POINT_GROUP_COLOR,
     IDC_SET_POINT_GROUP_NEW,
     IDC_SET_LIGHT_MODE = 5130,
+    IDC_SET_PERF_LABEL,
+    IDC_SET_PERF_FAST_OPEN,
+    IDC_SET_PERF_FAST_WORK,
+    IDC_SET_PERF_COMFORT,
     IDC_SET_GAP_MARKERS,
     IDC_SET_AXIS_X_LABEL_STATIC,
     IDC_SET_AXIS_X_LABEL_EDIT,
@@ -236,6 +240,10 @@ enum {
     IDW_THEME_LABEL,
     IDW_THEME_LIGHT,
     IDW_THEME_DARK,
+    IDW_PERF_LABEL,
+    IDW_PERF_FAST_OPEN,
+    IDW_PERF_FAST_WORK,
+    IDW_PERF_COMFORT,
 };
 
 const int kTopBar = 72;        // two-row compact toolbar
@@ -635,11 +643,11 @@ static const Strings kRu = {
     L"Горячие клавиши — AM Graph Viewer", L"О программе — AM Graph Viewer",
     L"Нет данных", L"Сначала откройте файл.", L"Не удалось сохранить PNG.", L"Не удалось выгрузить файл.", L"Ошибка чтения",
     L"AM Graph Viewer", L"Просмотрщик сигналов LabVIEW (.lvm / .txt / .csv)",
-    L"РљР°Рє СЂР°Р±РѕС‚Р°С‚СЊ СЃ РїСЂРёР»РѕР¶РµРЅРёРµРј:\r   вЂў  В«РћС‚РєСЂС‹С‚СЊ С„Р°Р№Р»В» (O) вЂ” Р·Р°РіСЂСѓР·РёС‚Рµ .lvm, .txt РёР»Рё .csv.\r   вЂў  В«Р’СЂРµРјСЏ / Р“С†В» (M) вЂ” РіСЂР°С„РёРє СЃРёРіРЅР°Р»Р° РёР»Рё РµРіРѕ СЃРїРµРєС‚СЂ (Р‘РџР¤).\r   вЂў  В«РР·РјРµСЂРµРЅРёРµВ» (V) вЂ” РєР»РёРєР°Р№С‚Рµ С‚РѕС‡РєРё РЅР° РіСЂР°С„РёРєРµ. Р§С‚Рѕ РїРѕРєР°Р·С‹РІР°С‚СЊ\r       Сѓ С‚РѕС‡РµРє Рё РїСЂРёРјР°РіРЅРёС‡РёРІР°РЅРёРµ вЂ” РІ РѕРєРЅРµ В«РќР°СЃС‚СЂРѕР№РєРё С‚РѕС‡РµРєВ».\r   вЂў  РљРѕР»РµСЃРѕ РјС‹С€Рё вЂ” РјР°СЃС€С‚Р°Р±, С‚СЏРіР° Р›РљРњ вЂ” РїСЂРѕРєСЂСѓС‚РєР° РїРѕ РІСЂРµРјРµРЅРё.\r   вЂў  В«Р¤РёРєСЃ. YВ» вЂ” Р·Р°С„РёРєСЃРёСЂРѕРІР°С‚СЊ РјР°СЃС€С‚Р°Р± РїРѕ РІС‹СЃРѕС‚Рµ.\r   вЂў  РџСЂРѕР±РµР» вЂ” РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ РІ СЂРµР°Р»СЊРЅРѕРј РІСЂРµРјРµРЅРё (1 СЃ = 1 СЃ).\r   вЂў  F1 вЂ” РїРѕР»РЅС‹Р№ СЃРїРёСЃРѕРє РіРѕСЂСЏС‡РёС… РєР»Р°РРЅРёС€.",
+    L"Как пользовать с приложением:\r   •  Открыть файл (O) — загрузка .lvm, .txt или .csv.\r   •  Время / Гц (M) — график сигнала или его спектр (БПФ).\r   •  Измерения (V) — точки на графике; параметры и примагничивание — в окне «Настройки точек».\r   •  Колесо мыши — масштаб, ЛКМ — прокрутка по времени.\r   •  «Фикс. Y» — зафиксировать масштаб по высоте.\r   •  Пробел — воспроизведение в реальном времени.\r   •  F1 — список горячих клавиш.",
     L"Открыть файл", L"Настройки точек…", L"Горячие клавиши", L"Начать работу",
     L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  Ctrl+Shift+S\t— Сохранить как\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Старт/стоп\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
     L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt / .csv)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV/TXT/LVM.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
-    L"Открыть файл…", L"PNG", L"Сохранить как", L"Переключить Время / Гц", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"Автомасштабирование", L"Настройки точек",
+    L"Открыть файл…", L"PNG", L"Сохранить как", L"Переключить Время / Гц", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"АвтоМасштаб", L"Настройки точек",
     L"Русский", L"English", L"Язык",
     L"Лёгкий режим",
     L"   |   Лёгкий режим: открыт только выбранный временной фрагмент",
@@ -714,7 +722,7 @@ static const Strings kEn = {
     L"Loading file...\r\nPlease wait",
     L"Light mode: loading fragment...\r\nPlease wait",
     L"Light mode: scanning time range...\r\nPlease wait",
-    L"Open a .lvm, .txt, or .csv file (click «Open file» / press O)",
+    L"Open a .lvm, .txt, or .csv file (click \"Open file\" / press O)",
     L"   |   Δf = %.5g Hz,  Δamp = %.4g",
     L"   |   Δt = %.6g s,  Δy = %.5g,  1/Δt = %.6g Hz",
     L" (+spline)",
@@ -741,15 +749,31 @@ static const Strings kEn = {
 
 const Strings* g_str = &kRu;
 
+static const wchar_t* performance_mode_label_text() {
+    return (g_str == &kEn) ? L"Performance mode:" : L"Режим работы:";
+}
+
+static const wchar_t* performance_fast_open_text() {
+    return (g_str == &kEn) ? L"Fast open" : L"Быстрое открытие";
+}
+
+static const wchar_t* performance_fast_work_text() {
+    return (g_str == &kEn) ? L"Fast work" : L"Быстрая работа";
+}
+
+static const wchar_t* performance_comfort_text() {
+    return (g_str == &kEn) ? L"Comfort" : L"Удобство";
+}
+
 // Which read-outs to draw next to measurement markers (toggled from the
-// "РР·РјРµСЂРµРЅРёСЏ в†’ РћС‚РѕР±СЂР°Р¶Р°С‚СЊ Сѓ С‚РѕС‡РµРє" menu).
+// "Measurements -> show at points" menu).
 struct PointDisplay {
-    bool number = true;   // #1, #2, вЂ¦
+    bool number = true;   // #1, #2, …
     bool x = true;        // x coordinate
     bool y = true;        // y coordinate
-    bool dx = true;       // О”x to the previous point
-    bool dy = true;       // О”y to the previous point
-    bool inv_dt = true;   // 1/О”t (Hz) вЂ” time mode only
+    bool dx = true;       // Δx to the previous point
+    bool dy = true;       // Δy to the previous point
+    bool inv_dt = true;   // 1/Δt (Hz) — time mode only
     bool dist = false;    // Euclidean distance to the previous point
 };
 
@@ -795,6 +819,14 @@ enum FilterTopology {
     FilterTopologyChebyshev = 2,
     FilterTopologyLinkwitzRiley = 3,
 };
+
+enum class PerformanceMode : int {
+    Comfort = 0,
+    FastWork = 1,
+    FastOpen = 2,
+};
+
+static PerformanceMode normalize_performance_mode(int value);
 
 struct App {
     lvm::Dataset ds;
@@ -897,6 +929,7 @@ struct App {
     bool pending_marker = false;
     int active_marker = -1;
     bool light_mode = false;
+    PerformanceMode performance_mode = PerformanceMode::Comfort;
     bool show_gap_markers = true;
     bool noise_threshold_enabled = false;
     double noise_threshold_min = -std::numeric_limits<double>::infinity();
@@ -1001,7 +1034,7 @@ struct App {
     HFONT bold_font = nullptr;   // semibold for headings
     HFONT title_font = nullptr;  // large font for the welcome title
     HFONT axis_font = nullptr;   // 11px for axis tick labels
-    // icon_font removed вЂ” toolbar now uses text labels with ui_font
+    // icon_font removed — toolbar now uses text labels with ui_font
 
     bool dragging = false;
     int drag_x = 0, drag_y = 0;
@@ -1031,6 +1064,121 @@ struct App {
 
 App g;
 ULONG_PTR g_gdiplus_token = 0;
+void refresh_settings_controls();
+void ensure_channel_formulas_loaded();
+void normalize_filter_bounds();
+void write_ini_double(const wchar_t* section, const wchar_t* key, double value);
+void write_ini_optional_double(const wchar_t* section, const wchar_t* key, double value);
+
+static PerformanceMode normalize_performance_mode(int value) {
+    if (value < static_cast<int>(PerformanceMode::Comfort) ||
+        value > static_cast<int>(PerformanceMode::FastOpen)) {
+        return PerformanceMode::Comfort;
+    }
+    return static_cast<PerformanceMode>(value);
+}
+
+void save_runtime_settings_now() {
+    if (g_config_path.empty()) g_config_path = app_config_path();
+    ensure_channel_formulas_loaded();
+
+    wchar_t buf[64];
+    WritePrivateProfileStringW(L"ui", L"language", (g_str == &kEn) ? L"en" : L"ru", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"performance_mode", std::to_wstring(static_cast<int>(g.performance_mode)).c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
+    swprintf(buf, 64, L"%.17g", g.light_mode_open_start);
+    WritePrivateProfileStringW(L"ui", L"light_mode_open_start", buf, g_config_path.c_str());
+    swprintf(buf, 64, L"%.17g", g.light_mode_open_end);
+    WritePrivateProfileStringW(L"ui", L"light_mode_open_end", buf, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", g_config_path.c_str());
+    normalize_filter_bounds();
+    WritePrivateProfileStringW(L"ui", L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"filter_mode", std::to_wstring(g.noise_threshold_mode).c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"filter_topology", std::to_wstring(g.noise_threshold_topology).c_str(), g_config_path.c_str());
+    write_ini_optional_double(L"ui", L"filter_low_cutoff", g.noise_threshold_min);
+    write_ini_optional_double(L"ui", L"filter_high_cutoff", g.noise_threshold_max);
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_enabled", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_min", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"noise_threshold_max", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"side_panel_visible", g.side_panel_visible ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"side_panel_tab", std::to_wstring(std::clamp(g.side_panel_tab, 0, 2)).c_str(), g_config_path.c_str());
+    write_ini_double(L"ui", L"play_speed", g.play_speed);
+    write_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
+    write_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
+    WritePrivateProfileStringW(L"ui", L"axis_x_label", g.axis_x_label.c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"axis_y_label", g.axis_y_label.c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"x_label", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"y_label", nullptr, g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"x", g.pdisp.x ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"y", g.pdisp.y ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dx", g.pdisp.dx ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dy", g.pdisp.dy ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"inv_dt", g.pdisp.inv_dt ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"points", L"dist", g.pdisp.dist ? L"1" : L"0", g_config_path.c_str());
+
+    wchar_t color_buf[32]{};
+    swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
+    WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
+    WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
+    WritePrivateProfileStringW(L"transform", L"formula_count", nullptr, g_config_path.c_str());
+    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
+        wchar_t key_name[32]{};
+        swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
+        WritePrivateProfileStringW(L"transform", key_name, g.channel_formulas[i].c_str(), g_config_path.c_str());
+    }
+
+    for (const auto& hk : g.hotkeys) {
+        wchar_t key_name[32]{};
+        wchar_t value[64]{};
+        swprintf(key_name, 32, L"cmd_%d", hk.command);
+        swprintf(value, 64, L"%u,%u", static_cast<unsigned int>(hk.fvirt), static_cast<unsigned int>(hk.key));
+        WritePrivateProfileStringW(L"hotkeys", key_name, value, g_config_path.c_str());
+    }
+    save_app_settings();
+}
+
+void save_runtime_settings() {
+    save_runtime_settings_now();
+}
+
+void flush_runtime_settings_save() {
+    if (g.main && IsWindow(g.main)) {
+        KillTimer(g.main, kRuntimeSettingsSaveTimerId);
+    }
+    if (!g.runtime_settings_save_pending) return;
+    g.runtime_settings_save_pending = false;
+    save_runtime_settings_now();
+}
+
+void sync_performance_mode_controls(HWND hwnd, int label_id, int fast_open_id, int fast_work_id, int comfort_id) {
+    (void)label_id;
+    const PerformanceMode mode = normalize_performance_mode(static_cast<int>(g.performance_mode));
+    g.performance_mode = mode;
+    if (HWND h = GetDlgItem(hwnd, fast_open_id)) {
+        SendMessageW(h, BM_SETCHECK, mode == PerformanceMode::FastOpen ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (HWND h = GetDlgItem(hwnd, fast_work_id)) {
+        SendMessageW(h, BM_SETCHECK, mode == PerformanceMode::FastWork ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+    if (HWND h = GetDlgItem(hwnd, comfort_id)) {
+        SendMessageW(h, BM_SETCHECK, mode == PerformanceMode::Comfort ? BST_CHECKED : BST_UNCHECKED, 0);
+    }
+}
+
+void apply_performance_mode(PerformanceMode mode, bool persist = true) {
+    g.performance_mode = normalize_performance_mode(static_cast<int>(mode));
+    g.light_mode = g.performance_mode != PerformanceMode::Comfort;
+    if (g.performance_mode == PerformanceMode::FastOpen) {
+        g.light_mode_open_start = 0.0;
+        if (!(g.light_mode_open_end > g.light_mode_open_start)) g.light_mode_open_end = 10.0;
+    }
+    if (persist) save_runtime_settings();
+    if (g.settings_wnd) refresh_settings_controls();
+}
 
 struct AsyncScanResult {
     unsigned long long token = 0;
@@ -1323,15 +1471,15 @@ const wchar_t* side_pt_y_text() {
 }
 
 const wchar_t* side_pt_dx_text() {
-    return (g_str == &kEn) ? L"Δx" : L"Δx";
+    return (g_str == &kEn) ? L"?x" : L"?x";
 }
 
 const wchar_t* side_pt_dy_text() {
-    return (g_str == &kEn) ? L"Δy" : L"Δy";
+    return (g_str == &kEn) ? L"?y" : L"?y";
 }
 
 const wchar_t* side_pt_invdt_text() {
-    return (g_str == &kEn) ? L"1/Δt" : L"1/Δt";
+    return (g_str == &kEn) ? L"1/?t" : L"1/?t";
 }
 
 const wchar_t* side_pt_dist_text() {
@@ -3409,944 +3557,7 @@ void set_play_speed(double speed) {
     set_status();
 }
 
-LRESULT CALLBACK NumericPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    switch (msg) {
-        case WM_CREATE: {
-            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-            HDC dc = GetDC(hwnd);
-            HGDIOBJ old_font = SelectObject(dc, font);
-            CreateWindowExW(0, L"STATIC", g_numeric_prompt.label.c_str(),
-                            WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                            18, 16, 340, 44, hwnd, nullptr,
-                            reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            g_numeric_prompt.edit = CreateWindowExW(
-                WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_numeric_prompt.value).c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                18, 66, 340, 24, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_EDIT)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            const int ok_w = prompt_button_width(dc, g_numeric_prompt.apply_text.c_str(), 110);
-            const int cancel_w = prompt_button_width(dc, g_numeric_prompt.cancel_text.c_str(), 110);
-            const int button_gap = 10;
-            const int total_w = ok_w + cancel_w + button_gap;
-            int button_x = std::max(16, (384 - total_w) / 2);
-            HWND ok = CreateWindowExW(
-                0, L"BUTTON", g_numeric_prompt.apply_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x, 104, ok_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_OK)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            HWND cancel = CreateWindowExW(
-                0, L"BUTTON", g_numeric_prompt.cancel_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x + ok_w + button_gap, 104, cancel_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_CANCEL)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            if (ok) SendMessageW(ok, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (cancel) SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_numeric_prompt.edit) SendMessageW(g_numeric_prompt.edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            SelectObject(dc, old_font);
-            ReleaseDC(hwnd, dc);
-            HWND label = GetWindow(hwnd, GW_CHILD);
-            if (label) SendMessageW(label, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            return 0;
-        }
-        case WM_COMMAND:
-            switch (LOWORD(wp)) {
-                case IDC_SPEED_PROMPT_OK: {
-                    double value = 0.0;
-                    wchar_t buf[128]{};
-                    if (g_numeric_prompt.edit) GetWindowTextW(g_numeric_prompt.edit, buf, 128);
-                    const bool valid = parse_wide_double_text(buf, value) &&
-                                       std::isfinite(value) &&
-                                       (!g_numeric_prompt.positive_only || value > 0.0);
-                    if (!valid) {
-                        MessageBoxW(hwnd, g_numeric_prompt.invalid_text.c_str(), g_numeric_prompt.title.c_str(), MB_OK | MB_ICONWARNING);
-                        if (g_numeric_prompt.edit) SetFocus(g_numeric_prompt.edit);
-                        return 0;
-                    }
-                    g_numeric_prompt.value = value;
-                    g_numeric_prompt.accepted = true;
-                    DestroyWindow(hwnd);
-                    return 0;
-                }
-                case IDC_SPEED_PROMPT_CANCEL:
-                    DestroyWindow(hwnd);
-                    return 0;
-            }
-            break;
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-        case WM_ERASEBKGND: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            draw_prompt_surface(hwnd, dc);
-            return 1;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps{};
-            HDC dc = BeginPaint(hwnd, &ps);
-            draw_prompt_surface(hwnd, dc);
-            EndPaint(hwnd, &ps);
-            return 1;
-        }
-        case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLORBTN: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_panel_brush);
-        }
-        case WM_DRAWITEM: {
-            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
-            if (!dis || !dis->hwndItem) break;
-            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
-            wchar_t txt[128]{};
-            GetWindowTextW(dis->hwndItem, txt, 128);
-            const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-            if (ctl_id == IDC_SPEED_PROMPT_OK) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, true, false);
-                return TRUE;
-            }
-            if (ctl_id == IDC_SPEED_PROMPT_CANCEL) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
-                return TRUE;
-            }
-            break;
-        }
-        case WM_CTLCOLOREDIT: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkColor(dc, g_theme->bg_plot);
-            SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_input_brush ? g_input_brush : g_panel_brush);
-        }
-        case WM_DESTROY:
-            g_numeric_prompt.done = true;
-            g_numeric_prompt.wnd = nullptr;
-            g_numeric_prompt.edit = nullptr;
-            return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    switch (msg) {
-        case WM_CREATE: {
-            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-            HDC dc = GetDC(hwnd);
-            HGDIOBJ old_font = SelectObject(dc, font);
-            RECT client{};
-            GetClientRect(hwnd, &client);
-            const int client_w = std::max(0, static_cast<int>(client.right - client.left));
-            const int content_w = std::max(360, client_w - 36);
-            const int info_h = 42;
-            const int label_h = 18;
-            const int edit_h = 24;
-            const int start_label_y = 16 + info_h + 10;
-            const int start_edit_y = start_label_y + label_h + 4;
-            const int end_label_y = start_edit_y + edit_h + 10;
-            const int end_edit_y = end_label_y + label_h + 4;
-            auto mkstatic = [&](const std::wstring& text, int x, int y, int w, int h) {
-                HWND ctl = CreateWindowExW(0, L"STATIC", text.c_str(),
-                                           WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                                           x, y, w, h, hwnd, nullptr,
-                                           reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
-            mkstatic(g_range_prompt.info_label, 18, 16, content_w, info_h);
-            mkstatic(g_range_prompt.start_label, 18, start_label_y, content_w, label_h);
-            g_range_prompt.start_edit = CreateWindowExW(
-                WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_range_prompt.start_value).c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                18, start_edit_y, content_w, edit_h, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_START_EDIT)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            mkstatic(g_range_prompt.end_label, 18, end_label_y, content_w, label_h);
-            g_range_prompt.end_edit = CreateWindowExW(
-                WS_EX_CLIENTEDGE, L"EDIT", format_edit_number(g_range_prompt.end_value).c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
-                18, end_edit_y, content_w, edit_h, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_END_EDIT)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            const int autofill_w = prompt_button_width(dc, range_prompt_autofill_text(), 98);
-            const int apply_w = prompt_button_width(dc, g_range_prompt.apply_text.c_str(), 116);
-            const int cancel_w = prompt_button_width(dc, g_range_prompt.cancel_text.c_str(), 88);
-            const int button_gap = 10;
-            const int total_w = autofill_w + apply_w + cancel_w + button_gap * 2;
-            int button_x = std::max(16, (client_w - total_w) / 2);
-            if (button_x + total_w > client_w - 16) {
-                button_x = std::max(16, client_w - 16 - total_w);
-            }
-            HWND autofill = CreateWindowExW(
-                0, L"BUTTON", range_prompt_autofill_text(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x, 178, autofill_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_AUTOFILL)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            HWND ok = CreateWindowExW(
-                0, L"BUTTON", g_range_prompt.apply_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x + autofill_w + button_gap, 178, apply_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_OK)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            HWND cancel = CreateWindowExW(
-                0, L"BUTTON", g_range_prompt.cancel_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x + autofill_w + button_gap + apply_w + button_gap, 178, cancel_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_CANCEL)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            if (autofill) SendMessageW(autofill, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_range_prompt.start_edit) SendMessageW(g_range_prompt.start_edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_range_prompt.end_edit) SendMessageW(g_range_prompt.end_edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (ok) SendMessageW(ok, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (cancel) SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            SelectObject(dc, old_font);
-            ReleaseDC(hwnd, dc);
-            return 0;
-        }
-        case WM_COMMAND:
-            switch (LOWORD(wp)) {
-                case IDC_RANGE_PROMPT_AUTOFILL: {
-                    g_range_prompt.start_value = g_range_prompt.min_value;
-                    g_range_prompt.end_value = g_range_prompt.max_value;
-                    if (g_range_prompt.start_edit) {
-                        SetWindowTextW(g_range_prompt.start_edit, format_edit_number(g_range_prompt.start_value).c_str());
-                        SendMessageW(g_range_prompt.start_edit, EM_SETSEL, 0, -1);
-                        SetFocus(g_range_prompt.start_edit);
-                    }
-                    if (g_range_prompt.end_edit) {
-                        SetWindowTextW(g_range_prompt.end_edit, format_edit_number(g_range_prompt.end_value).c_str());
-                    }
-                    return 0;
-                }
-                case IDC_RANGE_PROMPT_OK: {
-                    double start = 0.0, end = 0.0;
-                    wchar_t buf_start[128]{}, buf_end[128]{};
-                    if (g_range_prompt.start_edit) GetWindowTextW(g_range_prompt.start_edit, buf_start, 128);
-                    if (g_range_prompt.end_edit) GetWindowTextW(g_range_prompt.end_edit, buf_end, 128);
-                    const bool start_valid = parse_wide_double_text(buf_start, start) &&
-                                             std::isfinite(start) &&
-                                             start >= g_range_prompt.min_value &&
-                                             start < g_range_prompt.max_value;
-                    if (!start_valid) {
-                        MessageBoxW(hwnd, g_range_prompt.invalid_start_text.c_str(), g_range_prompt.title.c_str(), MB_OK | MB_ICONWARNING);
-                        if (g_range_prompt.start_edit) SetFocus(g_range_prompt.start_edit);
-                        return 0;
-                    }
-                    const bool end_valid = parse_wide_double_text(buf_end, end) &&
-                                           std::isfinite(end) &&
-                                           end > start &&
-                                           end <= g_range_prompt.max_value;
-                    if (!end_valid) {
-                        MessageBoxW(hwnd, g_range_prompt.invalid_end_text.c_str(), g_range_prompt.title.c_str(), MB_OK | MB_ICONWARNING);
-                        if (g_range_prompt.end_edit) SetFocus(g_range_prompt.end_edit);
-                        return 0;
-                    }
-                    g_range_prompt.start_value = start;
-                    g_range_prompt.end_value = end;
-                    g_range_prompt.accepted = true;
-                    DestroyWindow(hwnd);
-                    return 0;
-                }
-                case IDC_RANGE_PROMPT_CANCEL:
-                    DestroyWindow(hwnd);
-                    return 0;
-            }
-            break;
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-        case WM_ERASEBKGND: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            draw_prompt_surface(hwnd, dc);
-            return 1;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps{};
-            HDC dc = BeginPaint(hwnd, &ps);
-            draw_prompt_surface(hwnd, dc);
-            EndPaint(hwnd, &ps);
-            return 1;
-        }
-        case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLORBTN: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_panel_brush);
-        }
-        case WM_DRAWITEM: {
-            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
-            if (!dis || !dis->hwndItem) break;
-            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
-            wchar_t txt[256]{};
-            GetWindowTextW(dis->hwndItem, txt, 256);
-            const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-            if (ctl_id == IDC_RANGE_PROMPT_OK) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, true, false);
-                return TRUE;
-            }
-            if (ctl_id == IDC_RANGE_PROMPT_AUTOFILL) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, true);
-                return TRUE;
-            }
-            if (ctl_id == IDC_RANGE_PROMPT_CANCEL) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
-                return TRUE;
-            }
-            break;
-        }
-        case WM_CTLCOLOREDIT: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkColor(dc, g_theme->bg_plot);
-            SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_input_brush ? g_input_brush : g_panel_brush);
-        }
-        case WM_DESTROY:
-            g_range_prompt.done = true;
-            g_range_prompt.wnd = nullptr;
-            g_range_prompt.start_edit = nullptr;
-            g_range_prompt.end_edit = nullptr;
-            return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-template <typename T>
-int combo_index_for_value(HWND combo, T value) {
-    if (!combo) return -1;
-    const int count = static_cast<int>(SendMessageW(combo, CB_GETCOUNT, 0, 0));
-    for (int i = 0; i < count; ++i) {
-        const auto item = static_cast<T>(SendMessageW(combo, CB_GETITEMDATA, i, 0));
-        if (item == value) return i;
-    }
-    return -1;
-}
-
-ExportFileFormat export_prompt_selected_format() {
-    if (!g_export_prompt.format_combo) return ExportFileFormat::Csv;
-    const int sel = static_cast<int>(SendMessageW(g_export_prompt.format_combo, CB_GETCURSEL, 0, 0));
-    if (sel == CB_ERR) return ExportFileFormat::Csv;
-    const int value = static_cast<int>(SendMessageW(g_export_prompt.format_combo, CB_GETITEMDATA, sel, 0));
-    switch (value) {
-        case static_cast<int>(ExportFileFormat::Txt): return ExportFileFormat::Txt;
-        case static_cast<int>(ExportFileFormat::Csv): return ExportFileFormat::Csv;
-        case static_cast<int>(ExportFileFormat::Lvm): return ExportFileFormat::Lvm;
-    }
-    return ExportFileFormat::Csv;
-}
-
-ExportRangeMode export_prompt_selected_range() {
-    if (!g_export_prompt.range_combo) return ExportRangeMode::Visible;
-    const int sel = static_cast<int>(SendMessageW(g_export_prompt.range_combo, CB_GETCURSEL, 0, 0));
-    if (sel == CB_ERR) return ExportRangeMode::Visible;
-    const int value = static_cast<int>(SendMessageW(g_export_prompt.range_combo, CB_GETITEMDATA, sel, 0));
-    switch (value) {
-        case static_cast<int>(ExportRangeMode::Selected): return ExportRangeMode::Selected;
-        case static_cast<int>(ExportRangeMode::Visible): return ExportRangeMode::Visible;
-        case static_cast<int>(ExportRangeMode::Whole): return ExportRangeMode::Whole;
-    }
-    return ExportRangeMode::Visible;
-}
-
-void sync_export_prompt_state_from_controls() {
-    g_export_prompt.selected_format = export_prompt_selected_format();
-    g_export_prompt.selected_range = export_prompt_selected_range();
-    if (g_export_prompt.processing_apply_radio) {
-        g_export_prompt.apply_processing_to_data =
-            SendMessageW(g_export_prompt.processing_apply_radio, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_channel_names_check) {
-        g_export_prompt.include_channel_names =
-            SendMessageW(g_export_prompt.include_channel_names_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_hidden_channels_check) {
-        g_export_prompt.include_hidden_channels =
-            SendMessageW(g_export_prompt.include_hidden_channels_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_points_check) {
-        g_export_prompt.include_points =
-            SendMessageW(g_export_prompt.include_points_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_markers_check) {
-        g_export_prompt.include_markers =
-            SendMessageW(g_export_prompt.include_markers_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_guides_check) {
-        g_export_prompt.include_guides =
-            SendMessageW(g_export_prompt.include_guides_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_formulas_check) {
-        g_export_prompt.include_formulas =
-            SendMessageW(g_export_prompt.include_formulas_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_filter_check) {
-        g_export_prompt.include_filter_settings =
-            SendMessageW(g_export_prompt.include_filter_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-    if (g_export_prompt.include_graph_settings_check) {
-        g_export_prompt.include_graph_settings =
-            SendMessageW(g_export_prompt.include_graph_settings_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
-}
-
-bool export_prompt_has_selected_range() {
-    return has_fft_window();
-}
-
-bool export_prompt_has_formulas() {
-    return g.has_non_identity_formula;
-}
-
-bool export_prompt_has_point_groups() {
-    return !g.point_groups.empty();
-}
-
-bool export_prompt_has_markers() {
-    return !g.markers.empty();
-}
-
-bool export_prompt_has_guides() {
-    return !g.guides.empty();
-}
-
-std::wstring export_prompt_unavailable_label(const wchar_t* base_text, bool available, bool english) {
-    std::wstring text = base_text ? base_text : L"";
-    if (!available) {
-        text += english ? L" (none)" : L" (нет)";
-    }
-    return text;
-}
-
-LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-    switch (msg) {
-        case WM_CREATE: {
-            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
-            HDC dc = GetDC(hwnd);
-            HGDIOBJ old_font = SelectObject(dc, font);
-            RECT client{};
-            GetClientRect(hwnd, &client);
-            const int client_w = std::max(0, static_cast<int>(client.right - client.left));
-            const int content_w = std::max(680, client_w - 36);
-            const int intro_h = 34;
-            const int section_h = 20;
-            const int option_h = 24;
-            const int radio_h = 28;
-            const int col_gap = 16;
-            const int col_w = (content_w - col_gap) / 2;
-            const int label_w = 88;
-            const int combo_x = 18 + label_w;
-            const int combo_w = content_w - label_w - 6;
-            auto mkstatic = [&](const std::wstring& text, int x, int y, int w, int h) {
-                HWND ctl = CreateWindowExW(0, L"STATIC", text.c_str(),
-                                           WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                                           x, y, w, h, hwnd, nullptr,
-                                           reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
-            auto mkcombo = [&](int x, int y, int w, int h, int id) {
-                HWND ctl = CreateWindowExW(
-                    0, L"COMBOBOX", L"",
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST |
-                    CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER,
-                    x, y, w, h, hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
-            auto mkradio = [&](const std::wstring& text, int x, int y, int w, int h, int id, DWORD extra_style = 0) {
-                HWND ctl = CreateWindowExW(
-                    0, L"BUTTON", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE | extra_style,
-                    x, y, w, h, hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
-            auto add_combo_item = [&](HWND combo, const std::wstring& text, int value) {
-                int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str())));
-                if (idx >= 0) {
-                    SendMessageW(combo, CB_SETITEMDATA, idx, static_cast<LPARAM>(value));
-                }
-            };
-            auto mkcheck = [&](const std::wstring& text, int x, int y, int w, int h, int id) {
-                HWND ctl = CreateWindowExW(
-                    0, L"BUTTON", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE,
-                    x, y, w, h, hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
-            mkstatic(g_export_prompt.intro, 18, 16, content_w, intro_h);
-            mkstatic(g_export_prompt.format_label_text, 18, 56, label_w, section_h);
-            g_export_prompt.format_combo = mkcombo(combo_x, 52, combo_w, 260, IDC_EXPORT_SCOPE_CURRENT);
-            if (g_export_prompt.format_combo) {
-                add_combo_item(g_export_prompt.format_combo, g_export_prompt.format_txt_text, static_cast<int>(ExportFileFormat::Txt));
-                add_combo_item(g_export_prompt.format_combo, g_export_prompt.format_csv_text, static_cast<int>(ExportFileFormat::Csv));
-                add_combo_item(g_export_prompt.format_combo, g_export_prompt.format_lvm_text, static_cast<int>(ExportFileFormat::Lvm));
-                SendMessageW(g_export_prompt.format_combo, CB_SETMINVISIBLE, 4, 0);
-                SendMessageW(g_export_prompt.format_combo, CB_SETDROPPEDWIDTH, std::max(220, combo_w), 0);
-            }
-
-            mkstatic(g_export_prompt.range_label_text, 18, 90, label_w, section_h);
-            g_export_prompt.range_combo = mkcombo(combo_x, 86, combo_w, 260, IDC_EXPORT_SCOPE_FRAGMENT);
-            if (g_export_prompt.range_combo) {
-                add_combo_item(g_export_prompt.range_combo, g_export_prompt.range_selected_text, static_cast<int>(ExportRangeMode::Selected));
-                add_combo_item(g_export_prompt.range_combo, g_export_prompt.range_visible_text, static_cast<int>(ExportRangeMode::Visible));
-                add_combo_item(g_export_prompt.range_combo, g_export_prompt.range_whole_text, static_cast<int>(ExportRangeMode::Whole));
-                SendMessageW(g_export_prompt.range_combo, CB_SETMINVISIBLE, 4, 0);
-                SendMessageW(g_export_prompt.range_combo, CB_SETDROPPEDWIDTH, std::max(220, combo_w), 0);
-            }
-
-            mkstatic(g_str == &kEn ? L"Data mode:" : L"Режим данных:", 18, 126, content_w, section_h);
-            g_export_prompt.processing_settings_radio = mkradio(
-                g_export_prompt.processing_settings_text, 18, 150, content_w, radio_h,
-                IDC_EXPORT_APPLY_SETTINGS, WS_GROUP);
-            g_export_prompt.processing_apply_radio = mkradio(
-                g_export_prompt.processing_apply_text, 18, 178, content_w, radio_h,
-                IDC_EXPORT_APPLY_DATA);
-            mkstatic(g_str == &kEn ? L"Additional data:" : L"Дополнительно сохранять:", 18, 214, content_w, section_h);
-            g_export_prompt.include_channel_names_check = mkcheck(g_export_prompt.channel_names_text, 18, 238, col_w, option_h, IDC_EXPORT_INCLUDE_CHANNEL_NAMES);
-            g_export_prompt.include_formulas_check = mkcheck(g_export_prompt.formulas_text, 18 + col_w + col_gap, 238, col_w, option_h, IDC_EXPORT_INCLUDE_FORMULAS);
-            g_export_prompt.include_points_check = mkcheck(g_export_prompt.points_text, 18, 266, col_w, option_h, IDC_EXPORT_INCLUDE_POINTS);
-            g_export_prompt.include_filter_check = mkcheck(g_export_prompt.filter_text, 18 + col_w + col_gap, 266, col_w, option_h, IDC_EXPORT_INCLUDE_FILTER);
-            g_export_prompt.include_markers_check = mkcheck(g_export_prompt.markers_text, 18, 294, col_w, option_h, IDC_EXPORT_INCLUDE_MARKERS);
-            g_export_prompt.include_graph_settings_check = mkcheck(g_export_prompt.graph_settings_text, 18 + col_w + col_gap, 294, col_w, option_h, IDC_EXPORT_INCLUDE_GRAPH_SETTINGS);
-            g_export_prompt.include_guides_check = mkcheck(g_export_prompt.guides_text, 18, 322, col_w, option_h, IDC_EXPORT_INCLUDE_GUIDES);
-            g_export_prompt.include_hidden_channels_check = mkcheck(g_export_prompt.hidden_channels_text, 18 + col_w + col_gap, 322, col_w, option_h, IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS);
-
-            const int continue_w = prompt_button_width(dc, g_export_prompt.continue_text.c_str(), 130);
-            const int cancel_w = prompt_button_width(dc, g_export_prompt.cancel_text.c_str(), 100);
-            const int button_gap = 10;
-            const int total_w = continue_w + cancel_w + button_gap;
-            int button_x = std::max(16, (client_w - total_w) / 2);
-            if (button_x + total_w > client_w - 16) {
-                button_x = std::max(16, client_w - 16 - total_w);
-            }
-            const int button_y = 374;
-            HWND ok = CreateWindowExW(
-                0, L"BUTTON", g_export_prompt.continue_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
-                button_x, button_y, continue_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            HWND cancel = CreateWindowExW(
-                0, L"BUTTON", g_export_prompt.cancel_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                button_x + continue_w + button_gap, button_y, cancel_w, 28, hwnd,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
-                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            if (g_export_prompt.processing_settings_radio) SendMessageW(g_export_prompt.processing_settings_radio, BM_SETCHECK,
-                g_export_prompt.apply_processing_to_data ? BST_UNCHECKED : BST_CHECKED, 0);
-            if (g_export_prompt.processing_apply_radio) SendMessageW(g_export_prompt.processing_apply_radio, BM_SETCHECK,
-                g_export_prompt.apply_processing_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
-            auto set_check = [&](HWND ctl, bool on) {
-                if (ctl) SendMessageW(ctl, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
-            };
-            set_check(g_export_prompt.include_channel_names_check, g_export_prompt.include_channel_names);
-            set_check(g_export_prompt.include_points_check, g_export_prompt.include_points);
-            set_check(g_export_prompt.include_markers_check, g_export_prompt.include_markers);
-            set_check(g_export_prompt.include_guides_check, g_export_prompt.include_guides);
-            set_check(g_export_prompt.include_formulas_check, g_export_prompt.include_formulas);
-            set_check(g_export_prompt.include_filter_check, g_export_prompt.include_filter_settings);
-            set_check(g_export_prompt.include_graph_settings_check, g_export_prompt.include_graph_settings);
-            set_check(g_export_prompt.include_hidden_channels_check, g_export_prompt.include_hidden_channels);
-            if (g_export_prompt.format_combo) {
-                const int fmt_index = combo_index_for_value(g_export_prompt.format_combo, g_export_prompt.selected_format);
-                SendMessageW(g_export_prompt.format_combo, CB_SETCURSEL, fmt_index >= 0 ? fmt_index : 1, 0);
-            }
-            if (g_export_prompt.range_combo) {
-                const int range_index = combo_index_for_value(g_export_prompt.range_combo, g_export_prompt.selected_range);
-                SendMessageW(g_export_prompt.range_combo, CB_SETCURSEL, range_index >= 0 ? range_index : 1, 0);
-            }
-            if (ok) SendMessageW(ok, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (cancel) SendMessageW(cancel, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-            if (g_export_prompt.format_combo) {
-                SetFocus(g_export_prompt.format_combo);
-            }
-            sync_export_prompt_state_from_controls();
-            SelectObject(dc, old_font);
-            ReleaseDC(hwnd, dc);
-            return 0;
-        }
-        case WM_COMMAND:
-            switch (LOWORD(wp)) {
-                case IDC_EXPORT_SCOPE_CURRENT:
-                    if (HIWORD(wp) == CBN_DROPDOWN) {
-                        expand_combo_dropdown(GetDlgItem(hwnd, LOWORD(wp)));
-                        return 0;
-                    }
-                    if (HIWORD(wp) == CBN_SELCHANGE) {
-                        sync_export_prompt_state_from_controls();
-                        return 0;
-                    }
-                    break;
-                case IDC_EXPORT_SCOPE_FRAGMENT:
-                    if (HIWORD(wp) == CBN_DROPDOWN) {
-                        expand_combo_dropdown(GetDlgItem(hwnd, LOWORD(wp)));
-                        return 0;
-                    }
-                    if (HIWORD(wp) == CBN_SELCHANGE) {
-                        sync_export_prompt_state_from_controls();
-                        return 0;
-                    }
-                    break;
-                case IDC_EXPORT_APPLY_SETTINGS:
-                case IDC_EXPORT_APPLY_DATA:
-                case IDC_EXPORT_INCLUDE_CHANNEL_NAMES:
-                case IDC_EXPORT_INCLUDE_POINTS:
-                case IDC_EXPORT_INCLUDE_MARKERS:
-                case IDC_EXPORT_INCLUDE_GUIDES:
-                case IDC_EXPORT_INCLUDE_FORMULAS:
-                case IDC_EXPORT_INCLUDE_FILTER:
-                case IDC_EXPORT_INCLUDE_GRAPH_SETTINGS:
-                case IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS:
-                    sync_export_prompt_state_from_controls();
-                    return 0;
-                case IDOK:
-                    sync_export_prompt_state_from_controls();
-                    if (g_export_prompt.selected_format == ExportFileFormat::Lvm && g.freq_mode) {
-                        MessageBoxW(hwnd,
-                                    g_str == &kEn ? L"LVM export is available only in Time mode."
-                                                   : L"Экспорт LVM доступен только в режиме Время.",
-                                    g_str->msg_error_title, MB_ICONINFORMATION);
-                        if (g_export_prompt.format_combo) SetFocus(g_export_prompt.format_combo);
-                        return 0;
-                    }
-                    g_export_prompt.accepted = true;
-                    DestroyWindow(hwnd);
-                    return 0;
-                case IDCANCEL:
-                    DestroyWindow(hwnd);
-                    return 0;
-            }
-            break;
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-        case WM_ERASEBKGND: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            draw_prompt_surface(hwnd, dc);
-            return 1;
-        }
-        case WM_PAINT: {
-            PAINTSTRUCT ps{};
-            HDC dc = BeginPaint(hwnd, &ps);
-            draw_prompt_surface(hwnd, dc);
-            EndPaint(hwnd, &ps);
-            return 1;
-        }
-        case WM_CTLCOLORSTATIC:
-        case WM_CTLCOLORBTN: {
-            HDC dc = reinterpret_cast<HDC>(wp);
-            SetBkMode(dc, TRANSPARENT);
-            SetTextColor(dc, g_theme->text_primary);
-            return reinterpret_cast<LRESULT>(g_panel_brush);
-        }
-        case WM_DRAWITEM: {
-            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
-            if (!dis || !dis->hwndItem) break;
-            const int ctl_id = GetDlgCtrlID(dis->hwndItem);
-            wchar_t txt[128]{};
-            GetWindowTextW(dis->hwndItem, txt, 128);
-            const bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-            if (ctl_id == IDOK) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, true, false);
-                return TRUE;
-            }
-            if (ctl_id == IDCANCEL) {
-                draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
-                return TRUE;
-            }
-            break;
-        }
-        case WM_DESTROY:
-            g_export_prompt.done = true;
-            g_export_prompt.wnd = nullptr;
-            g_export_prompt.format_combo = nullptr;
-            g_export_prompt.range_combo = nullptr;
-            g_export_prompt.processing_apply_radio = nullptr;
-            g_export_prompt.processing_settings_radio = nullptr;
-            g_export_prompt.include_channel_names_check = nullptr;
-            g_export_prompt.include_points_check = nullptr;
-            g_export_prompt.include_markers_check = nullptr;
-            g_export_prompt.include_guides_check = nullptr;
-            g_export_prompt.include_formulas_check = nullptr;
-            g_export_prompt.include_filter_check = nullptr;
-            g_export_prompt.include_graph_settings_check = nullptr;
-            g_export_prompt.include_hidden_channels_check = nullptr;
-            return 0;
-    }
-    return DefWindowProcW(hwnd, msg, wp, lp);
-}
-
-bool prompt_numeric_value(const wchar_t* title, const wchar_t* label,
-                          const wchar_t* apply_text, const wchar_t* cancel_text,
-                          const wchar_t* invalid_text, double initial_value,
-                          bool positive_only, double& out_value) {
-    static ATOM atom = 0;
-    if (!atom) {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = NumericPromptProc;
-        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
-        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground = nullptr;
-        wc.lpszClassName = L"LvmNumericPrompt";
-        atom = RegisterClassExW(&wc);
-    }
-
-    g_numeric_prompt.done = false;
-    g_numeric_prompt.accepted = false;
-    g_numeric_prompt.positive_only = positive_only;
-    g_numeric_prompt.value = initial_value;
-    g_numeric_prompt.title = title;
-    g_numeric_prompt.label = label;
-    g_numeric_prompt.apply_text = apply_text;
-    g_numeric_prompt.cancel_text = cancel_text;
-    g_numeric_prompt.invalid_text = invalid_text;
-    g_numeric_prompt.wnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
-        L"LvmNumericPrompt",
-        g_numeric_prompt.title.c_str(),
-        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 384, 172,
-        g.main, nullptr,
-        reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
-        nullptr);
-    if (!g_numeric_prompt.wnd) return false;
-
-    RECT mr{}, wr{};
-    GetWindowRect(g.main, &mr);
-    GetWindowRect(g_numeric_prompt.wnd, &wr);
-    SetWindowPos(
-        g_numeric_prompt.wnd, HWND_TOP,
-        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
-        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
-        0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-    EnableWindow(g.main, FALSE);
-    if (g_numeric_prompt.edit) {
-        SetFocus(g_numeric_prompt.edit);
-        SendMessageW(g_numeric_prompt.edit, EM_SETSEL, 0, -1);
-    }
-
-    MSG msg;
-    while (!g_numeric_prompt.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (!IsDialogMessageW(g_numeric_prompt.wnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-
-    EnableWindow(g.main, TRUE);
-    SetForegroundWindow(g.main);
-    if (!g_numeric_prompt.accepted) return false;
-    out_value = g_numeric_prompt.value;
-    return true;
-}
-
-bool prompt_light_mode_window(double range_start, double range_end, double& out_start, double& out_end) {
-    static ATOM atom = 0;
-    if (!atom) {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = RangePromptProc;
-        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
-        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground = nullptr;
-        wc.lpszClassName = L"LvmRangePrompt";
-        atom = RegisterClassExW(&wc);
-    }
-
-    const bool en = (g_str == &kEn);
-    g_range_prompt.done = false;
-    g_range_prompt.accepted = false;
-    range_start = normalize_prompt_bound(range_start);
-    range_end = normalize_prompt_bound(range_end);
-    if (!std::isfinite(range_start)) range_start = 0.0;
-    if (!std::isfinite(range_end)) range_end = range_start + 10.0;
-    if (range_end < range_start) std::swap(range_start, range_end);
-    if (range_end <= range_start) range_end = range_start + 10.0;
-
-    g_range_prompt.min_value = range_start;
-    g_range_prompt.max_value = range_end;
-    g_range_prompt.start_value = normalize_prompt_bound(std::clamp(g.light_mode_open_start, range_start, range_end));
-    g_range_prompt.end_value = normalize_prompt_bound(std::clamp(g.light_mode_open_end, g_range_prompt.start_value + 1e-9, range_end));
-    if (g_range_prompt.end_value <= g_range_prompt.start_value) {
-        g_range_prompt.end_value = std::min(range_end, g_range_prompt.start_value + 10.0);
-    }
-    g_range_prompt.title = g_str->light_mode_range_title;
-    g_range_prompt.info_label = (en ? L"Available range:\r\n" : L"Доступный диапазон:\r\n") +
-                                format_edit_number(range_start) + L" .. " +
-                                format_edit_number(range_end) + (en ? L" s" : L" c");
-    g_range_prompt.start_label = g_str->light_mode_range_start;
-    g_range_prompt.end_label = g_str->light_mode_range_end;
-    g_range_prompt.apply_text = g_str->light_mode_range_apply;
-    g_range_prompt.cancel_text = speed_prompt_cancel_text();
-    g_range_prompt.invalid_start_text = en
-        ? (L"Enter a finite number not less than " + format_edit_number(range_start) + L".")
-        : (L"Введите конечное число не меньше " + format_edit_number(range_start) + L".");
-    g_range_prompt.invalid_end_text = g_str->light_mode_range_invalid_end;
-    g_range_prompt.wnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
-        L"LvmRangePrompt",
-        g_range_prompt.title.c_str(),
-        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 470, 256,
-        g.main, nullptr,
-        reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
-        nullptr);
-    if (!g_range_prompt.wnd) return false;
-
-    RECT mr{}, wr{};
-    GetWindowRect(g.main, &mr);
-    GetWindowRect(g_range_prompt.wnd, &wr);
-    SetWindowPos(
-        g_range_prompt.wnd, HWND_TOP,
-        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
-        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
-        0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-    EnableWindow(g.main, FALSE);
-    if (g_range_prompt.start_edit) {
-        SetFocus(g_range_prompt.start_edit);
-        SendMessageW(g_range_prompt.start_edit, EM_SETSEL, 0, -1);
-    }
-
-    MSG msg;
-    while (!g_range_prompt.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (!IsDialogMessageW(g_range_prompt.wnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-
-    EnableWindow(g.main, TRUE);
-    SetForegroundWindow(g.main);
-    if (!g_range_prompt.accepted) return false;
-    g.light_mode_open_start = g_range_prompt.start_value;
-    g.light_mode_open_end = g_range_prompt.end_value;
-    save_runtime_settings();
-    out_start = g_range_prompt.start_value;
-    out_end = g_range_prompt.end_value;
-    return true;
-}
-
-bool prompt_export_options(ExportOptions& out_options) {
-    static ATOM atom = 0;
-    if (!atom) {
-        WNDCLASSEXW wc{};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = ExportPromptProc;
-        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
-        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground = nullptr;
-        wc.lpszClassName = L"LvmExportPrompt";
-        atom = RegisterClassExW(&wc);
-    }
-
-    const bool en = (g_str == &kEn);
-    g_export_prompt.done = false;
-    g_export_prompt.accepted = false;
-    g_export_prompt.selected_format = ExportFileFormat::Csv;
-    g_export_prompt.selected_range = has_fft_window() ? ExportRangeMode::Selected : ExportRangeMode::Visible;
-    g_export_prompt.apply_processing_to_data = true;
-    g_export_prompt.include_channel_names = true;
-    g_export_prompt.include_hidden_channels = false;
-    g_export_prompt.include_points = true;
-    g_export_prompt.include_markers = true;
-    g_export_prompt.include_guides = true;
-    g_export_prompt.include_formulas = true;
-    g_export_prompt.include_filter_settings = true;
-    g_export_prompt.include_graph_settings = true;
-    g_export_prompt.title = export_prompt_title_text(en);
-    g_export_prompt.intro = export_prompt_intro_text(en);
-    g_export_prompt.format_label_text = en ? L"Format:" : L"Формат:";
-    g_export_prompt.range_label_text = en ? L"Area:" : L"Область:";
-    g_export_prompt.format_txt_text = L"TXT";
-    g_export_prompt.format_csv_text = L"CSV";
-    g_export_prompt.format_lvm_text = L"LVM";
-    g_export_prompt.range_selected_text = en ? L"Selected" : L"Выделенная";
-    g_export_prompt.range_visible_text = en ? L"Visible" : L"Видимая";
-    g_export_prompt.range_whole_text = en ? L"Whole" : L"Вся";
-    g_export_prompt.processing_apply_text = export_apply_processing_text(en);
-    g_export_prompt.processing_settings_text = export_processing_settings_text(en);
-    g_export_prompt.channel_names_text = export_include_channel_names_text(en);
-    g_export_prompt.hidden_channels_text = export_include_hidden_channels_text(en);
-    g_export_prompt.points_text = export_include_points_text(en);
-    g_export_prompt.markers_text = export_include_markers_text(en);
-    g_export_prompt.guides_text = export_include_guides_text(en);
-    g_export_prompt.formulas_text = export_include_formulas_text(en);
-    g_export_prompt.filter_text = export_include_filter_text(en);
-    g_export_prompt.graph_settings_text = export_include_graph_settings_text(en);
-    g_export_prompt.continue_text = export_prompt_continue_text(en);
-    g_export_prompt.cancel_text = export_prompt_cancel_text(en);
-    g_export_prompt.wnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
-        L"LvmExportPrompt",
-        g_export_prompt.title.c_str(),
-        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 784, 440,
-        g.main, nullptr,
-        reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
-        nullptr);
-    if (!g_export_prompt.wnd) return false;
-
-    RECT mr{}, wr{};
-    GetWindowRect(g.main, &mr);
-    GetWindowRect(g_export_prompt.wnd, &wr);
-    SetWindowPos(
-        g_export_prompt.wnd, HWND_TOP,
-        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
-        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
-        0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
-    EnableWindow(g.main, FALSE);
-    if (g_export_prompt.format_combo) {
-        SetFocus(g_export_prompt.format_combo);
-    }
-
-    MSG msg;
-    while (!g_export_prompt.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
-        if (!IsDialogMessageW(g_export_prompt.wnd, &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-    }
-
-    EnableWindow(g.main, TRUE);
-    SetForegroundWindow(g.main);
-    if (!g_export_prompt.accepted) return false;
-    out_options.format = g_export_prompt.selected_format;
-    out_options.selected_range = g_export_prompt.selected_range;
-    out_options.apply_processing_to_data = g_export_prompt.apply_processing_to_data;
-    out_options.include_channel_names = g_export_prompt.include_channel_names;
-    out_options.include_hidden_channels = g_export_prompt.include_hidden_channels;
-    out_options.include_points = g_export_prompt.include_points;
-    out_options.include_markers = g_export_prompt.include_markers;
-    out_options.include_guides = g_export_prompt.include_guides;
-    out_options.include_formulas = g_export_prompt.include_formulas;
-    out_options.include_filter_settings = g_export_prompt.include_filter_settings;
-    out_options.include_graph_settings = g_export_prompt.include_graph_settings;
-    return true;
-}
-
-bool prompt_custom_play_speed(double& out_speed) {
-    return prompt_numeric_value(
-        speed_prompt_title_text(),
-        speed_prompt_label_text(),
-        speed_prompt_apply_text(),
-        speed_prompt_cancel_text(),
-        speed_prompt_invalid_text(),
-        g.play_speed,
-        true,
-        out_speed);
-}
-
+#include "gui_dialogs.inc"
 bool prompt_exact_guide_value(bool vertical, double& out_value) {
     double default_value = 0.0;
     if (vertical) {
@@ -8092,7 +7303,7 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
 
 // Snap a clicked coordinate to the nearest visible real sample (Time mode) or
 // spectrum point (Hz mode) by on-screen distance, so a marker lands on the
-// visually closest data point. The stored data is never modified вЂ” only the
+// visually closest data point. The stored data is never modified — only the
 // marker is adjusted.
 bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) {
     if (!g.vvalid) return false;
@@ -8415,81 +7626,6 @@ void load_runtime_settings() {
             hk.key = static_cast<WORD>(key);
         }
     }
-}
-
-void save_runtime_settings_now() {
-    if (g_config_path.empty()) g_config_path = app_config_path();
-    ensure_channel_formulas_loaded();
-
-    WritePrivateProfileStringW(L"ui", L"language", (g_str == &kEn) ? L"en" : L"ru", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", g_config_path.c_str());
-    normalize_filter_bounds();
-    WritePrivateProfileStringW(L"ui", L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"filter_mode", std::to_wstring(g.noise_threshold_mode).c_str(), g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"filter_topology", std::to_wstring(g.noise_threshold_topology).c_str(), g_config_path.c_str());
-    write_ini_optional_double(L"ui", L"filter_low_cutoff", g.noise_threshold_min);
-    write_ini_optional_double(L"ui", L"filter_high_cutoff", g.noise_threshold_max);
-    WritePrivateProfileStringW(L"ui", L"noise_threshold_enabled", nullptr, g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"noise_threshold_min", nullptr, g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"noise_threshold_max", nullptr, g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"side_panel_visible", g.side_panel_visible ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"side_panel_tab", std::to_wstring(std::clamp(g.side_panel_tab, 0, 2)).c_str(), g_config_path.c_str());
-    write_ini_double(L"ui", L"play_speed", g.play_speed);
-    write_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
-    write_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
-    WritePrivateProfileStringW(L"ui", L"axis_x_label", g.axis_x_label.c_str(), g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"axis_y_label", g.axis_y_label.c_str(), g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"x_label", nullptr, g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"y_label", nullptr, g_config_path.c_str());
-
-    WritePrivateProfileStringW(L"points", L"number", g.pdisp.number ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"x", g.pdisp.x ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"y", g.pdisp.y ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"dx", g.pdisp.dx ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"dy", g.pdisp.dy ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"inv_dt", g.pdisp.inv_dt ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"points", L"dist", g.pdisp.dist ? L"1" : L"0", g_config_path.c_str());
-
-    wchar_t color_buf[32]{};
-    swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
-    WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
-    WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
-    WritePrivateProfileStringW(L"transform", L"formula_count", nullptr, g_config_path.c_str());
-    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
-        wchar_t key_name[32]{};
-        swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
-        WritePrivateProfileStringW(L"transform", key_name, g.channel_formulas[i].c_str(), g_config_path.c_str());
-    }
-
-    for (const auto& hk : g.hotkeys) {
-        wchar_t key_name[32]{};
-        wchar_t value[64]{};
-        swprintf(key_name, 32, L"cmd_%d", hk.command);
-        swprintf(value, 64, L"%u,%u", static_cast<unsigned int>(hk.fvirt), static_cast<unsigned int>(hk.key));
-        WritePrivateProfileStringW(L"hotkeys", key_name, value, g_config_path.c_str());
-    }
-    g.runtime_settings_save_pending = false;
-}
-
-void flush_runtime_settings_save() {
-    if (g.main && IsWindow(g.main)) {
-        KillTimer(g.main, kRuntimeSettingsSaveTimerId);
-    }
-    if (!g.runtime_settings_save_pending) return;
-    g.runtime_settings_save_pending = false;
-    save_runtime_settings_now();
-}
-
-// Debounced save request for runtime settings; the actual disk write happens later.
-void save_runtime_settings() {
-    g.runtime_settings_save_pending = true;
-    if (!g.main || !IsWindow(g.main)) return;
-    KillTimer(g.main, kRuntimeSettingsSaveTimerId);
-    SetTimer(g.main, kRuntimeSettingsSaveTimerId, kRuntimeSettingsSaveDelayMs, nullptr);
 }
 
 std::wstring key_name(WORD key) {
@@ -9213,7 +8349,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     stop_play();
                 } else {
                     // Once the playhead passes the middle, keep it centred by
-                    // scrolling a little each frame вЂ” smooth, no big jumps.
+                    // scrolling a little each frame — smooth, no big jumps.
                     const double span = g.win_end - g.win_start;
                     if (g.playhead > g.win_start + span * 0.5) {
                         g.win_start = g.playhead - span * 0.5;
@@ -10010,7 +9146,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     UndoAction ua; ua.type = UndoAction::ADD_LINE; ua.line = gl;
                     push_undo(ua);
                 }
-                // Р РµР¶РёРј РјРЅРѕР¶РµСЃС‚РІРµРЅРЅРѕРіРѕ РґРѕР±Р°РІР»РµРЅРёСЏ: РѕСЃС‚Р°С‘С‚СЃСЏ Р°РєС‚РёРІРЅС‹Рј РґРѕ Esc
+                // Режим множественного добавления: остаётся активным до Esc
                 set_status();
                 sync_menu();
                 InvalidateRect(hwnd, nullptr, FALSE);
@@ -10428,4 +9564,3 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
     Gdiplus::GdiplusShutdown(g_gdiplus_token);
     return 0;
 }
-

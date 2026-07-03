@@ -57,9 +57,11 @@ std::string second_cell(const std::string& line) {
     return strip(line.substr(first_tab + 1, second_tab == std::string::npos ? std::string::npos : second_tab - first_tab - 1));
 }
 
-std::vector<std::string> split_cells(const std::string& line, char delimiter, bool normalize_decimal_commas) {
-    std::vector<std::string> cells;
+void split_cells_into(const std::string& line, char delimiter, bool normalize_decimal_commas,
+                      std::vector<std::string>& cells) {
+    cells.clear();
     std::string field;
+    field.reserve(std::min<std::size_t>(line.size(), 128));
     for (char ch : line) {
         if (normalize_decimal_commas && ch == ',') ch = '.';
         if (ch == delimiter) {
@@ -70,7 +72,6 @@ std::vector<std::string> split_cells(const std::string& line, char delimiter, bo
         }
     }
     cells.push_back(strip(field));
-    return cells;
 }
 
 bool is_axis_label(const std::string& text) {
@@ -124,17 +125,31 @@ struct RowSummary {
 
 RowSummary summarize_numeric_row(const std::string& line, char delimiter, bool normalize_decimal_commas) {
     RowSummary summary;
-    const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
-    for (std::size_t i = 0; i < cells.size(); ++i) {
+    std::string field;
+    field.reserve(std::min<std::size_t>(line.size(), 128));
+    bool first_field = true;
+    auto process_field = [&](const std::string& token) {
         bool is_numeric = false;
-        const double value = parse_cell(cells[i], is_numeric);
-        if (i == 0) {
+        const double value = parse_cell(token, is_numeric);
+        if (first_field) {
             summary.first_numeric = is_numeric;
             summary.first_value = value;
+            first_field = false;
         }
         if (is_numeric) ++summary.numeric_count;
-        if (summary.first_numeric && summary.numeric_count >= 2) break;
+    };
+
+    for (char ch : line) {
+        if (normalize_decimal_commas && ch == ',') ch = '.';
+        if (ch == delimiter) {
+            process_field(field);
+            if (summary.first_numeric && summary.numeric_count >= 2) return summary;
+            field.clear();
+        } else {
+            field.push_back(ch);
+        }
     }
+    process_field(field);
     return summary;
 }
 
@@ -161,6 +176,76 @@ struct ActiveSectionTime {
     double offset_seconds = 0.0;
     double x0 = 0.0;
 };
+
+constexpr std::size_t kScanCheckpointStride = 4096;
+
+std::uint64_t current_stream_offset(std::ifstream& in) {
+    const std::streampos pos = in.tellg();
+    if (pos == std::streampos(-1)) return 0;
+    return static_cast<std::uint64_t>(pos);
+}
+
+void maybe_add_scan_checkpoint(lvm::ScanIndex* index,
+                               std::size_t row_index,
+                               std::uint64_t offset,
+                               double adjusted_time,
+                               double prev_raw_time,
+                               double prev_adjusted_time,
+                               double time_offset,
+                               double fallback_step,
+                               bool have_time_state,
+                               bool have_section_anchor,
+                               double section_anchor_seconds,
+                               const ActiveSectionTime& active_section) {
+    if (!index) return;
+    if (row_index == 1 || (row_index % kScanCheckpointStride) == 0) {
+        lvm::ScanIndexCheckpoint cp{};
+        cp.offset = offset;
+        cp.adjusted_time = adjusted_time;
+        cp.prev_raw_time = prev_raw_time;
+        cp.prev_adjusted_time = prev_adjusted_time;
+        cp.time_offset = time_offset;
+        cp.fallback_step = fallback_step;
+        cp.have_time_state = have_time_state;
+        cp.have_section_anchor = have_section_anchor;
+        cp.section_anchor_seconds = section_anchor_seconds;
+        cp.active_section_valid = active_section.valid;
+        cp.active_section_offset_seconds = active_section.offset_seconds;
+        cp.active_section_x0 = active_section.x0;
+        index->checkpoints.push_back(std::move(cp));
+    }
+}
+
+const ScanIndexCheckpoint* choose_resume_checkpoint(const ScanIndex& index, double time_start) {
+    if (index.checkpoints.empty()) return nullptr;
+    auto it = std::lower_bound(
+        index.checkpoints.begin(), index.checkpoints.end(), time_start,
+        [](const ScanIndexCheckpoint& cp, double value) { return cp.adjusted_time < value; });
+    if (it == index.checkpoints.begin()) return nullptr;
+    --it;
+    return &*it;
+}
+
+void restore_scan_checkpoint_state(const ScanIndexCheckpoint& cp,
+                                   bool& have_time_state,
+                                   double& prev_raw_time,
+                                   double& prev_adjusted_time,
+                                   double& time_offset,
+                                   double& fallback_step,
+                                   bool& have_section_anchor,
+                                   double& section_anchor_seconds,
+                                   ActiveSectionTime& active_section) {
+    have_time_state = cp.have_time_state;
+    prev_raw_time = cp.prev_raw_time;
+    prev_adjusted_time = cp.prev_adjusted_time;
+    time_offset = cp.time_offset;
+    fallback_step = cp.fallback_step;
+    have_section_anchor = cp.have_section_anchor;
+    section_anchor_seconds = cp.section_anchor_seconds;
+    active_section.valid = cp.active_section_valid;
+    active_section.offset_seconds = cp.active_section_offset_seconds;
+    active_section.x0 = cp.active_section_x0;
+}
 
 bool parse_labview_datetime(const std::string& date_text, const std::string& time_text, double& out_seconds) {
     int year = 0, month = 0, day = 0;
@@ -248,7 +333,14 @@ Dataset read_lvm_file(const std::string& path, bool verbose) {
 }
 
 bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
-                      const std::atomic<bool>* cancel_flag) {
+                      const std::atomic<bool>* cancel_flag, ScanIndex* out_index) {
+    if (out_index) {
+        out_index->range_start = 0.0;
+        out_index->range_end = 0.0;
+        out_index->column_labels.clear();
+        out_index->checkpoints.clear();
+    }
+
     std::ifstream in(path, std::ios::binary);
     if (!in) {
         error = "Cannot open file: " + path;
@@ -270,10 +362,17 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
     double section_anchor_seconds = 0.0;
     PendingSectionTime pending_section{};
     ActiveSectionTime active_section{};
+    int header_count = 0;
+    bool section_metadata_seen = false;
+    std::vector<std::string> column_labels;
+    std::vector<std::string> cells;
+    cells.reserve(64);
+    std::size_t numeric_row_index = 0;
 
     std::string raw_line;
     long long line_index = 0;
-    while (std::getline(in, raw_line)) {
+    while (true) {
+        if (!std::getline(in, raw_line)) break;
         ++line_index;
         if (cancel_flag && (line_index & 0xFF) == 0 && cancel_flag->load(std::memory_order_relaxed)) {
             error = "Operation cancelled.";
@@ -283,14 +382,37 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
         if (line.empty()) continue;
         if (starts_with(line, "#")) continue;
         if (!csv_mode && starts_with(line, "***End_of_Header***")) {
+            ++header_count;
+            section_metadata_seen = false;
             activate_section_time(pending_section, have_section_anchor, section_anchor_seconds, active_section);
             pending_section.reset();
             continue;
         }
         if (!csv_mode && starts_with(line, "***")) continue;
+        if (!csv_mode && header_count > 0 && !section_metadata_seen && column_labels.empty()) {
+            const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
+            if (row.numeric_count == 0) {
+                split_cells_into(line, delimiter, normalize_decimal_commas, cells);
+                if (cells.size() > 1) {
+                    column_labels = cells;
+                    continue;
+                }
+            }
+        }
         if (!csv_mode && is_metadata_line(line)) {
+            if (header_count > 0) section_metadata_seen = true;
             update_section_metadata(line, pending_section);
             continue;
+        }
+        if (csv_mode && column_labels.empty()) {
+            const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
+            if (row.numeric_count == 0) {
+                split_cells_into(line, delimiter, normalize_decimal_commas, cells);
+                if (cells.size() > 1) {
+                    column_labels = cells;
+                    continue;
+                }
+            }
         }
 
         const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
@@ -317,6 +439,12 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
         prev_raw_time = raw_time;
         prev_adjusted_time = adjusted_time;
         last_time = adjusted_time;
+
+        ++numeric_row_index;
+        const std::uint64_t next_offset = current_stream_offset(in);
+        maybe_add_scan_checkpoint(out_index, numeric_row_index, next_offset, adjusted_time, prev_raw_time,
+                                  prev_adjusted_time, time_offset, fallback_step, have_time,
+                                  have_section_anchor, section_anchor_seconds, active_section);
     }
 
     if (!have_time) {
@@ -333,6 +461,11 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
 
     out_start = first_time;
     out_end = last_time;
+    if (out_index) {
+        out_index->range_start = out_start;
+        out_index->range_end = out_end;
+        out_index->column_labels = std::move(column_labels);
+    }
     return true;
 }
 
@@ -354,6 +487,10 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
     std::vector<std::vector<double>> columns;
     std::vector<char> column_has_value;  // any non-NaN seen in this column
     std::vector<double> raw_time_rows;
+    std::vector<std::string> cells;
+    std::vector<double> parsed;
+    cells.reserve(64);
+    parsed.reserve(64);
     bool has_nan_time_rows = false;
     long long row_count = 0;
 
@@ -375,6 +512,34 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
     bool used_header_time_rebuild = false;
     bool section_metadata_seen = false;
     std::vector<std::string> column_labels;
+
+    const ScanIndexCheckpoint* resume_checkpoint = nullptr;
+    if (options.use_time_window && options.scan_index && !options.scan_index->checkpoints.empty()) {
+        resume_checkpoint = choose_resume_checkpoint(*options.scan_index, options.time_start);
+        if (resume_checkpoint) {
+            column_labels = options.scan_index->column_labels;
+            restore_scan_checkpoint_state(*resume_checkpoint, have_time_state, prev_raw_time, prev_adjusted_time,
+                                          time_offset, fallback_step, have_section_anchor, section_anchor_seconds,
+                                          active_section);
+            in.clear();
+            in.seekg(static_cast<std::streamoff>(resume_checkpoint->offset), std::ios::beg);
+            if (!in) {
+                in.clear();
+                in.seekg(0, std::ios::beg);
+                resume_checkpoint = nullptr;
+                column_labels.clear();
+                have_time_state = false;
+                prev_raw_time = 0.0;
+                prev_adjusted_time = 0.0;
+                time_offset = 0.0;
+                fallback_step = 1e-6;
+                have_section_anchor = false;
+                section_anchor_seconds = 0.0;
+                active_section = ActiveSectionTime{};
+            }
+        }
+    }
+
     for (; std::getline(in, raw_line); ++line_index) {
         if (options.cancel_flag && (line_index & 0xFF) == 0 &&
             options.cancel_flag->load(std::memory_order_relaxed)) {
@@ -404,9 +569,9 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         if (!csv_mode && header_count > 0 && !section_metadata_seen && column_labels.empty()) {
             const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
             if (row.numeric_count == 0) {
-                const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+                split_cells_into(line, delimiter, normalize_decimal_commas, cells);
                 if (cells.size() > 1) {
-                    column_labels = std::move(cells);
+                    column_labels = cells;
                     continue;
                 }
             }
@@ -420,17 +585,17 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         if (csv_mode && column_labels.empty()) {
             const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
             if (row.numeric_count == 0) {
-                const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+                split_cells_into(line, delimiter, normalize_decimal_commas, cells);
                 if (cells.size() > 1) {
-                    column_labels = std::move(cells);
+                    column_labels = cells;
                     continue;
                 }
             }
         }
 
-        std::vector<double> parsed;
         int numeric_count = 0;
-        const std::vector<std::string> cells = split_cells(line, delimiter, normalize_decimal_commas);
+        split_cells_into(line, delimiter, normalize_decimal_commas, cells);
+        parsed.clear();
         parsed.reserve(cells.size());
         for (const std::string& cell : cells) {
             bool is_numeric = false;

@@ -35,6 +35,7 @@ rel_*.json
 # Local app/runtime files
 LVM-graph-viewer-v*-win-x64.exe
 lvm_viewer.ini
+AMGV.ini
 gcm-diagnose.log
 release_notes_*.md
 .vscode/

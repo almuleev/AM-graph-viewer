@@ -1,0 +1,207 @@
+void layout() {
+    RECT rc;
+    GetClientRect(g.main, &rc);
+    const int cw = rc.right, ch = rc.bottom;
+
+    g.toolbar_seps.clear();
+    int x = 8;
+    auto place = [&](HWND h, int w, int row_y) { MoveWindow(h, x, row_y, w, 28, TRUE); x += w + 4; };
+    auto sep = [&]() { g.toolbar_seps.push_back(x + 2); x += 8; };
+    auto text_button_width = [&](HWND h, int min_w, int pad) {
+        if (!h) return min_w;
+        wchar_t text[128]{};
+        GetWindowTextW(h, text, 128);
+        HDC dc = GetDC(h);
+        HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        HGDIOBJ old_font = SelectObject(dc, font);
+        SIZE sz{};
+        GetTextExtentPoint32W(dc, text, lstrlenW(text), &sz);
+        SelectObject(dc, old_font);
+        ReleaseDC(h, dc);
+        return max(min_w, static_cast<int>(sz.cx) + pad);
+    };
+
+    // Row 1: frequent global actions
+    x = 8;
+    place(g.open, text_button_width(g.open, 94, 32), 8);
+    sep();
+    place(g.mode_time, text_button_width(g.mode_time, 72, 28), 8);
+    place(g.mode_freq, text_button_width(g.mode_freq, 82, 28), 8);
+    place(g.play, text_button_width(g.play, 88, 30), 8);
+    sep();
+    place(g.reset, text_button_width(g.reset, 76, 28), 8);
+    place(g.autoy, text_button_width(g.autoy, 108, 34), 8);
+
+    // Row 2: graph tools and settings
+    x = 8;
+    place(g.measure, text_button_width(g.measure, 72, 28), 40);
+    place(g.marker_btn, text_button_width(g.marker_btn, 72, 30), 40);
+    place(g.vline_btn, text_button_width(g.vline_btn, 78, 30), 40);
+    place(g.hline_btn, text_button_width(g.hline_btn, 84, 30), 40);
+    sep();
+    place(g.ptsettings, text_button_width(g.ptsettings, 108, 32), 40);
+    place(g.sidepanel_btn, text_button_width(g.sidepanel_btn, 92, 32), 40);
+
+    const int panel_w = side_panel_width();
+    const int panel_left = cw - panel_w;
+    const int panel_pad_left = 12;
+    const int panel_pad_right = 16;
+    const int panel_x = panel_left + panel_pad_left;
+    const int viewport_bottom = ch - kBottomBar - 6;
+    const int channels_viewport_top = kTopBar + 78;
+    const int points_viewport_top = kTopBar + 48;
+    const int content_w = max(60, panel_w - panel_pad_left - panel_pad_right);
+
+    MoveWindow(g.show_all_btn, panel_x, kTopBar + 42, 86, 28, FALSE);
+    MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, FALSE);
+    const int tab_gap = 4;
+    const int tab_w = max(84, (content_w - tab_gap * 2) / 3);
+    if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, tab_w, 28, FALSE);
+    if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + tab_w + tab_gap, kTopBar + 8, tab_w, 28, FALSE);
+    if (g.side_tab_filter) MoveWindow(g.side_tab_filter, panel_x + (tab_w + tab_gap) * 2, kTopBar + 8, tab_w, 28, FALSE);
+    apply_side_panel_visibility();
+
+    const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
+    const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible();
+    const int channels_content_top = channels_viewport_top;
+    const int points_content_top = points_viewport_top;
+    const int filter_viewport_top = points_viewport_top;
+    const int active_viewport_top = (g.side_panel_tab == 0) ? channels_content_top : (g.side_panel_tab == 1 ? points_content_top : filter_viewport_top);
+
+    auto place_scrolled = [&](HWND ctl, int x0, int y_rel, int w, int h, int viewport_top, bool visible_in_tab) {
+        if (!ctl) return;
+        const int y_abs = viewport_top + y_rel - g.side_scroll_y;
+        const bool visible = visible_in_tab && y_abs + h > viewport_top && y_abs < viewport_bottom;
+        ShowWindow(ctl, visible ? SW_SHOW : SW_HIDE);
+        if (visible) MoveWindow(ctl, x0, y_abs, max(1, w), max(1, h), FALSE);
+    };
+
+    int y = 0;
+    place_scrolled(g.side_global_formula_label, panel_x, y, content_w, 20, channels_content_top, show_channels);
+    y += 24;
+    place_scrolled(g.side_global_formula_edit, panel_x, y, content_w, 26, channels_content_top, show_channels);
+    y += 32;
+    place_scrolled(g.side_global_formula_apply, panel_x, y, content_w, 28, channels_content_top, show_channels);
+    y += 38;
+    place_scrolled(g.side_channel_separator, panel_x, y, content_w, 2, channels_content_top, show_channels);
+    y += 14;
+    for (std::size_t i = 0; i < g.checks.size(); ++i) {
+        place_scrolled(g.checks[i], panel_x, y + 2, 18, 20, channels_content_top, show_channels);
+        if (i < g.check_labels.size()) {
+            place_scrolled(g.check_labels[i], panel_x + 24, y, max(60, content_w - 28), 24, channels_content_top, show_channels);
+        }
+        y += 26;
+    }
+    if (g.channel_edit && g.editing_channel >= 0 && g.editing_channel < static_cast<int>(g.check_labels.size())) {
+        const bool edit_visible = show_channels && IsWindowVisible(g.check_labels[g.editing_channel]) != FALSE;
+        ShowWindow(g.channel_edit, edit_visible ? SW_SHOW : SW_HIDE);
+        if (edit_visible) {
+            RECT r;
+            GetWindowRect(g.check_labels[g.editing_channel], &r);
+            MapWindowPoints(nullptr, g.main, reinterpret_cast<LPPOINT>(&r), 2);
+            MoveWindow(g.channel_edit, r.left - 2, r.top - 1, (r.right - r.left) + 4, (r.bottom - r.top) + 2, FALSE);
+        }
+    }
+
+    if (g.side_formula_edit && g.side_channel_color && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
+        int cy = y + 8;
+        place_scrolled(g.side_channel_formula_label, panel_x, cy, content_w, 20, channels_content_top, show_channels);
+        cy += 24;
+        place_scrolled(g.side_formula_edit, panel_x, cy, content_w, 26, channels_content_top, show_channels);
+        cy += 32;
+        place_scrolled(g.side_channel_color, panel_x, cy, content_w, 28, channels_content_top, show_channels);
+        cy += 34;
+        const int button_w = max(80, (content_w - 6) / 2);
+        place_scrolled(g.side_formula_apply_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
+        place_scrolled(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
+        cy += 34;
+        place_scrolled(g.side_formula_reset_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
+        place_scrolled(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
+        g.side_content_height_channels = cy + 28;
+    }
+
+    int fy = 0;
+    place_scrolled(g.side_channel_hint, panel_x, fy, content_w, 20, filter_viewport_top, show_filter);
+    fy += 24;
+    place_scrolled(g.side_filter_enable, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 30;
+    place_scrolled(g.side_filter_mode_label, panel_x, fy + 2, 76, 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_mode, panel_x + 80, fy, max(84, content_w - 80), 26, filter_viewport_top, show_filter);
+    fy += 32;
+    place_scrolled(g.side_filter_topology_label, panel_x, fy + 2, 76, 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_topology, panel_x + 80, fy, max(84, content_w - 80), 26, filter_viewport_top, show_filter);
+    fy += 34;
+    place_scrolled(g.side_filter_low_label, panel_x, fy, max(72, content_w - 92), 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_low_value, panel_x + max(72, content_w - 92) + 6, fy, 86, 20, filter_viewport_top, show_filter);
+    fy += 22;
+    place_scrolled(g.side_filter_low_track, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 32;
+    place_scrolled(g.side_filter_high_label, panel_x, fy, max(72, content_w - 92), 20, filter_viewport_top, show_filter);
+    place_scrolled(g.side_filter_high_value, panel_x + max(72, content_w - 92) + 6, fy, 86, 20, filter_viewport_top, show_filter);
+    fy += 22;
+    place_scrolled(g.side_filter_high_track, panel_x, fy, content_w, 24, filter_viewport_top, show_filter);
+    fy += 36;
+    g.side_content_height_filter = fy + 28;
+
+    const int points_left = panel_x;
+    const int col_gap = 6;
+    const int checkbox_col_w = max(110, (content_w - col_gap) / 2);
+    const int checkbox_col2_x = points_left + checkbox_col_w + col_gap;
+    int py = 0;
+    auto place_side = [&](int id, int x0, int y0, int w, int h) {
+        HWND ctl = GetDlgItem(g.main, id);
+        place_scrolled(ctl, x0, y0, w, h, points_viewport_top, show_points);
+    };
+    place_side(IDC_SIDE_PT_NUM, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_X, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_Y, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_DX, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_DY, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_INVDT, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 24;
+    place_side(IDC_SIDE_PT_DIST, points_left, py, checkbox_col_w, 22);
+    place_side(IDC_SIDE_PT_SNAP, checkbox_col2_x, py, checkbox_col_w, 22);
+    py += 30;
+    place_side(IDC_SIDE_POINT_COLOR_CURRENT, points_left, py, content_w, 28);
+    py += 38;
+    place_scrolled(g.side_point_label_groups, points_left, py, content_w, 20, points_viewport_top, show_points);
+    py += 24;
+    place_scrolled(g.side_point_group_list, points_left, py, content_w, 122, points_viewport_top, show_points);
+    py += 130;
+    place_scrolled(g.side_point_group_visible, points_left, py, content_w, 22, points_viewport_top, show_points);
+    py += 30;
+    place_scrolled(g.side_point_group_color, points_left, py, content_w, 28, points_viewport_top, show_points);
+    py += 36;
+    place_scrolled(g.side_point_group_name, points_left, py, content_w, 24, points_viewport_top, show_points);
+    py += 30;
+    place_scrolled(g.side_point_group_rename, points_left, py, content_w, 28, points_viewport_top, show_points);
+    py += 36;
+    if (g.side_point_group_new) place_scrolled(g.side_point_group_new, points_left, py, (content_w - 6) / 2, 28, points_viewport_top, show_points);
+    if (g.side_point_group_delete) place_scrolled(g.side_point_group_delete, points_left + (content_w - 6) / 2 + 6, py, (content_w - 6) / 2, 28, points_viewport_top, show_points);
+    g.side_content_height_points = py + 28;
+
+    update_side_panel_scrollbar(active_viewport_top,
+                                g.side_panel_tab == 0 ? g.side_content_height_channels :
+                                (g.side_panel_tab == 1 ? g.side_content_height_points : g.side_content_height_filter));
+
+    MoveWindow(g.status, 8, ch - kBottomBar + 4, cw - 16, 20, FALSE);
+}
+
+RECT plot_rect() {
+    RECT rc;
+    GetClientRect(g.main, &rc);
+    RECT p;
+    p.left = kAxisLeft;
+    p.top = kTopBar + 6;
+    p.right = rc.right - side_panel_width();
+    p.bottom = rc.bottom - kBottomBar - kAxisBottom;
+    if (p.right < p.left + 20) p.right = p.left + 20;
+    if (p.bottom < p.top + 20) p.bottom = p.top + 20;
+    return p;
+}
+
+// ---- view (pan / zoom) ---------------------------------------------------
+

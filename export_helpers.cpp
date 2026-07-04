@@ -68,7 +68,7 @@ std::wstring export_range_detail_text(ExportRangeMode range, bool english) {
         case ExportRangeMode::Selected:
             return english
                 ? L"Uses the selected time window if one exists."
-                : L"Использует выделенный фрагмент, если он есть.";
+                : L"Использует выделенный временной интервал, если он есть.";
         case ExportRangeMode::Visible:
             return english
                 ? L"Uses only the part currently visible on screen."
@@ -146,9 +146,9 @@ std::wstring export_default_name(const std::wstring& stem,
 }
 
 std::wstring export_default_name(const std::wstring& stem,
-                                ExportDataScope scope,
-                                const wchar_t* ext,
-                                bool freq_mode) {
+                                 ExportDataScope scope,
+                                 const wchar_t* ext,
+                                 bool freq_mode) {
     std::wstring out = stem;
     switch (scope) {
         case ExportDataScope::CurrentView:

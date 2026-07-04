@@ -1,4 +1,13 @@
-﻿// Hotkey, settings, and dialog helpers extracted from gui_main.cpp.
+﻿struct HotkeysDialogState {
+    HWND wnd = nullptr;
+    HWND list = nullptr;
+    bool done = false;
+};
+
+HotkeysDialogState g_hotkeys_dialog;
+void populate_hotkey_list(HWND hwnd);
+void rebuild_menu_bar();
+// Hotkey, settings, and dialog helpers extracted from gui_main.cpp.
 std::wstring hotkey_text(BYTE fvirt, WORD key) {
     if (key == 0) return g_str == &kEn ? L"Not assigned" : L"Не назначено";
     std::wstring out;
@@ -176,6 +185,10 @@ void layout_welcome_controls(HWND hwnd) {
     place(IDW_SUBTITLE, hx, hy, hw, subtitle_h);
     hy += subtitle_h + (layout.compact ? 4 : 6);
     place(IDW_VERSION, hx, hy, hw, version_h);
+    if (layout.stacked) {
+        const int recent_h = layout.compact ? 32 : 34;
+        place(IDW_RECENT_FILES, hx, layout.hero.bottom - hero_pad - recent_h, hw, recent_h);
+    }
 
     const int action_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
     const int ax = layout.action.left + action_pad;
@@ -209,6 +222,10 @@ void layout_welcome_controls(HWND hwnd) {
     ay += action_button_h + button_gap;
     place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
     ay += action_button_h + button_gap;
+    if (!layout.stacked) {
+        place(IDW_RECENT_FILES, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+    }
     place(IDW_START, ax, ay, aw, action_button_h);
 }
 
@@ -784,6 +801,10 @@ void draw_settings_combo_item(const DRAWITEMSTRUCT* dis) {
             SendMessageW(combo, CB_GETLBTEXT, item, reinterpret_cast<LPARAM>(text.data()));
         }
     }
+    if (text.empty() && combo && item != static_cast<UINT>(-1)) {
+        WORD key = static_cast<WORD>(SendMessageW(combo, CB_GETITEMDATA, item, 0));
+        text = key_name(key);
+    }
 
     RECT text_rect = r;
     text_rect.left += 8;
@@ -991,6 +1012,12 @@ bool is_settings_checkbox_id(int id) {
            id == IDC_SET_GAP_MARKERS;
 }
 
+bool is_settings_performance_mode_id(int id) {
+    return id == IDC_SET_PERF_FAST_OPEN ||
+           id == IDC_SET_PERF_FAST_WORK ||
+           id == IDC_SET_PERF_COMFORT;
+}
+
 bool is_welcome_checkbox_id(int id) {
     return id == IDW_PERF_FAST_OPEN ||
            id == IDW_PERF_FAST_WORK ||
@@ -1006,6 +1033,16 @@ bool uses_manual_toggle_state(HWND hwnd) {
            id == IDC_SET_PERF_FAST_WORK ||
            id == IDC_SET_PERF_COMFORT ||
            id == IDC_SET_GAP_MARKERS ||
+           id == IDC_EXPORT_APPLY_SETTINGS ||
+           id == IDC_EXPORT_APPLY_DATA ||
+           id == IDC_EXPORT_INCLUDE_CHANNEL_NAMES ||
+           id == IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS ||
+           id == IDC_EXPORT_INCLUDE_POINTS ||
+           id == IDC_EXPORT_INCLUDE_MARKERS ||
+           id == IDC_EXPORT_INCLUDE_GUIDES ||
+           id == IDC_EXPORT_INCLUDE_FORMULAS ||
+           id == IDC_EXPORT_INCLUDE_FILTER ||
+           id == IDC_EXPORT_INCLUDE_GRAPH_SETTINGS ||
            is_welcome_checkbox_id(id) ||
            id == IDC_SET_HOTKEY_CTRL ||
            id == IDC_SET_HOTKEY_SHIFT ||
@@ -1630,40 +1667,59 @@ void hotkey_combo_add(HWND combo, const wchar_t* text, WORD key) {
     SendMessageW(combo, CB_SETITEMDATA, idx, key);
 }
 
+void hotkey_combo_add_key(HWND combo, WORD key) {
+    std::wstring text = key_name(key);
+    if (text.empty()) {
+        wchar_t buf[16]{};
+        swprintf(buf, 16, L"VK_%04X", static_cast<unsigned int>(key & 0xFFFFu));
+        text = buf;
+    }
+    hotkey_combo_add(combo, text.c_str(), key);
+}
+
 void populate_hotkey_key_combo(HWND combo) {
     SendMessageW(combo, CB_RESETCONTENT, 0, 0);
     hotkey_combo_add(combo, g_str == &kEn ? L"None" : L"Нет", 0);
     for (wchar_t ch = L'A'; ch <= L'Z'; ++ch) {
-        wchar_t txt[2] = {ch, 0};
-        hotkey_combo_add(combo, txt, static_cast<WORD>(ch));
+        hotkey_combo_add_key(combo, static_cast<WORD>(ch));
     }
     for (wchar_t ch = L'0'; ch <= L'9'; ++ch) {
-        wchar_t txt[2] = {ch, 0};
-        hotkey_combo_add(combo, txt, static_cast<WORD>(ch));
+        hotkey_combo_add_key(combo, static_cast<WORD>(ch));
     }
-    for (int i = 1; i <= 12; ++i) {
-        std::wstring txt = L"F" + std::to_wstring(i);
-        hotkey_combo_add(combo, txt.c_str(), static_cast<WORD>(VK_F1 + i - 1));
+    for (int i = 1; i <= 24; ++i) {
+        hotkey_combo_add_key(combo, static_cast<WORD>(VK_F1 + i - 1));
     }
-    hotkey_combo_add(combo, g_str == &kEn ? L"Space" : L"Пробел", VK_SPACE);
-    hotkey_combo_add(combo, L"Home", VK_HOME);
-    hotkey_combo_add(combo, L"End", VK_END);
-    hotkey_combo_add(combo, L"Delete", VK_DELETE);
-    hotkey_combo_add(combo, L"Esc", VK_ESCAPE);
-    hotkey_combo_add(combo, g_str == &kEn ? L"Left" : L"Влево", VK_LEFT);
-    hotkey_combo_add(combo, g_str == &kEn ? L"Right" : L"Вправо", VK_RIGHT);
-    hotkey_combo_add(combo, g_str == &kEn ? L"Up" : L"Вверх", VK_UP);
-    hotkey_combo_add(combo, g_str == &kEn ? L"Down" : L"Вниз", VK_DOWN);
-    hotkey_combo_add(combo, L"+", VK_OEM_PLUS);
-    hotkey_combo_add(combo, L"-", VK_OEM_MINUS);
+    hotkey_combo_add_key(combo, VK_TAB);
+    hotkey_combo_add_key(combo, VK_BACK);
+    hotkey_combo_add_key(combo, VK_RETURN);
+    hotkey_combo_add_key(combo, VK_INSERT);
+    hotkey_combo_add_key(combo, VK_HOME);
+    hotkey_combo_add_key(combo, VK_PRIOR);
+    hotkey_combo_add_key(combo, VK_NEXT);
+    hotkey_combo_add_key(combo, VK_END);
+    hotkey_combo_add_key(combo, VK_DELETE);
+    hotkey_combo_add_key(combo, VK_ESCAPE);
+    hotkey_combo_add_key(combo, VK_PAUSE);
+    hotkey_combo_add_key(combo, VK_CAPITAL);
+    hotkey_combo_add_key(combo, VK_NUMLOCK);
+    hotkey_combo_add_key(combo, VK_SCROLL);
+    hotkey_combo_add_key(combo, VK_SNAPSHOT);
+    hotkey_combo_add_key(combo, VK_LEFT);
+    hotkey_combo_add_key(combo, VK_RIGHT);
+    hotkey_combo_add_key(combo, VK_UP);
+    hotkey_combo_add_key(combo, VK_DOWN);
+    hotkey_combo_add_key(combo, VK_SPACE);
+    hotkey_combo_add_key(combo, VK_OEM_PLUS);
+    hotkey_combo_add_key(combo, VK_OEM_MINUS);
     SendMessageW(combo, CB_SETCURSEL, 0, 0);
+    InvalidateRect(combo, nullptr, TRUE);
 }
 
 int combo_index_by_key(HWND combo, WORD key) {
     int count = static_cast<int>(SendMessageW(combo, CB_GETCOUNT, 0, 0));
     for (int i = 0; i < count; ++i)
         if (static_cast<WORD>(SendMessageW(combo, CB_GETITEMDATA, i, 0)) == key) return i;
-    return 0;
+    return -1;
 }
 
 int settings_selected_hotkey_command(HWND hwnd) {
@@ -1683,7 +1739,49 @@ void load_selected_hotkey_controls(HWND hwnd) {
     set_toggle_checked(GetDlgItem(hwnd, IDC_SET_HOTKEY_SHIFT), (fvirt & FSHIFT) != 0);
     set_toggle_checked(GetDlgItem(hwnd, IDC_SET_HOTKEY_ALT), (fvirt & FALT) != 0);
     HWND combo = GetDlgItem(hwnd, IDC_SET_HOTKEY_KEY);
-    if (combo) SendMessageW(combo, CB_SETCURSEL, combo_index_by_key(combo, key), 0);
+    if (combo) {
+        int idx = combo_index_by_key(combo, key);
+        if (idx < 0 && key != 0) {
+            std::wstring custom = key_name(key);
+            if (custom.empty()) {
+                wchar_t buf[16]{};
+                swprintf(buf, 16, L"VK_%04X", static_cast<unsigned int>(key & 0xFFFFu));
+                custom = buf;
+            }
+            idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(custom.c_str())));
+            if (idx >= 0) SendMessageW(combo, CB_SETITEMDATA, idx, key);
+        }
+        SendMessageW(combo, CB_SETCURSEL, (idx >= 0) ? idx : 0, 0);
+        InvalidateRect(combo, nullptr, TRUE);
+    }
+}
+
+void reset_all_hotkeys_to_defaults(HWND hwnd) {
+    int selected_command = settings_selected_hotkey_command(hwnd);
+    g.hotkeys = default_hotkeys();
+    rebuild_accelerators();
+    rebuild_menu_bar();
+    if (g_hotkeys_dialog.list && IsWindow(g_hotkeys_dialog.list)) {
+        populate_hotkeys_dialog_list(g_hotkeys_dialog.list);
+    }
+    populate_hotkey_list(hwnd);
+    load_selected_hotkey_controls(hwnd);
+    save_runtime_settings();
+    set_status();
+    if (g.main && IsWindow(g.main)) InvalidateRect(g.main, nullptr, TRUE);
+    if (selected_command) {
+        HWND list = GetDlgItem(hwnd, IDC_SET_HOTKEY_LIST);
+        if (list) {
+            int count = static_cast<int>(SendMessageW(list, LB_GETCOUNT, 0, 0));
+            for (int i = 0; i < count; ++i) {
+                if (static_cast<int>(SendMessageW(list, LB_GETITEMDATA, i, 0)) == selected_command) {
+                    SendMessageW(list, LB_SETCURSEL, i, 0);
+                    load_selected_hotkey_controls(hwnd);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void populate_hotkey_list(HWND hwnd) {
@@ -1700,6 +1798,7 @@ void populate_hotkey_list(HWND hwnd) {
         if (order[i] == selected_command) selected_index = idx;
     }
     SendMessageW(list, LB_SETCURSEL, selected_index, 0);
+    InvalidateRect(list, nullptr, TRUE);
 }
 
 bool read_formula_edit(HWND edit, std::wstring& formula, std::vector<FormulaToken>& compiled, std::wstring& error) {
@@ -1842,9 +1941,9 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
             mk(L"STATIC", performance_mode_label_text(), SS_LEFT, 28, 64, 278, 20, IDC_SET_PERF_LABEL);
-            mkcheck(performance_fast_open_text(), 28, 88, 278, 28, IDC_SET_PERF_FAST_OPEN);
-            mkcheck(performance_fast_work_text(), 28, 116, 278, 28, IDC_SET_PERF_FAST_WORK);
-            mkcheck(performance_comfort_text(), 28, 144, 278, 28, IDC_SET_PERF_COMFORT);
+            mkcheck(performance_fast_open_text(), 28, 88, 278, 26, IDC_SET_PERF_FAST_OPEN);
+            mkcheck(performance_fast_work_text(), 28, 118, 278, 26, IDC_SET_PERF_FAST_WORK);
+            mkcheck(performance_comfort_text(), 28, 148, 278, 26, IDC_SET_PERF_COMFORT);
             mkcheck(gap_markers_toggle_text(), 28, 182, 278, 28, IDC_SET_GAP_MARKERS);
             mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 240, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
             mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 236, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
@@ -1863,6 +1962,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 432, 100, 28, IDC_SET_HOTKEY_APPLY);
             mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 432, 100, 28, IDC_SET_HOTKEY_RESET);
             mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 466, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Reset all" : L"Сбросить всё", BS_OWNERDRAW, 398, 466, 100, 28, IDC_SET_HOTKEY_RESET_ALL);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -1935,7 +2035,14 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_SET_HOTKEY_APPLY:
                 case IDC_SET_HOTKEY_RESET:
-                case IDC_SET_HOTKEY_CLEAR: {
+                case IDC_SET_HOTKEY_CLEAR:
+                case IDC_SET_HOTKEY_RESET_ALL: {
+                    if (id == IDC_SET_HOTKEY_RESET_ALL) {
+                        if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
+                            reset_all_hotkeys_to_defaults(hwnd);
+                        }
+                        return 0;
+                    }
                     const int command = settings_selected_hotkey_command(hwnd);
                     if (!command) return 0;
                     BYTE fvirt = FVIRTKEY;
@@ -2026,11 +2133,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (is_settings_checkbox_id(ctl_id)) {
                 const bool enabled = IsWindowEnabled(dis->hwndItem) != FALSE;
-                const bool radio = (ctl_id == IDC_SET_PERF_FAST_OPEN ||
-                                    ctl_id == IDC_SET_PERF_FAST_WORK ||
-                                    ctl_id == IDC_SET_PERF_COMFORT);
-                draw_themed_check_control(dis->hDC, dis->rcItem, txt,
-                    is_toggle_checked(dis->hwndItem), pressed, enabled, radio, false);
+                if (is_settings_performance_mode_id(ctl_id)) {
+                    draw_themed_button(dis->hDC, dis->rcItem, txt, pressed,
+                        is_toggle_checked(dis->hwndItem), false);
+                } else {
+                    draw_themed_check_control(dis->hDC, dis->rcItem, txt,
+                        is_toggle_checked(dis->hwndItem), pressed, enabled, false, false);
+                }
                 return TRUE;
             }
             draw_themed_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
@@ -2076,3 +2185,4 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
+

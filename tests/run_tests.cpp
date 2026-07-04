@@ -36,14 +36,21 @@ void check_near(double a, double b, double tol, const std::string& what) {
     }
 }
 
-// Write text to a temp file path; returns the path.
-std::string write_temp(const std::string& name, const std::string& content) {
-    const std::string path = "tests/_tmp_" + name;
-    std::ofstream out(path, std::ios::binary);
-    out << content;
-    out.close();
-    return path;
-}
+struct TempFile {
+    std::string path;
+
+    TempFile(const std::string& name, const std::string& content) : path("tests/_tmp_" + name) {
+        std::ofstream out(path, std::ios::binary);
+        out << content;
+    }
+
+    ~TempFile() {
+        std::remove(path.c_str());
+    }
+
+    TempFile(const TempFile&) = delete;
+    TempFile& operator=(const TempFile&) = delete;
+};
 
 void test_basic_parse() {
     std::printf("test_basic_parse\n");
@@ -56,8 +63,8 @@ void test_basic_parse() {
         "0.0\t1.0\t10.0\n"
         "0.1\t2.0\t20.0\n"
         "0.2\t3.0\t30.0\n";
-    const std::string path = write_temp("basic.lvm", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("basic.lvm", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
 
     check(ds.ok, "parse ok");
     check(ds.stats.header_markers == 1, "one header marker");
@@ -82,8 +89,8 @@ void test_metadata_and_nan() {
         "0.1\t\t4.0\n"                 // empty cell -> NaN, two numeric? only 0.1,4.0 -> kept
         "0.2\tbad\t6.0\n"              // non-numeric -> NaN
         "junk line with one 5\n";      // < 2 numeric values -> skipped
-    const std::string path = write_temp("nan.lvm", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("nan.lvm", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
 
     check(ds.ok, "parse ok");
     check(ds.rows() == 3, "three data rows (junk skipped)");
@@ -101,8 +108,8 @@ void test_decimal_comma() {
         "0,1\t2,5\n"
         "0,2\t3,5\n"
         "0,3\t4,5\n";
-    const std::string path = write_temp("comma.txt", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("comma.txt", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
 
     check(ds.ok, "parse ok");
     check(ds.rows() == 4, "four rows");
@@ -119,8 +126,8 @@ void test_multi_header() {
         "***End_of_Header***\n"        // second section
         "0.0\t3.0\n"                   // local time resets
         "0.1\t4.0\n";
-    const std::string path = write_temp("multi.lvm", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("multi.lvm", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
 
     check(ds.stats.header_markers == 2, "two header markers");
     check(ds.stats.data_sections == 2, "two data sections");
@@ -165,8 +172,8 @@ void test_drop_duplicate_time() {
         "1.0\t1.0\t6.0\n"
         "2.0\t2.0\t7.0\n"
         "3.0\t3.0\t8.0\n";
-    const std::string path = write_temp("dup.lvm", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("dup.lvm", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
     check(ds.channel_count() == 2, "two channels before drop");
 
     const std::vector<double> raw_time = ds.time;
@@ -195,8 +202,8 @@ void test_interleaved_channel_names() {
         "X_Value\tg1\tX_Value\tg2\tX_Value\tg3\tX_Value\tg4\tX_Value\tg5\tX_Value\tg6\tX_Value\tg7\tX_Value\tg8\tComment\n"
         "0.0\t1.0\t0.0\t2.0\t0.0\t3.0\t0.0\t4.0\t0.0\t5.0\t0.0\t6.0\t0.0\t7.0\t0.0\t8.0\tok\n"
         "0.1\t1.1\t0.1\t2.1\t0.1\t3.1\t0.1\t4.1\t0.1\t5.1\t0.1\t6.1\t0.1\t7.1\t0.1\t8.1\tok\n";
-    const std::string path = write_temp("interleaved_names.lvm", content);
-    lvm::Dataset ds = lvm::read_lvm_file(path);
+    const TempFile temp("interleaved_names.lvm", content);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path);
     check(ds.ok, "interleaved file parses");
     check(ds.channel_count() == 15, "interleaved file initially has 15 channels before de-dup");
 
@@ -321,6 +328,8 @@ void test_formula_engine() {
 void test_export_helpers() {
     std::printf("test_export_helpers\n");
     check(std::wstring(export_prompt_title_text(true)) == L"Export data", "export title EN");
+    check(std::wstring(export_prompt_title_text(false)) == L"Экспорт данных", "export title RU");
+    check(std::wstring(export_prompt_intro_text(false)) == L"Выберите, что нужно выгрузить.", "export intro RU");
     check(export_scope_title_text(ExportDataScope::CurrentView, true) == L"Current view", "current view title");
     check(export_scope_title_text(ExportDataScope::LoadedFragment, true) == L"Loaded fragment", "fragment title");
     check(export_scope_title_text(ExportDataScope::RawData, true) == L"Raw data without formulas", "raw title");
@@ -342,6 +351,7 @@ void test_export_helpers() {
     check(export_status_prefix(L"CSV", ExportDataScope::CurrentView, true).find(L"Exported CSV") != std::wstring::npos,
           "status prefix EN");
     check(std::wstring(export_error_text(true, true)) == L"Failed to export CSV.", "CSV error text EN");
+    check(std::wstring(export_include_formulas_text(false)) == L"Формулы", "export formulas RU");
 }
 
 void test_gap_details() {
@@ -371,12 +381,12 @@ void test_scan_and_window_load() {
         "0.2\t3.0\t30.0\n"
         "0.3\t4.0\t40.0\n"
         "0.4\t5.0\t50.0\n";
-    const std::string path = write_temp("window.lvm", content);
+    const TempFile temp("window.lvm", content);
 
     double start = 0.0;
     double end = 0.0;
     std::string error;
-    check(lvm::scan_time_bounds(path, start, end, error), "scan_time_bounds ok");
+    check(lvm::scan_time_bounds(temp.path, start, end, error), "scan_time_bounds ok");
     check(error.empty(), "scan_time_bounds error empty");
     check_near(start, 0.0, 1e-12, "scan start");
     check_near(end, 0.4, 1e-12, "scan end");
@@ -385,7 +395,7 @@ void test_scan_and_window_load() {
     options.use_time_window = true;
     options.time_start = 0.15;
     options.time_end = 0.35;
-    lvm::Dataset ds = lvm::read_lvm_file(path, options);
+    lvm::Dataset ds = lvm::read_lvm_file(temp.path, options);
     check(ds.ok, "windowed load ok");
     check(ds.partial, "windowed load marked partial");
     check(ds.rows() == 2, "windowed load rows");

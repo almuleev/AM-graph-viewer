@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.12.1
+
+- Вынесены крупные блоки интерфейса из `gui_main.cpp` в отдельные `gui_*.cpp/.hpp` модули, чтобы упростить поддержку и дальнейшее развитие проекта.
+- Исправлено окно горячих клавиш: добавлен сброс всех привязок к заводским настройкам, расширен список доступных клавиш и устранено исчезновение пунктов в списке и выпадающем поле.
+- Файл настроек теперь создаётся под именем `AMGV.ini`.
+- Исправлены подписи `Δx`, `Δy` и `1/Δt` в панели точек и связанные элементы интерфейса.
+- The GUI was split into separate `gui_*.cpp/.hpp` modules to make `gui_main.cpp` smaller and easier to maintain.
+- The hotkeys window now includes a full reset to defaults, a broader key picker, and stable item rendering so entries no longer disappear from the list or combo box.
+- The settings file is now created as `AMGV.ini`.
+- Point readouts now show `Δx`, `Δy`, and `1/Δt` correctly in the point panel and related UI.
+
 ## v0.12.0
 
 - Исправлено отображение русских и английских строк в меню, подсказках и справке; интерфейс снова показывает корректный текст.
@@ -7,8 +18,8 @@
 
 ## v0.11.5
 
-- Вынесены обработчики хоткеев, настроек и связанных диалогов в `gui_settings_hotkeys.inc`, чтобы разгрузить `gui_main.cpp`.
-- Extracted hotkey, settings, and related dialog helpers into `gui_settings_hotkeys.inc` to keep `gui_main.cpp` smaller.
+- Вынесены обработчики хоткеев, настроек и связанных диалогов в `gui_settings_hotkeys.cpp`, чтобы разгрузить `gui_main.cpp`.
+- Extracted hotkey, settings, and related dialog helpers into `gui_settings_hotkeys.cpp` to keep `gui_main.cpp` smaller.
 - Удалены подтверждённые неиспользуемые переменные в фильтре и импорте метаданных экспорта.
 - Removed confirmed unused variables in the filter and export metadata import path.
 

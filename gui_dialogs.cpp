@@ -1,3 +1,357 @@
+struct NumericPromptState {
+    HWND wnd = nullptr;
+    HWND edit = nullptr;
+    bool done = false;
+    bool accepted = false;
+    bool positive_only = true;
+    double value = 1.0;
+    std::wstring title;
+    std::wstring label;
+    std::wstring apply_text;
+    std::wstring cancel_text;
+    std::wstring invalid_text;
+};
+
+NumericPromptState g_numeric_prompt;
+
+struct RangePromptState {
+    HWND wnd = nullptr;
+    HWND start_edit = nullptr;
+    HWND end_edit = nullptr;
+    bool done = false;
+    bool accepted = false;
+    double start_value = 0.0;
+    double end_value = 0.0;
+    double min_value = 0.0;
+    double max_value = 0.0;
+    std::wstring title;
+    std::wstring info_label;
+    std::wstring start_label;
+    std::wstring end_label;
+    std::wstring apply_text;
+    std::wstring cancel_text;
+    std::wstring invalid_start_text;
+    std::wstring invalid_end_text;
+};
+
+RangePromptState g_range_prompt;
+
+struct InfoPromptState {
+    HWND wnd = nullptr;
+    HWND ok_button = nullptr;
+    bool done = false;
+    bool accepted = false;
+    bool error = false;
+    std::wstring title;
+    std::wstring message;
+    std::wstring ok_text;
+};
+
+InfoPromptState g_info_prompt;
+
+enum class ExportFileFormat {
+    Txt = 0,
+    Csv = 1,
+    Lvm = 2,
+};
+
+struct ExportPromptState {
+    HWND wnd = nullptr;
+    HWND format_combo = nullptr;
+    HWND range_combo = nullptr;
+    HWND processing_apply_radio = nullptr;
+    HWND processing_settings_radio = nullptr;
+    HWND include_channel_names_check = nullptr;
+    HWND include_hidden_channels_check = nullptr;
+    HWND include_points_check = nullptr;
+    HWND include_markers_check = nullptr;
+    HWND include_guides_check = nullptr;
+    HWND include_formulas_check = nullptr;
+    HWND include_filter_check = nullptr;
+    HWND include_graph_settings_check = nullptr;
+    bool done = false;
+    bool accepted = false;
+    bool invalid_format = false;
+    ExportFileFormat selected_format = ExportFileFormat::Csv;
+    ExportRangeMode selected_range = ExportRangeMode::Visible;
+    bool apply_processing_to_data = true;
+    bool include_channel_names = true;
+    bool include_hidden_channels = false;
+    bool include_points = true;
+    bool include_markers = true;
+    bool include_guides = true;
+    bool include_formulas = true;
+    bool include_filter_settings = true;
+    bool include_graph_settings = true;
+    std::wstring title;
+    std::wstring intro;
+    std::wstring format_label_text;
+    std::wstring range_label_text;
+    std::wstring format_txt_text;
+    std::wstring format_csv_text;
+    std::wstring format_lvm_text;
+    std::wstring range_selected_text;
+    std::wstring range_visible_text;
+    std::wstring range_whole_text;
+    std::wstring processing_apply_text;
+    std::wstring processing_settings_text;
+    std::wstring channel_names_text;
+    std::wstring hidden_channels_text;
+    std::wstring points_text;
+    std::wstring markers_text;
+    std::wstring guides_text;
+    std::wstring formulas_text;
+    std::wstring filter_text;
+    std::wstring graph_settings_text;
+    std::wstring continue_text;
+    std::wstring cancel_text;
+};
+
+struct ExportOptions {
+    ExportFileFormat format = ExportFileFormat::Csv;
+    ExportRangeMode selected_range = ExportRangeMode::Visible;
+    bool apply_processing_to_data = true;
+    bool include_channel_names = true;
+    bool include_hidden_channels = false;
+    bool include_points = true;
+    bool include_markers = true;
+    bool include_guides = true;
+    bool include_formulas = true;
+    bool include_filter_settings = true;
+    bool include_graph_settings = true;
+};
+
+ExportPromptState g_export_prompt;
+
+int prompt_button_width(HDC dc, const wchar_t* text, int min_width) {
+    SIZE sz{};
+    GetTextExtentPoint32W(dc, text, lstrlenW(text), &sz);
+    return std::max(min_width, static_cast<int>(sz.cx) + 28);
+}
+
+void draw_prompt_surface(HWND hwnd, HDC dc) {
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    HBRUSH outer = CreateSolidBrush(g_theme->bg_main);
+    FillRect(dc, &rc, outer);
+    DeleteObject(outer);
+
+    RECT card = rc;
+    InflateRect(&card, -2, -2);
+    fill_rounded_rect(dc, card, g_theme->bg_panel, g_theme->separator, 12);
+}
+
+void measure_settings_combo_item(MEASUREITEMSTRUCT* mis);
+void draw_settings_combo_item(const DRAWITEMSTRUCT* dis);
+
+LRESULT CALLBACK InfoPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_CREATE: {
+            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HDC dc = GetDC(hwnd);
+            HGDIOBJ old_font = SelectObject(dc, font);
+            RECT client{};
+            GetClientRect(hwnd, &client);
+            const int client_w = std::max(380, static_cast<int>(client.right - client.left));
+            const int button_w = prompt_button_width(dc, g_info_prompt.ok_text.c_str(), 104);
+            const int button_x = std::max(16, (client_w - button_w) / 2);
+            const int button_y = 104;
+            g_info_prompt.ok_button = CreateWindowExW(
+                0, L"BUTTON", g_info_prompt.ok_text.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
+                button_x, button_y, button_w, 28, hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)),
+                reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
+            if (g_info_prompt.ok_button) {
+                SendMessageW(g_info_prompt.ok_button, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                SetFocus(g_info_prompt.ok_button);
+            }
+            SelectObject(dc, old_font);
+            ReleaseDC(hwnd, dc);
+            return 0;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL) {
+                g_info_prompt.accepted = true;
+                DestroyWindow(hwnd);
+                return 0;
+            }
+            break;
+        case WM_CLOSE:
+            DestroyWindow(hwnd);
+            return 0;
+        case WM_ERASEBKGND: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            draw_prompt_surface(hwnd, dc);
+            return 1;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT ps{};
+            HDC dc = BeginPaint(hwnd, &ps);
+            draw_prompt_surface(hwnd, dc);
+
+            RECT client{};
+            GetClientRect(hwnd, &client);
+            const int icon_x = 26;
+            const int icon_y = 42;
+            const int icon_size = 32;
+            HICON icon = LoadIconW(nullptr, g_info_prompt.error ? IDI_ERROR : IDI_INFORMATION);
+            if (icon) {
+                DrawIconEx(dc, icon_x, icon_y, icon, icon_size, icon_size, 0, nullptr, DI_NORMAL);
+            }
+
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, g_theme->text_primary);
+            HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HGDIOBJ old_font = SelectObject(dc, font);
+            RECT text_rc = { icon_x + icon_size + 14, 38, client.right - 20, 96 };
+            DrawTextW(dc, g_info_prompt.message.c_str(), -1, &text_rc,
+                      DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
+            SelectObject(dc, old_font);
+
+            EndPaint(hwnd, &ps);
+            return 1;
+        }
+        case WM_CTLCOLORBTN: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetBkMode(dc, TRANSPARENT);
+            SetTextColor(dc, g_theme->text_primary);
+            return reinterpret_cast<LRESULT>(g_panel_brush);
+        }
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+            if (!dis || !dis->hwndItem) break;
+            if (GetDlgCtrlID(dis->hwndItem) == IDOK) {
+                wchar_t txt[64]{};
+                GetWindowTextW(dis->hwndItem, txt, 64);
+                draw_welcome_action_button(dis->hDC, dis->rcItem, txt,
+                                           (dis->itemState & ODS_SELECTED) != 0,
+                                           true, false);
+                return TRUE;
+            }
+            break;
+        }
+        case WM_DESTROY:
+            g_info_prompt.done = true;
+            g_info_prompt.wnd = nullptr;
+            g_info_prompt.ok_button = nullptr;
+            return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void show_styled_info_prompt(HWND owner, const wchar_t* title, const wchar_t* message, bool error) {
+    if (!owner || !IsWindow(owner)) owner = g.main;
+    static ATOM atom = 0;
+    if (!atom) {
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = InfoPromptProc;
+        wc.hInstance = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+        wc.hbrBackground = nullptr;
+        wc.lpszClassName = L"LvmInfoPrompt";
+        atom = RegisterClassExW(&wc);
+    }
+
+    g_info_prompt.done = false;
+    g_info_prompt.accepted = false;
+    g_info_prompt.error = error;
+    g_info_prompt.title = title ? title : L"";
+    g_info_prompt.message = message ? message : L"";
+    g_info_prompt.ok_text = (g_str == &kEn) ? L"OK" : L"ОК";
+    g_info_prompt.wnd = CreateWindowExW(
+        WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
+        L"LvmInfoPrompt",
+        g_info_prompt.title.c_str(),
+        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
+        CW_USEDEFAULT, CW_USEDEFAULT, 420, 176,
+        owner, nullptr,
+        reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
+        nullptr);
+    if (!g_info_prompt.wnd) return;
+
+    RECT mr{}, wr{};
+    GetWindowRect(owner, &mr);
+    GetWindowRect(g_info_prompt.wnd, &wr);
+    SetWindowPos(
+        g_info_prompt.wnd, HWND_TOP,
+        mr.left + ((mr.right - mr.left) - (wr.right - wr.left)) / 2,
+        mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
+        0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+    EnableWindow(owner, FALSE);
+    if (g_info_prompt.ok_button) SetFocus(g_info_prompt.ok_button);
+
+    MSG msg;
+    while (!g_info_prompt.done && GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(g_info_prompt.wnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    EnableWindow(owner, TRUE);
+    SetForegroundWindow(owner);
+}
+
+const wchar_t* range_prompt_autofill_text() {
+    return (g_str == &kEn) ? L"Min / Max" : L"Мин / Макс";
+}
+
+double normalize_prompt_bound(double value) {
+    return (std::isfinite(value) && std::fabs(value) < 1e-12) ? 0.0 : value;
+}
+
+const wchar_t* speed_prompt_title_text() {
+    return (g_str == &kEn) ? L"Playback speed" : L"Скорость воспроизведения";
+}
+
+const wchar_t* speed_prompt_label_text() {
+    return (g_str == &kEn)
+        ? L"Enter a playback speed multiplier:"
+        : L"Введите множитель скорости воспроизведения:";
+}
+
+const wchar_t* speed_prompt_apply_text() {
+    return (g_str == &kEn) ? L"Apply" : L"Применить";
+}
+
+const wchar_t* speed_prompt_cancel_text() {
+    return (g_str == &kEn) ? L"Cancel" : L"Отмена";
+}
+
+const wchar_t* speed_prompt_invalid_text() {
+    return (g_str == &kEn)
+        ? L"Enter a positive number, for example 0.5, 1, or 2.75."
+        : L"Введите положительное число, например 0.5, 1 или 2.75.";
+}
+
+const wchar_t* guide_prompt_title_text(bool vertical) {
+    if (g_str == &kEn) return vertical ? L"Vertical guide line" : L"Horizontal guide line";
+    return vertical ? L"Вертикальная линия" : L"Горизонтальная линия";
+}
+
+const wchar_t* guide_prompt_label_text(bool vertical) {
+    if (g_str == &kEn) {
+        return vertical ? L"Enter the exact X-axis value:" : L"Enter the exact Y-axis value:";
+    }
+    return vertical ? L"Введите точное значение по оси X:" : L"Введите точное значение по оси Y:";
+}
+
+const wchar_t* guide_prompt_apply_text() {
+    return (g_str == &kEn) ? L"Add" : L"Добавить";
+}
+
+const wchar_t* guide_prompt_cancel_text() {
+    return speed_prompt_cancel_text();
+}
+
+const wchar_t* guide_prompt_invalid_text() {
+    return (g_str == &kEn)
+        ? L"Enter a finite number, for example -1, 0, or 2.75."
+        : L"Введите конечное число, например -1, 0 или 2.75.";
+}
+
 LRESULT CALLBACK NumericPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
@@ -158,7 +512,8 @@ LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 18, end_edit_y, content_w, edit_h, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_END_EDIT)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            const int autofill_w = prompt_button_width(dc, range_prompt_autofill_text(), 98);
+            const wchar_t* autofill_text = (g_str == &kEn) ? L"Min / Max" : L"Мин / Макс";
+            const int autofill_w = prompt_button_width(dc, autofill_text, 98);
             const int apply_w = prompt_button_width(dc, g_range_prompt.apply_text.c_str(), 116);
             const int cancel_w = prompt_button_width(dc, g_range_prompt.cancel_text.c_str(), 88);
             const int button_gap = 10;
@@ -168,7 +523,7 @@ LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 button_x = std::max(16, client_w - 16 - total_w);
             }
             HWND autofill = CreateWindowExW(
-                0, L"BUTTON", range_prompt_autofill_text(),
+                0, L"BUTTON", autofill_text,
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                 button_x, 178, autofill_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_AUTOFILL)),
@@ -403,7 +758,7 @@ bool export_prompt_has_guides() {
 std::wstring export_prompt_unavailable_label(const wchar_t* base_text, bool available, bool english) {
     std::wstring text = base_text ? base_text : L"";
     if (!available) {
-        text += english ? L" (none)" : L" (���)";
+        text += english ? L" (none)" : L" (нет)";
     }
     return text;
 }
@@ -421,7 +776,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             const int intro_h = 34;
             const int section_h = 20;
             const int option_h = 24;
-            const int radio_h = 28;
+            const int radio_h = 26;
             const int col_gap = 16;
             const int col_w = (content_w - col_gap) / 2;
             const int label_w = 88;
@@ -438,7 +793,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             auto mkcombo = [&](int x, int y, int w, int h, int id) {
                 HWND ctl = CreateWindowExW(
                     0, L"COMBOBOX", L"",
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST |
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED |
                     CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER,
                     x, y, w, h, hwnd,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
@@ -449,7 +804,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             auto mkradio = [&](const std::wstring& text, int x, int y, int w, int h, int id, DWORD extra_style = 0) {
                 HWND ctl = CreateWindowExW(
                     0, L"BUTTON", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTORADIOBUTTON | BS_MULTILINE | extra_style,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_MULTILINE | extra_style,
                     x, y, w, h, hwnd,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                     reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -465,7 +820,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             auto mkcheck = [&](const std::wstring& text, int x, int y, int w, int h, int id) {
                 HWND ctl = CreateWindowExW(
                     0, L"BUTTON", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX | BS_MULTILINE,
+                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_MULTILINE,
                     x, y, w, h, hwnd,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                     reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -493,14 +848,14 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 SendMessageW(g_export_prompt.range_combo, CB_SETDROPPEDWIDTH, std::max(220, combo_w), 0);
             }
 
-            mkstatic(g_str == &kEn ? L"Data mode:" : L"����� ������:", 18, 126, content_w, section_h);
+            mkstatic(g_str == &kEn ? L"Data mode:" : L"Режим данных:", 18, 126, content_w, section_h);
             g_export_prompt.processing_settings_radio = mkradio(
                 g_export_prompt.processing_settings_text, 18, 150, content_w, radio_h,
                 IDC_EXPORT_APPLY_SETTINGS, WS_GROUP);
             g_export_prompt.processing_apply_radio = mkradio(
                 g_export_prompt.processing_apply_text, 18, 178, content_w, radio_h,
                 IDC_EXPORT_APPLY_DATA);
-            mkstatic(g_str == &kEn ? L"Additional data:" : L"������������� ���������:", 18, 214, content_w, section_h);
+            mkstatic(g_str == &kEn ? L"Additional data:" : L"Дополнительные данные:", 18, 214, content_w, section_h);
             g_export_prompt.include_channel_names_check = mkcheck(g_export_prompt.channel_names_text, 18, 238, col_w, option_h, IDC_EXPORT_INCLUDE_CHANNEL_NAMES);
             g_export_prompt.include_formulas_check = mkcheck(g_export_prompt.formulas_text, 18 + col_w + col_gap, 238, col_w, option_h, IDC_EXPORT_INCLUDE_FORMULAS);
             g_export_prompt.include_points_check = mkcheck(g_export_prompt.points_text, 18, 266, col_w, option_h, IDC_EXPORT_INCLUDE_POINTS);
@@ -531,12 +886,10 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 button_x + continue_w + button_gap, button_y, cancel_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            if (g_export_prompt.processing_settings_radio) SendMessageW(g_export_prompt.processing_settings_radio, BM_SETCHECK,
-                g_export_prompt.apply_processing_to_data ? BST_UNCHECKED : BST_CHECKED, 0);
-            if (g_export_prompt.processing_apply_radio) SendMessageW(g_export_prompt.processing_apply_radio, BM_SETCHECK,
-                g_export_prompt.apply_processing_to_data ? BST_CHECKED : BST_UNCHECKED, 0);
+            set_toggle_checked(g_export_prompt.processing_settings_radio, !g_export_prompt.apply_processing_to_data);
+            set_toggle_checked(g_export_prompt.processing_apply_radio, g_export_prompt.apply_processing_to_data);
             auto set_check = [&](HWND ctl, bool on) {
-                if (ctl) SendMessageW(ctl, BM_SETCHECK, on ? BST_CHECKED : BST_UNCHECKED, 0);
+                set_toggle_checked(ctl, on);
             };
             set_check(g_export_prompt.include_channel_names_check, g_export_prompt.include_channel_names);
             set_check(g_export_prompt.include_points_check, g_export_prompt.include_points);
@@ -587,7 +940,15 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     }
                     break;
                 case IDC_EXPORT_APPLY_SETTINGS:
+                    set_toggle_checked(g_export_prompt.processing_settings_radio, true);
+                    set_toggle_checked(g_export_prompt.processing_apply_radio, false);
+                    sync_export_prompt_state_from_controls();
+                    return 0;
                 case IDC_EXPORT_APPLY_DATA:
+                    set_toggle_checked(g_export_prompt.processing_settings_radio, false);
+                    set_toggle_checked(g_export_prompt.processing_apply_radio, true);
+                    sync_export_prompt_state_from_controls();
+                    return 0;
                 case IDC_EXPORT_INCLUDE_CHANNEL_NAMES:
                 case IDC_EXPORT_INCLUDE_POINTS:
                 case IDC_EXPORT_INCLUDE_MARKERS:
@@ -596,6 +957,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_EXPORT_INCLUDE_FILTER:
                 case IDC_EXPORT_INCLUDE_GRAPH_SETTINGS:
                 case IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS:
+                    toggle_checked_state(GetDlgItem(hwnd, LOWORD(wp)));
                     sync_export_prompt_state_from_controls();
                     return 0;
                 case IDOK:
@@ -603,7 +965,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (g_export_prompt.selected_format == ExportFileFormat::Lvm && g.freq_mode) {
                         MessageBoxW(hwnd,
                                     g_str == &kEn ? L"LVM export is available only in Time mode."
-                                                   : L"������� LVM �������� ������ � ������ �����.",
+                                                   : L"Экспорт LVM доступен только в режиме Время.",
                                     g_str->msg_error_title, MB_ICONINFORMATION);
                         if (g_export_prompt.format_combo) SetFocus(g_export_prompt.format_combo);
                         return 0;
@@ -631,6 +993,16 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             EndPaint(hwnd, &ps);
             return 1;
         }
+        case WM_MEASUREITEM: {
+            MEASUREITEMSTRUCT* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lp);
+            if (!mis) break;
+            if (mis->CtlType == ODT_COMBOBOX &&
+                (mis->CtlID == IDC_EXPORT_SCOPE_CURRENT || mis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
+                measure_settings_combo_item(mis);
+                return TRUE;
+            }
+            break;
+        }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {
             HDC dc = reinterpret_cast<HDC>(wp);
@@ -641,6 +1013,11 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DRAWITEM: {
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
             if (!dis || !dis->hwndItem) break;
+            if (dis->CtlType == ODT_COMBOBOX &&
+                (dis->CtlID == IDC_EXPORT_SCOPE_CURRENT || dis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
+                draw_settings_combo_item(dis);
+                return TRUE;
+            }
             const int ctl_id = GetDlgCtrlID(dis->hwndItem);
             wchar_t txt[128]{};
             GetWindowTextW(dis->hwndItem, txt, 128);
@@ -651,6 +1028,24 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (ctl_id == IDCANCEL) {
                 draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
+                return TRUE;
+            }
+            if (ctl_id == IDC_EXPORT_APPLY_SETTINGS || ctl_id == IDC_EXPORT_APPLY_DATA) {
+                draw_themed_button(dis->hDC, dis->rcItem, txt, pressed,
+                                   is_toggle_checked(dis->hwndItem), false);
+                return TRUE;
+            }
+            if (ctl_id == IDC_EXPORT_INCLUDE_CHANNEL_NAMES ||
+                ctl_id == IDC_EXPORT_INCLUDE_POINTS ||
+                ctl_id == IDC_EXPORT_INCLUDE_MARKERS ||
+                ctl_id == IDC_EXPORT_INCLUDE_GUIDES ||
+                ctl_id == IDC_EXPORT_INCLUDE_FORMULAS ||
+                ctl_id == IDC_EXPORT_INCLUDE_FILTER ||
+                ctl_id == IDC_EXPORT_INCLUDE_GRAPH_SETTINGS ||
+                ctl_id == IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS) {
+                const bool enabled = IsWindowEnabled(dis->hwndItem) != FALSE;
+                draw_themed_check_control(dis->hDC, dis->rcItem, txt,
+                    is_toggle_checked(dis->hwndItem), pressed, enabled, false, false, CLR_INVALID);
                 return TRUE;
             }
             break;
@@ -771,16 +1166,16 @@ bool prompt_light_mode_window(double range_start, double range_end, double& out_
         g_range_prompt.end_value = std::min(range_end, g_range_prompt.start_value + 10.0);
     }
     g_range_prompt.title = g_str->light_mode_range_title;
-    g_range_prompt.info_label = (en ? L"Available range:\r\n" : L"��������� ��������:\r\n") +
-                                format_edit_number(range_start) + L" .. " +
-                                format_edit_number(range_end) + (en ? L" s" : L" c");
     g_range_prompt.start_label = g_str->light_mode_range_start;
     g_range_prompt.end_label = g_str->light_mode_range_end;
     g_range_prompt.apply_text = g_str->light_mode_range_apply;
     g_range_prompt.cancel_text = speed_prompt_cancel_text();
+    g_range_prompt.info_label = (en ? L"Available range:\r\n" : L"Доступный диапазон:\r\n") +
+                                format_edit_number(range_start) + L" .. " +
+                                format_edit_number(range_end) + (en ? L" s" : L" c");
     g_range_prompt.invalid_start_text = en
         ? (L"Enter a finite number not less than " + format_edit_number(range_start) + L".")
-        : (L"������� �������� ����� �� ������ " + format_edit_number(range_start) + L".");
+        : (L"Введите конечное число не меньше " + format_edit_number(range_start) + L".");
     g_range_prompt.invalid_end_text = g_str->light_mode_range_invalid_end;
     g_range_prompt.wnd = CreateWindowExW(
         WS_EX_DLGMODALFRAME | WS_EX_TOOLWINDOW,
@@ -855,14 +1250,14 @@ bool prompt_export_options(ExportOptions& out_options) {
     g_export_prompt.include_graph_settings = true;
     g_export_prompt.title = export_prompt_title_text(en);
     g_export_prompt.intro = export_prompt_intro_text(en);
-    g_export_prompt.format_label_text = en ? L"Format:" : L"������:";
-    g_export_prompt.range_label_text = en ? L"Area:" : L"�������:";
+    g_export_prompt.format_label_text = en ? L"Format:" : L"Формат:";
+    g_export_prompt.range_label_text = en ? L"Area:" : L"Область:";
     g_export_prompt.format_txt_text = L"TXT";
     g_export_prompt.format_csv_text = L"CSV";
     g_export_prompt.format_lvm_text = L"LVM";
-    g_export_prompt.range_selected_text = en ? L"Selected" : L"����������";
-    g_export_prompt.range_visible_text = en ? L"Visible" : L"�������";
-    g_export_prompt.range_whole_text = en ? L"Whole" : L"���";
+    g_export_prompt.range_selected_text = en ? L"Selected" : L"Выделенная";
+    g_export_prompt.range_visible_text = en ? L"Visible" : L"Видимая";
+    g_export_prompt.range_whole_text = en ? L"Whole" : L"Весь";
     g_export_prompt.processing_apply_text = export_apply_processing_text(en);
     g_export_prompt.processing_settings_text = export_processing_settings_text(en);
     g_export_prompt.channel_names_text = export_include_channel_names_text(en);
@@ -922,6 +1317,40 @@ bool prompt_export_options(ExportOptions& out_options) {
     out_options.include_filter_settings = g_export_prompt.include_filter_settings;
     out_options.include_graph_settings = g_export_prompt.include_graph_settings;
     return true;
+}
+
+bool prompt_exact_guide_value(bool vertical, double& out_value) {
+    double default_value = 0.0;
+    if (vertical) {
+        default_value = g.freq_mode ? 0.5 * (g.freq_start + g.freq_end)
+                                    : 0.5 * (g.win_start + g.win_end);
+    } else if (g.freq_mode) {
+        double ymin = 0.0, ymax = 0.0;
+        if (!current_freq_yrange(ymin, ymax)) {
+            ymin = 0.0;
+            ymax = 1.0;
+        }
+        default_value = 0.5 * (ymin + ymax);
+    } else {
+        double ymin = 0.0, ymax = 0.0;
+        if (!current_time_yrange(ymin, ymax)) {
+            ymin = -1.0;
+            ymax = 1.0;
+        } else if (!g.auto_y) {
+            ymin = g.y_lock_min;
+            ymax = g.y_lock_max;
+        }
+        default_value = 0.5 * (ymin + ymax);
+    }
+    return prompt_numeric_value(
+        guide_prompt_title_text(vertical),
+        guide_prompt_label_text(vertical),
+        guide_prompt_apply_text(),
+        guide_prompt_cancel_text(),
+        guide_prompt_invalid_text(),
+        default_value,
+        false,
+        out_value);
 }
 
 bool prompt_custom_play_speed(double& out_speed) {

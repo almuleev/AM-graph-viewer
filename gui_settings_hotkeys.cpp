@@ -93,20 +93,18 @@ std::wstring welcome_version_text() {
         : (std::wstring(L"Версия сборки: ") + APP_VERSION_W);
 }
 
-std::wstring welcome_intro_text() {
-    return (g_str == &kEn)
-        ? L"Open a file, choose how to work with it, and continue right away."
-        : L"Откройте файл, выберите удобный режим работы и сразу продолжайте.";
-}
-
-std::wstring welcome_features_text() {
-    return (g_str == &kEn)
-        ? L"Light mode opens only the required fragment.\r\nThe side panel keeps channels, points, formulas, and filters together.\r\nThemes, hotkeys, and export options are available from the interface."
-        : L"Лёгкий режим открывает только нужный фрагмент.\r\nБоковая панель объединяет каналы, точки, формулы и фильтры.\r\nТемы, горячие клавиши и экспорт доступны прямо в интерфейсе.";
-}
-
 const wchar_t* welcome_actions_title_text() {
-    return (g_str == &kEn) ? L"What to do next" : L"Что дальше";
+    return (g_str == &kEn) ? L"Start here" : L"Начните здесь";
+}
+
+const wchar_t* welcome_open_button_text() {
+    return (g_str == &kEn) ? L"Open file…" : L"Открыть файл…";
+}
+
+const wchar_t* welcome_actions_hint_text() {
+    return (g_str == &kEn)
+        ? L"Open a file or pick a recent one."
+        : L"Откройте файл или выберите недавний.";
 }
 
 
@@ -168,9 +166,12 @@ WelcomeLayout compute_welcome_layout(HWND hwnd) {
 
 void layout_welcome_controls(HWND hwnd) {
     WelcomeLayout layout = compute_welcome_layout(hwnd);
-    auto place = [&](int id, int x, int y, int w, int h) {
+    auto place = [&](int id, int x, int y, int w, int h, bool visible = true) {
         HWND ctl = GetDlgItem(hwnd, id);
-        if (ctl) MoveWindow(ctl, x, y, max(1, w), max(1, h), TRUE);
+        if (ctl) {
+            MoveWindow(ctl, x, y, max(1, w), max(1, h), TRUE);
+            ShowWindow(ctl, visible ? SW_SHOWNA : SW_HIDE);
+        }
     };
 
     const int hero_pad = layout.compact ? 20 : (layout.stacked ? 22 : 30);
@@ -178,55 +179,67 @@ void layout_welcome_controls(HWND hwnd) {
     int hy = layout.hero.top + hero_pad;
     const int hw = max(180, rect_width(layout.hero) - hero_pad * 2);
     const int title_h = layout.compact ? 40 : (layout.stacked ? 46 : 52);
-    const int subtitle_h = layout.compact ? 22 : 24;
     const int version_h = layout.compact ? 18 : 20;
     place(IDW_TITLE, hx, hy, hw, title_h);
     hy += title_h + (layout.compact ? 6 : 8);
-    place(IDW_SUBTITLE, hx, hy, hw, subtitle_h);
-    hy += subtitle_h + (layout.compact ? 4 : 6);
     place(IDW_VERSION, hx, hy, hw, version_h);
-    if (layout.stacked) {
-        const int recent_h = layout.compact ? 32 : 34;
-        place(IDW_RECENT_FILES, hx, layout.hero.bottom - hero_pad - recent_h, hw, recent_h);
-    }
+    hy += version_h + (layout.compact ? 4 : 6);
+
+    const int action_button_h = layout.compact ? 34 : 38;
+    const int button_gap = layout.compact ? 8 : (layout.stacked ? 10 : 12);
+    const int section_hint_h = layout.compact ? 20 : 22;
+    place(IDW_ACTIONS_TITLE, hx, hy, hw, 22);
+    hy += 24;
+    place(IDW_ACTIONS_HINT, hx, hy, hw, section_hint_h);
+    hy += section_hint_h + (layout.compact ? 10 : 14);
 
     const int action_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
-    const int ax = layout.action.left + action_pad;
-    int ay = layout.action.top + action_pad;
-    const int aw = max(180, rect_width(layout.action) - action_pad * 2);
-    const int segment_gap = 10;
-    const int segment_button_h = layout.compact ? 28 : 32;
-    const int action_button_h = layout.compact ? 34 : 40;
-    const int button_gap = layout.compact ? 8 : (layout.stacked ? 10 : 12);
-    place(IDW_LANG_LABEL, ax, ay, aw, 20);
-    ay += layout.compact ? 22 : 24;
-    const int lang_w = max(80, (aw - segment_gap) / 2);
-    place(IDM_LANG_RU, ax, ay, lang_w, segment_button_h);
-    place(IDM_LANG_EN, ax + aw - lang_w, ay, lang_w, segment_button_h);
-    ay += segment_button_h + (layout.compact ? 8 : 12);
-    place(IDW_THEME_LABEL, ax, ay, aw, 20);
-    ay += layout.compact ? 22 : 24;
-    const int theme_w = max(80, (aw - segment_gap) / 2);
-    place(IDW_THEME_LIGHT, ax, ay, theme_w, segment_button_h);
-    place(IDW_THEME_DARK, ax + aw - theme_w, ay, theme_w, segment_button_h);
-    ay += segment_button_h + (layout.compact ? 12 : 16);
-    place(IDW_PERF_LABEL, ax, ay, aw, 20);
-    ay += layout.compact ? 22 : 24;
-    place(IDW_PERF_FAST_OPEN, ax, ay, aw, segment_button_h);
-    ay += segment_button_h + (layout.compact ? 6 : 8);
-    place(IDW_PERF_FAST_WORK, ax, ay, aw, segment_button_h);
-    ay += segment_button_h + (layout.compact ? 6 : 8);
-    place(IDW_PERF_COMFORT, ax, ay, aw, segment_button_h);
-    ay += segment_button_h + (layout.compact ? 12 : 16);
-    place(IDC_PTSETTINGS, ax, ay, aw, action_button_h);
-    ay += action_button_h + button_gap;
-    place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
-    ay += action_button_h + button_gap;
-    if (!layout.stacked) {
+    const int ax = layout.hero.left + action_pad;
+    const int aw = max(180, rect_width(layout.hero) - action_pad * 2);
+    const int settings_col_gap = layout.compact ? 8 : 12;
+    const int segment_button_h = layout.compact ? 26 : 30;
+    if (aw < 360) {
+        int ay = hy;
+        place(IDC_OPEN, ax, ay, aw, action_button_h + 2);
+        ay += action_button_h + 2 + button_gap;
         place(IDW_RECENT_FILES, ax, ay, aw, action_button_h);
         ay += action_button_h + button_gap;
+        place(IDC_PTSETTINGS, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+        place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+        place(IDW_START, ax, ay, aw, action_button_h + 2);
+    } else {
+        int col_w = max(140, (aw - settings_col_gap) / 2);
+        int left_x = ax;
+        int right_x = ax + col_w + settings_col_gap;
+        int grid_y = hy;
+        place(IDC_OPEN, left_x, grid_y, col_w, action_button_h + 2);
+        place(IDC_PTSETTINGS, right_x, grid_y, col_w, action_button_h);
+        grid_y += action_button_h + button_gap;
+        place(IDW_RECENT_FILES, left_x, grid_y, col_w, action_button_h);
+        place(IDM_HOTKEYS, right_x, grid_y, col_w, action_button_h);
+        grid_y += action_button_h + button_gap;
+        place(IDW_START, ax, grid_y, aw, action_button_h + 2);
     }
-    place(IDW_START, ax, ay, aw, action_button_h);
+
+    const int settings_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
+    const int sx = layout.action.left + settings_pad;
+    int sy = layout.action.top + settings_pad;
+    const int sw = max(180, rect_width(layout.action) - settings_pad * 2);
+    place(IDW_LANG_LABEL, sx, sy, sw, 20);
+    sy += layout.compact ? 22 : 24;
+    place(IDM_LANG_RU, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 8 : 12);
+    place(IDM_LANG_EN, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 10 : 14);
+    place(IDW_THEME_LABEL, sx, sy, sw, 20);
+    sy += layout.compact ? 22 : 24;
+    place(IDW_THEME_LIGHT, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 8 : 12);
+    place(IDW_THEME_DARK, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 10 : 14);
+    place(IDW_LIGHT_MODE, sx, sy, sw, segment_button_h);
 }
 
 void append_hotkey_line(std::wstring& out, int command) {
@@ -1006,22 +1019,12 @@ bool is_settings_hotkey_modifier_id(int id) {
 }
 
 bool is_settings_checkbox_id(int id) {
-    return id == IDC_SET_PERF_FAST_OPEN ||
-           id == IDC_SET_PERF_FAST_WORK ||
-           id == IDC_SET_PERF_COMFORT ||
+    return id == IDW_LIGHT_MODE ||
            id == IDC_SET_GAP_MARKERS;
 }
 
-bool is_settings_performance_mode_id(int id) {
-    return id == IDC_SET_PERF_FAST_OPEN ||
-           id == IDC_SET_PERF_FAST_WORK ||
-           id == IDC_SET_PERF_COMFORT;
-}
-
 bool is_welcome_checkbox_id(int id) {
-    return id == IDW_PERF_FAST_OPEN ||
-           id == IDW_PERF_FAST_WORK ||
-           id == IDW_PERF_COMFORT;
+    return id == IDW_LIGHT_MODE;
 }
 
 bool uses_manual_toggle_state(HWND hwnd) {
@@ -1029,9 +1032,6 @@ bool uses_manual_toggle_state(HWND hwnd) {
     const int id = GetDlgCtrlID(hwnd);
     return is_channel_checkbox_id(id) ||
            is_side_toggle_id(id) ||
-           id == IDC_SET_PERF_FAST_OPEN ||
-           id == IDC_SET_PERF_FAST_WORK ||
-           id == IDC_SET_PERF_COMFORT ||
            id == IDC_SET_GAP_MARKERS ||
            id == IDC_EXPORT_APPLY_SETTINGS ||
            id == IDC_EXPORT_APPLY_DATA ||
@@ -1877,12 +1877,9 @@ void populate_point_group_list(HWND hwnd) {
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
-    sync_performance_mode_controls(
-        g.settings_wnd,
-        IDC_SET_PERF_LABEL,
-        IDC_SET_PERF_FAST_OPEN,
-        IDC_SET_PERF_FAST_WORK,
-        IDC_SET_PERF_COMFORT);
+    if (HWND light = GetDlgItem(g.settings_wnd, IDW_LIGHT_MODE)) {
+        set_toggle_checked(light, g.light_mode);
+    }
     set_toggle_checked(GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
     if (HWND gap = GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS)) SetWindowTextW(gap, gap_markers_toggle_text());
     if (HWND xlbl = GetDlgItem(g.settings_wnd, IDC_SET_AXIS_X_LABEL_STATIC)) SetWindowTextW(xlbl, axis_x_label_text());
@@ -1940,15 +1937,13 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 300, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
-            mk(L"STATIC", performance_mode_label_text(), SS_LEFT, 28, 64, 278, 20, IDC_SET_PERF_LABEL);
-            mkcheck(performance_fast_open_text(), 28, 88, 278, 26, IDC_SET_PERF_FAST_OPEN);
-            mkcheck(performance_fast_work_text(), 28, 118, 278, 26, IDC_SET_PERF_FAST_WORK);
-            mkcheck(performance_comfort_text(), 28, 148, 278, 26, IDC_SET_PERF_COMFORT);
-            mkcheck(gap_markers_toggle_text(), 28, 182, 278, 28, IDC_SET_GAP_MARKERS);
-            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 240, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 236, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
-            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 268, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 264, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            mkcheck(g_str->light_mode, 28, 64, 278, 28, IDW_LIGHT_MODE);
+            set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
+            mkcheck(gap_markers_toggle_text(), 28, 98, 278, 28, IDC_SET_GAP_MARKERS);
+            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 156, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
+            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 152, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 184, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
+            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 180, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
 
             mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 310, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
@@ -1966,7 +1961,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
-            sync_performance_mode_controls(hwnd, IDC_SET_PERF_LABEL, IDC_SET_PERF_FAST_OPEN, IDC_SET_PERF_FAST_WORK, IDC_SET_PERF_COMFORT);
+            set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
             set_toggle_checked(GetDlgItem(hwnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
             enable_file_drop_support(hwnd);
             return 0;
@@ -1983,19 +1978,11 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SET_LANG_EN:
                     if (HIWORD(wp) == BN_CLICKED && g_str != &kEn) { g_str = &kEn; save_runtime_settings(); rebuild_ui(); }
                     break;
-                case IDC_SET_PERF_FAST_OPEN:
+                case IDW_LIGHT_MODE:
                     if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
-                        apply_performance_mode(PerformanceMode::FastOpen);
-                    }
-                    return 0;
-                case IDC_SET_PERF_FAST_WORK:
-                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
-                        apply_performance_mode(PerformanceMode::FastWork);
-                    }
-                    return 0;
-                case IDC_SET_PERF_COMFORT:
-                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
-                        apply_performance_mode(PerformanceMode::Comfort);
+                        HWND light = GetDlgItem(hwnd, IDW_LIGHT_MODE);
+                        toggle_checked_state(light);
+                        apply_light_mode(is_toggle_checked(light));
                     }
                     return 0;
                 case IDC_SET_GAP_MARKERS:
@@ -2133,13 +2120,8 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (is_settings_checkbox_id(ctl_id)) {
                 const bool enabled = IsWindowEnabled(dis->hwndItem) != FALSE;
-                if (is_settings_performance_mode_id(ctl_id)) {
-                    draw_themed_button(dis->hDC, dis->rcItem, txt, pressed,
-                        is_toggle_checked(dis->hwndItem), false);
-                } else {
-                    draw_themed_check_control(dis->hDC, dis->rcItem, txt,
-                        is_toggle_checked(dis->hwndItem), pressed, enabled, false, false);
-                }
+                draw_themed_check_control(dis->hDC, dis->rcItem, txt,
+                    is_toggle_checked(dis->hwndItem), pressed, enabled, false, false);
                 return TRUE;
             }
             draw_themed_button(dis->hDC, dis->rcItem, txt, pressed, false, false);

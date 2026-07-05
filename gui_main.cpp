@@ -215,11 +215,6 @@ enum {
     IDC_SET_POINT_COLOR_CURRENT,
     IDC_SET_POINT_GROUP_COLOR,
     IDC_SET_POINT_GROUP_NEW,
-    IDC_SET_LIGHT_MODE = 5130,
-    IDC_SET_PERF_LABEL,
-    IDC_SET_PERF_FAST_OPEN,
-    IDC_SET_PERF_FAST_WORK,
-    IDC_SET_PERF_COMFORT,
     IDC_SET_GAP_MARKERS,
     IDC_SET_AXIS_X_LABEL_STATIC,
     IDC_SET_AXIS_X_LABEL_EDIT,
@@ -231,20 +226,13 @@ enum {
     IDC_SET_GROUP_HOTKEYS,
 
     IDW_TITLE = 5200,
-    IDW_SUBTITLE,
     IDW_VERSION,
-    IDW_INTRO,
-    IDW_FEATURES,
     IDW_ACTIONS_TITLE,
     IDW_ACTIONS_HINT,
     IDW_LANG_LABEL,
     IDW_THEME_LABEL,
     IDW_THEME_LIGHT,
     IDW_THEME_DARK,
-    IDW_PERF_LABEL,
-    IDW_PERF_FAST_OPEN,
-    IDW_PERF_FAST_WORK,
-    IDW_PERF_COMFORT,
     IDW_RECENT_FILES,
 };
 
@@ -460,7 +448,7 @@ struct Strings {
     const wchar_t* dlg_ptsettings_title;
     const wchar_t* dlg_hotkeys_title; const wchar_t* dlg_about_title;
     const wchar_t* msg_nodata; const wchar_t* msg_openfirst; const wchar_t* msg_savepng_err; const wchar_t* msg_savecsv_err; const wchar_t* msg_read_err;
-    const wchar_t* welcome_title; const wchar_t* welcome_subtitle; const wchar_t* welcome_body;
+    const wchar_t* welcome_title;
     const wchar_t* welcome_btn_recent; const wchar_t* welcome_btn_settings; const wchar_t* welcome_btn_hotkeys; const wchar_t* welcome_btn_start;
     const wchar_t* hk_title;
     const wchar_t* about_body;
@@ -522,8 +510,7 @@ static const Strings kRu = {
     L"Настройки точек измерения",
     L"Горячие клавиши — AM Graph Viewer", L"О программе — AM Graph Viewer",
     L"Нет данных", L"Сначала откройте файл.", L"Не удалось сохранить PNG.", L"Не удалось выгрузить файл.", L"Ошибка чтения",
-    L"AM Graph Viewer", L"Просмотрщик сигналов LabVIEW (.lvm / .txt / .csv)",
-    L"Как пользовать с приложением:\r   •  Открыть файл (O) — загрузка .lvm, .txt или .csv.\r   •  Время / Гц (M) — график сигнала или его спектр (БПФ).\r   •  Измерения (V) — точки на графике; параметры и примагничивание — в окне «Настройки точек».\r   •  Колесо мыши — масштаб, ЛКМ — прокрутка по времени.\r   •  «Фикс. Y» — зафиксировать масштаб по высоте.\r   •  Пробел — воспроизведение в реальном времени.\r   •  F1 — список горячих клавиш.",
+    L"AM Graph Viewer",
     L"Недавние файлы", L"Настройки точек…", L"Горячие клавиши", L"Начать работу",
     L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  Ctrl+Shift+S\t— Сохранить как\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Старт/стоп\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
     L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt / .csv)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV/TXT/LVM.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
@@ -584,8 +571,7 @@ static const Strings kEn = {
     L"Measurement point settings",
     L"Keyboard shortcuts — AM Graph Viewer", L"About — AM Graph Viewer",
     L"No data", L"Open a file first.", L"Failed to save PNG.", L"Failed to export file.", L"Read error",
-    L"AM Graph Viewer", L"LabVIEW signal viewer (.lvm / .txt / .csv)",
-    L"How to use the app:\r   •  «Open file» (O) — load a .lvm, .txt, or .csv.\r   •  «Time / Hz» (M) — signal plot or its FFT spectrum.\r   •  «Measure» (V) — click points on the plot. What to show\r       at points and snapping — in the «Point settings» window.\r   •  Mouse wheel — zoom, left-drag — pan.\r   •  «Lock Y» — freeze the vertical scale.\r   •  Space — real-time playback (1 s = 1 s).\r   •  F1 — full list of keyboard shortcuts.",
+    L"AM Graph Viewer",
     L"Recent files", L"Point settings…", L"Keyboard shortcuts", L"Start working",
     L"Files\n  O / Ctrl+O\t— Open\n  S / Ctrl+S\t— PNG\n  Ctrl+Shift+S\t— Save as\n  Ctrl+Z\t— Undo\n  Ctrl+Shift+Z\t— Redo\n\nView\n  M\t— Time / Hz\n  C\t— Smoothing\n  + / ↑\t— Zoom in\n  − / ↓\t— Zoom out\n  ← / →\t— Pan left / right\n  Home\t— Reset view\n  Ctrl+Home\t— Go to start\n  Ctrl+End\t— Go to end\n  Space\t— Play / Pause\n\nLines and markers\n  L\t— Vertical line\n  H\t— Horizontal line\n  K\t— Marker\n  Esc\t— Cancel adding\n\nPoints\n  V\t— Measure mode on/off\n  Delete\t— Clear points\n\nMouse\n  Wheel\t— Zoom under cursor\n  Shift+wheel\t— Pan left / right\n  Ctrl+wheel\t— Zoom Y\n  Alt+wheel\t— Pan up/down (Y)\n  Left-drag\t— Pan (toggle vertical via View)\n  Left-click\t— Drop point / line / marker (in mode)\n  Right-click\t— Clear points\n\n  F1\t— This help",
     L"AM Graph Viewer — LabVIEW signal viewer (.lvm / .txt / .csv)\n\nNative Win32 + GDI/GDI+ application, no external\ndependencies, no Qt. Time and spectrum (FFT), measurements\nwith snapping, guide lines, visual smoothing, PNG and unified save-as export.\n\nBuild: build_gui.ps1 (MinGW g++) or make gui.",
@@ -628,22 +614,6 @@ static const Strings kEn = {
 };
 
 const Strings* g_str = &kRu;
-
-static const wchar_t* performance_mode_label_text() {
-    return (g_str == &kEn) ? L"Performance mode:" : L"Режим работы:";
-}
-
-static const wchar_t* performance_fast_open_text() {
-    return (g_str == &kEn) ? L"Fast open" : L"Быстрое открытие";
-}
-
-static const wchar_t* performance_fast_work_text() {
-    return (g_str == &kEn) ? L"Fast work" : L"Быстрая работа";
-}
-
-static const wchar_t* performance_comfort_text() {
-    return (g_str == &kEn) ? L"Comfort" : L"Удобство";
-}
 
 // Which read-outs to draw next to measurement markers (toggled from the
 // "Measurements -> show at points" menu).
@@ -700,13 +670,6 @@ enum FilterTopology {
     FilterTopologyLinkwitzRiley = 3,
 };
 
-enum class PerformanceMode : int {
-    Comfort = 0,
-    FastWork = 1,
-    FastOpen = 2,
-};
-
-static PerformanceMode normalize_performance_mode(int value);
 
 struct App {
     lvm::Dataset ds;
@@ -809,7 +772,6 @@ struct App {
     bool pending_marker = false;
     int active_marker = -1;
     bool light_mode = false;
-    PerformanceMode performance_mode = PerformanceMode::Comfort;
     bool show_gap_markers = true;
     bool noise_threshold_enabled = false;
     double noise_threshold_min = -std::numeric_limits<double>::infinity();
@@ -945,8 +907,17 @@ struct App {
 
 App g;
 ULONG_PTR g_gdiplus_token = 0;
+std::size_t light_mode_render_stride(std::size_t sample_count, std::size_t target_samples) {
+    if (!g.light_mode || target_samples == 0 || sample_count <= target_samples) return 1;
+    return (sample_count + target_samples - 1) / target_samples;
+}
 void refresh_settings_controls();
 void ensure_channel_formulas_loaded();
+void invalidate_plot_analysis_cache();
+void clear_spectrum_cache_state();
+void recompute_transforms_from_state();
+void load_side_transform_controls();
+void compute_spectrum();
 void normalize_filter_bounds();
 void save_runtime_settings();
 void add_recent_file(const std::wstring& path);
@@ -965,28 +936,6 @@ std::wstring canonical_recent_file_path(const std::wstring& path) {
         return std::wstring(resolved, resolved + len);
     }
     return path;
-}
-
-std::wstring recent_file_menu_text(const std::wstring& path) {
-    const wchar_t* base = wcsrchr(path.c_str(), L'\\');
-    if (!base) base = wcsrchr(path.c_str(), L'/');
-    std::wstring name = base ? base + 1 : path;
-    std::wstring folder;
-    if (base && base > path.c_str()) {
-        folder.assign(path.c_str(), base - path.c_str());
-        const std::size_t keep = 24;
-        if (folder.size() > keep) {
-            folder = L"..." + folder.substr(folder.size() - keep);
-        }
-        name += L"  —  " + folder;
-    }
-    std::wstring escaped;
-    escaped.reserve(name.size());
-    for (wchar_t ch : name) {
-        if (ch == L'&') escaped += L"&&";
-        else escaped.push_back(ch);
-    }
-    return escaped;
 }
 
 void load_recent_files_from_ini() {
@@ -1042,29 +991,14 @@ void add_recent_file(const std::wstring& path) {
     save_runtime_settings();
 }
 
-static PerformanceMode normalize_performance_mode(int value) {
-    if (value < static_cast<int>(PerformanceMode::Comfort) ||
-        value > static_cast<int>(PerformanceMode::FastOpen)) {
-        return PerformanceMode::Comfort;
-    }
-    return static_cast<PerformanceMode>(value);
-}
-
 void save_runtime_settings_now() {
     if (g_config_path.empty()) g_config_path = app_config_path();
-    ensure_channel_formulas_loaded();
 
-    wchar_t buf[64];
     WritePrivateProfileStringW(L"ui", L"language", (g_str == &kEn) ? L"en" : L"ru", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"smoothing", g.visual_smooth ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"vertical_pan", g.vertical_pan ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
-    WritePrivateProfileStringW(L"ui", L"performance_mode", std::to_wstring(static_cast<int>(g.performance_mode)).c_str(), g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
-    swprintf(buf, 64, L"%.17g", g.light_mode_open_start);
-    WritePrivateProfileStringW(L"ui", L"light_mode_open_start", buf, g_config_path.c_str());
-    swprintf(buf, 64, L"%.17g", g.light_mode_open_end);
-    WritePrivateProfileStringW(L"ui", L"light_mode_open_end", buf, g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", g_config_path.c_str());
     normalize_filter_bounds();
     WritePrivateProfileStringW(L"ui", L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", g_config_path.c_str());
@@ -1095,12 +1029,14 @@ void save_runtime_settings_now() {
     wchar_t color_buf[32]{};
     swprintf(color_buf, 32, L"%u", static_cast<unsigned int>(g.marker_color));
     WritePrivateProfileStringW(L"ui", L"marker_color", color_buf, g_config_path.c_str());
-    WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
-    WritePrivateProfileStringW(L"transform", L"formula_count", nullptr, g_config_path.c_str());
-    for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
-        wchar_t key_name[32]{};
-        swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
-        WritePrivateProfileStringW(L"transform", key_name, g.channel_formulas[i].c_str(), g_config_path.c_str());
+    if (!g.formula_ini_deferred) {
+        WritePrivateProfileStringW(L"transform", L"global_formula", g.global_formula.c_str(), g_config_path.c_str());
+        WritePrivateProfileStringW(L"transform", L"formula_count", nullptr, g_config_path.c_str());
+        for (std::size_t i = 0; i < g.channel_formulas.size(); ++i) {
+            wchar_t key_name[32]{};
+            swprintf(key_name, 32, L"formula_%u", static_cast<unsigned int>(i));
+            WritePrivateProfileStringW(L"transform", key_name, g.channel_formulas[i].c_str(), g_config_path.c_str());
+        }
     }
 
     for (const auto& hk : g.hotkeys) {
@@ -1130,30 +1066,32 @@ void flush_runtime_settings_save() {
 bool is_toggle_checked(HWND hwnd);
 void set_toggle_checked(HWND hwnd, bool checked);
 
-void sync_performance_mode_controls(HWND hwnd, int label_id, int fast_open_id, int fast_work_id, int comfort_id) {
-    (void)label_id;
-    const PerformanceMode mode = normalize_performance_mode(static_cast<int>(g.performance_mode));
-    g.performance_mode = mode;
-    if (HWND h = GetDlgItem(hwnd, fast_open_id)) {
-        set_toggle_checked(h, mode == PerformanceMode::FastOpen);
-    }
-    if (HWND h = GetDlgItem(hwnd, fast_work_id)) {
-        set_toggle_checked(h, mode == PerformanceMode::FastWork);
-    }
-    if (HWND h = GetDlgItem(hwnd, comfort_id)) {
-        set_toggle_checked(h, mode == PerformanceMode::Comfort);
-    }
-}
-
-void apply_performance_mode(PerformanceMode mode, bool persist = true) {
-    g.performance_mode = normalize_performance_mode(static_cast<int>(mode));
-    g.light_mode = g.performance_mode != PerformanceMode::Comfort;
-    if (g.performance_mode == PerformanceMode::FastOpen) {
-        g.light_mode_open_start = 0.0;
-        if (!(g.light_mode_open_end > g.light_mode_open_start)) g.light_mode_open_end = 10.0;
+void apply_light_mode(bool enabled, bool persist = true) {
+    const bool changed = g.light_mode != enabled;
+    g.light_mode = enabled;
+    if (!g.light_mode && g.formula_ini_deferred) {
+        ensure_channel_formulas_loaded();
     }
     if (persist) save_runtime_settings();
-    if (g.settings_wnd) refresh_settings_controls();
+    if (changed) {
+        recompute_transforms_from_state();
+        load_side_transform_controls();
+        if (g.welcome_wnd && IsWindow(g.welcome_wnd)) {
+            if (HWND light = GetDlgItem(g.welcome_wnd, IDW_LIGHT_MODE)) {
+                set_toggle_checked(light, g.light_mode);
+            }
+            InvalidateRect(g.welcome_wnd, nullptr, FALSE);
+        }
+        if (g.settings_wnd) {
+            if (HWND light = GetDlgItem(g.settings_wnd, IDW_LIGHT_MODE)) {
+                set_toggle_checked(light, g.light_mode);
+            }
+            refresh_settings_controls();
+        }
+        if (g.main && IsWindow(g.main)) {
+            InvalidateRect(g.main, nullptr, FALSE);
+        }
+    }
 }
 
 struct AsyncScanResult {
@@ -2031,6 +1969,10 @@ void redraw_window_with_children(HWND hwnd);
 void show_welcome(HINSTANCE inst);
 void raise_main_window();
 void enable_file_drop_support(HWND hwnd);
+void toggle_welcome_recent_files_panel(HWND owner);
+void show_welcome_recent_files_panel(HWND owner);
+void hide_welcome_recent_files_panel();
+bool welcome_recent_files_panel_visible();
 
 #include "gui_layout.cpp"
 void clamp_range(double& lo, double& hi, double minb, double maxb, double minw) {
@@ -2605,49 +2547,7 @@ void open_file() {
 }
 
 void show_recent_files_menu(HWND owner) {
-    if (g.recent_files.empty()) {
-        const wchar_t* msg = (g_str == &kEn)
-            ? L"No recent files yet."
-            : L"Недавних файлов пока нет.";
-        show_styled_info_prompt(owner, g_str->welcome_btn_recent, msg, false);
-        return;
-    }
-
-    constexpr UINT kRecentFileMenuBase = 6300;
-    HMENU menu = CreatePopupMenu();
-    if (!menu) return;
-
-    for (std::size_t i = 0; i < g.recent_files.size(); ++i) {
-        const UINT id = kRecentFileMenuBase + static_cast<UINT>(i);
-        const std::wstring text = recent_file_menu_text(g.recent_files[i]);
-        AppendMenuW(menu, MF_STRING, id, text.c_str());
-    }
-
-    POINT pt{};
-    HWND btn = owner ? GetDlgItem(owner, IDW_RECENT_FILES) : nullptr;
-    if (btn && IsWindow(btn)) {
-        RECT r{};
-        GetWindowRect(btn, &r);
-        pt.x = r.left;
-        pt.y = r.bottom;
-    } else {
-        GetCursorPos(&pt);
-    }
-
-    const UINT cmd = TrackPopupMenu(
-        menu,
-        TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RIGHTBUTTON,
-        pt.x, pt.y, 0, owner, nullptr);
-    DestroyMenu(menu);
-
-    if (cmd >= kRecentFileMenuBase &&
-        cmd < kRecentFileMenuBase + static_cast<UINT>(g.recent_files.size())) {
-        const std::size_t index = static_cast<std::size_t>(cmd - kRecentFileMenuBase);
-        const std::wstring path = g.recent_files[index];
-        if (!load_path_interactive(path) && !g.last_error.empty()) {
-            MessageBoxW(owner, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
-        }
-    }
+    toggle_welcome_recent_files_panel(owner);
 }
 
 // ---- series ---------------------------------------------------------------
@@ -2699,11 +2599,6 @@ bool any_visible_channel() {
         if (visible) return true;
     }
     return false;
-}
-
-std::size_t light_mode_render_stride(std::size_t sample_count, std::size_t target_samples) {
-    if (!g.light_mode || target_samples == 0 || sample_count <= target_samples) return 1;
-    return (sample_count + target_samples - 1) / target_samples;
 }
 
 bool current_time_yrange_window(std::size_t lo, std::size_t hi, double& ymin, double& ymax) {
@@ -3269,7 +3164,6 @@ void load_runtime_settings() {
     g.visual_smooth = read_ini_int(L"ui", L"smoothing", g.visual_smooth ? 1 : 0) != 0;
     g.vertical_pan = read_ini_int(L"ui", L"vertical_pan", g.vertical_pan ? 1 : 0) != 0;
     g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
-    g.light_mode = read_ini_int(L"ui", L"light_mode", g.light_mode ? 1 : 0) != 0;
     g.show_gap_markers = read_ini_int(L"ui", L"show_gap_markers", g.show_gap_markers ? 1 : 0) != 0;
     g.noise_threshold_enabled = read_ini_int(L"ui", L"filter_enabled", g.noise_threshold_enabled ? 1 : 0) != 0;
     g.noise_threshold_mode = read_ini_int(L"ui", L"filter_mode", g.noise_threshold_mode);
@@ -3288,6 +3182,7 @@ void load_runtime_settings() {
     if (g.side_panel_tab < 0 || g.side_panel_tab > 2) g.side_panel_tab = 0;
     g.play_speed = read_ini_double(L"ui", L"play_speed", g.play_speed);
     if (!(g.play_speed > 0.0) || !std::isfinite(g.play_speed)) g.play_speed = 1.0;
+    g.light_mode = read_ini_int(L"ui", L"light_mode", g.light_mode ? 1 : 0) != 0;
     g.light_mode_open_start = read_ini_double(L"ui", L"light_mode_open_start", g.light_mode_open_start);
     g.light_mode_open_end = read_ini_double(L"ui", L"light_mode_open_end", g.light_mode_open_end);
     if (!std::isfinite(g.light_mode_open_start) || g.light_mode_open_start < 0.0) g.light_mode_open_start = 0.0;

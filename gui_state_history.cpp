@@ -972,7 +972,7 @@ void recompute_transforms_from_state() {
     invalidate_plot_analysis_cache();
     invalidate_filtered_channel_cache();
     clear_spectrum_cache_state();
-    if (g.freq_mode) compute_spectrum();
+    if (g.freq_mode && !g.formula_ini_deferred) compute_spectrum();
     sync_menu();
 }
 

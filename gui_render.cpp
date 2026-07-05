@@ -389,9 +389,15 @@ void draw_measure(HDC dc) {
                 std::wstring dl;
                 if (group.display.dx) { swprintf(b, 96, g_str->fmt_pt_dx, dx); dl += b; dl += xunit; dl += L" "; }
                 if (group.display.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
-                if (group.display.inv_dt && !g.freq_mode) {
+                if (group.display.inv_dt) {
                     const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
-                    swprintf(b, 96, g_str->fmt_pt_invdt, inv); dl += b;
+                    if (g.freq_mode) {
+                        swprintf(b, 96, g_str == &kEn ? L"1/Δf=%.5g Hz" : L"1/Δf=%.5g Гц", inv);
+                    } else {
+                        swprintf(b, 96, g_str->fmt_pt_invdt, inv);
+                    }
+                    dl += b;
+                    dl += L" ";
                 }
                 if (group.display.dist) {
                     swprintf(b, 96, g_str->fmt_pt_dist, std::sqrt(dx * dx + dy * dy)); dl += b;

@@ -9,6 +9,8 @@ struct SettingsSnapshot {
     COLORREF marker_color = RGB(0, 120, 215);
     std::vector<PointGroup> point_groups;
     int active_point_group = -1;
+    int time_active_point_group = -1;
+    int freq_active_point_group = -1;
     std::vector<GuideLine> guides;
     std::vector<App::Marker> markers;
     int active_marker = -1;
@@ -32,11 +34,14 @@ struct UndoAction {
     std::pair<double, double> point;
     int point_group_index = -1;
     bool point_group_created = false;
+    PointGroupMode cleared_mode = PointGroupMode::Time;
     PointGroup point_group_state;
     GuideLine line;
     App::Marker marker;
     std::vector<PointGroup> saved_point_groups;
     int saved_active_point_group = -1;
+    int saved_time_active_point_group = -1;
+    int saved_freq_active_point_group = -1;
     std::vector<GuideLine> saved_lines;
     std::vector<App::Marker> saved_markers;
     SettingsSnapshot before_settings;
@@ -685,16 +690,75 @@ double eval_formula_rpn(const std::vector<FormulaToken>& rpn, double x) {
 }
 #endif
 
+PointGroupMode current_point_group_mode() {
+    return g.freq_mode ? PointGroupMode::Frequency : PointGroupMode::Time;
+}
+
+int& active_point_group_index_for_mode(PointGroupMode mode) {
+    return mode == PointGroupMode::Frequency ? g.freq_active_point_group : g.time_active_point_group;
+}
+
+bool point_group_matches_mode(const PointGroup& group, PointGroupMode mode) {
+    return group.mode == mode;
+}
+
+std::size_t point_group_count_for_mode(PointGroupMode mode) {
+    std::size_t count = 0;
+    for (const auto& group : g.point_groups) {
+        if (point_group_matches_mode(group, mode)) ++count;
+    }
+    return count;
+}
+
+std::size_t point_group_mode_index(std::size_t index, PointGroupMode mode) {
+    std::size_t count = 0;
+    for (std::size_t i = 0; i <= index && i < g.point_groups.size(); ++i) {
+        if (point_group_matches_mode(g.point_groups[i], mode)) ++count;
+    }
+    return count;
+}
+
+void shift_point_group_active_indices_after_insert(std::size_t index) {
+    auto bump = [&](int& active) {
+        if (active >= static_cast<int>(index)) ++active;
+    };
+    bump(g.active_point_group);
+    bump(g.time_active_point_group);
+    bump(g.freq_active_point_group);
+}
+
+void shift_point_group_active_indices_after_erase(std::size_t index) {
+    auto fix = [&](int& active) {
+        if (active > static_cast<int>(index)) {
+            --active;
+        } else if (active == static_cast<int>(index)) {
+            active = -1;
+        }
+    };
+    fix(g.active_point_group);
+    fix(g.time_active_point_group);
+    fix(g.freq_active_point_group);
+}
+
 void normalize_active_point_group() {
-    if (g.point_groups.empty()) {
-        g.active_point_group = -1;
+    const PointGroupMode mode = current_point_group_mode();
+    int& stored_active = active_point_group_index_for_mode(mode);
+    if (stored_active >= 0 &&
+        stored_active < static_cast<int>(g.point_groups.size()) &&
+        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(stored_active)], mode)) {
+        g.active_point_group = stored_active;
         return;
     }
-    if (g.active_point_group >= 0 &&
-        g.active_point_group < static_cast<int>(g.point_groups.size())) {
-        return;
+
+    int fallback = -1;
+    for (int i = static_cast<int>(g.point_groups.size()) - 1; i >= 0; --i) {
+        if (point_group_matches_mode(g.point_groups[static_cast<std::size_t>(i)], mode)) {
+            fallback = i;
+            break;
+        }
     }
-    g.active_point_group = static_cast<int>(g.point_groups.size()) - 1;
+    stored_active = fallback;
+    g.active_point_group = fallback;
 }
 
 PointGroup* active_point_group() {
@@ -710,8 +774,11 @@ const PointGroup* active_point_group_readonly() {
 }
 
 std::size_t total_measure_point_count() {
+    const PointGroupMode mode = current_point_group_mode();
     std::size_t total = 0;
-    for (const auto& group : g.point_groups) total += group.points.size();
+    for (const auto& group : g.point_groups) {
+        if (point_group_matches_mode(group, mode)) total += group.points.size();
+    }
     return total;
 }
 
@@ -719,9 +786,27 @@ bool has_measure_points() {
     return total_measure_point_count() != 0;
 }
 
+void clear_measure_point_groups_in_mode(PointGroupMode mode) {
+    const bool clearing_current_mode = (mode == current_point_group_mode());
+    for (std::size_t i = g.point_groups.size(); i-- > 0; ) {
+        if (point_group_matches_mode(g.point_groups[i], mode)) {
+            g.point_groups.erase(g.point_groups.begin() + static_cast<std::ptrdiff_t>(i));
+            shift_point_group_active_indices_after_erase(i);
+        }
+    }
+    active_point_group_index_for_mode(mode) = -1;
+    if (clearing_current_mode) g.active_point_group = -1;
+}
+
 void clear_measure_point_groups() {
+    clear_measure_point_groups_in_mode(current_point_group_mode());
+}
+
+void clear_all_measure_point_groups() {
     g.point_groups.clear();
     g.active_point_group = -1;
+    g.time_active_point_group = -1;
+    g.freq_active_point_group = -1;
 }
 
 PointDisplay* active_point_display() {
@@ -743,21 +828,25 @@ void sync_point_display_from_active_group() {
 void erase_point_group(std::size_t index) {
     if (index >= g.point_groups.size()) return;
     g.point_groups.erase(g.point_groups.begin() + static_cast<std::ptrdiff_t>(index));
-    if (g.point_groups.empty()) {
-        g.active_point_group = -1;
-        return;
+    shift_point_group_active_indices_after_erase(index);
+    if (!g.point_groups.empty()) {
+        normalize_active_point_group();
+        sync_point_display_from_active_group();
     }
-    if (g.active_point_group > static_cast<int>(index)) {
-        --g.active_point_group;
-    } else if (g.active_point_group == static_cast<int>(index)) {
-        g.active_point_group = static_cast<int>(std::min<std::size_t>(index, g.point_groups.size() - 1));
-    }
-    sync_point_display_from_active_group();
+}
+
+std::size_t insert_point_group(std::size_t index, const PointGroup& group) {
+    const std::size_t insert_at = std::min(index, g.point_groups.size());
+    g.point_groups.insert(g.point_groups.begin() + static_cast<std::ptrdiff_t>(insert_at), group);
+    shift_point_group_active_indices_after_insert(insert_at);
+    return insert_at;
 }
 
 int create_point_group(COLORREF color) {
     PointGroup group;
-    const std::size_t index = g.point_groups.size();
+    const PointGroupMode mode = current_point_group_mode();
+    group.mode = mode;
+    const std::size_t index = point_group_count_for_mode(mode);
     if (g_str == &kEn) group.name = L"Group " + std::to_wstring(index + 1);
     else group.name = L"Группа " + std::to_wstring(index + 1);
     group.color = color;
@@ -769,6 +858,7 @@ int create_point_group(COLORREF color) {
     }
     g.point_groups.push_back(group);
     g.active_point_group = static_cast<int>(g.point_groups.size()) - 1;
+    active_point_group_index_for_mode(mode) = g.active_point_group;
     sync_point_display_from_active_group();
     return g.active_point_group;
 }
@@ -799,7 +889,9 @@ int ensure_point_group_for_measurement(bool force_new_group, bool* created_group
 std::wstring point_group_list_label(std::size_t index, const PointGroup& group) {
     wchar_t buf[160];
     const std::wstring base_name = group.name.empty()
-        ? ((g_str == &kEn) ? (L"Group " + std::to_wstring(index + 1)) : (L"Группа " + std::to_wstring(index + 1)))
+        ? ((g_str == &kEn)
+            ? (L"Group " + std::to_wstring(point_group_mode_index(index, group.mode)))
+            : (L"Группа " + std::to_wstring(point_group_mode_index(index, group.mode))))
         : group.name;
     const wchar_t* status = L"";
     if (!group.visible) {
@@ -820,15 +912,19 @@ std::wstring measure_points_status_text() {
     if (!total_points) return L"";
     std::size_t visible_groups = 0;
     for (const auto& group : g.point_groups) {
-        if (group.visible && !group.points.empty()) ++visible_groups;
+        if (point_group_matches_mode(group, current_point_group_mode()) &&
+            group.visible && !group.points.empty()) {
+            ++visible_groups;
+        }
     }
+    const std::size_t total_groups = point_group_count_for_mode(current_point_group_mode());
     wchar_t buf[160];
     if (g_str == &kEn) {
         swprintf(buf, 160, L"   |   Points: %zu in %zu groups (%zu visible)",
-            total_points, g.point_groups.size(), visible_groups);
+            total_points, total_groups, visible_groups);
     } else {
         swprintf(buf, 160, L"   |   Точки: %zu в %zu группах (%zu видимых)",
-            total_points, g.point_groups.size(), visible_groups);
+            total_points, total_groups, visible_groups);
     }
     return buf;
 }
@@ -855,6 +951,8 @@ SettingsSnapshot capture_settings_snapshot() {
     snapshot.marker_color = g.marker_color;
     snapshot.point_groups = g.point_groups;
     snapshot.active_point_group = g.active_point_group;
+    snapshot.time_active_point_group = g.time_active_point_group;
+    snapshot.freq_active_point_group = g.freq_active_point_group;
     snapshot.guides = g.guides;
     snapshot.markers = g.markers;
     snapshot.active_marker = g.active_marker;
@@ -876,6 +974,7 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
             if (lhs[i].name != rhs[i].name ||
                 lhs[i].color != rhs[i].color ||
                 lhs[i].visible != rhs[i].visible ||
+                lhs[i].mode != rhs[i].mode ||
                 lhs[i].display.number != rhs[i].display.number ||
                 lhs[i].display.x != rhs[i].display.x ||
                 lhs[i].display.y != rhs[i].display.y ||
@@ -928,6 +1027,8 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
            a.marker_color != b.marker_color ||
            !same_point_groups(a.point_groups, b.point_groups) ||
            a.active_point_group != b.active_point_group ||
+           a.time_active_point_group != b.time_active_point_group ||
+           a.freq_active_point_group != b.freq_active_point_group ||
            !same_guides(a.guides, b.guides) ||
            !same_markers(a.markers, b.markers) ||
            a.active_marker != b.active_marker ||
@@ -994,6 +1095,9 @@ void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
     g.marker_color = snapshot.marker_color;
     g.point_groups = snapshot.point_groups;
     g.active_point_group = snapshot.active_point_group;
+    g.time_active_point_group = snapshot.time_active_point_group;
+    g.freq_active_point_group = snapshot.freq_active_point_group;
+    normalize_active_point_group();
     sync_point_display_from_active_group();
     g.guides = snapshot.guides;
     g.markers = snapshot.markers;
@@ -1042,6 +1146,7 @@ void pop_undo() {
                         erase_point_group(static_cast<std::size_t>(a.point_group_index));
                     } else {
                         g.active_point_group = a.point_group_index;
+                        active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(a.point_group_index)].mode) = g.active_point_group;
                     }
                     if (PointGroup* group = active_point_group()) g.marker_color = group->color;
                 }
@@ -1071,6 +1176,9 @@ void pop_undo() {
             g_redo.push_back(a);
             g.point_groups = a.saved_point_groups;
             g.active_point_group = a.saved_active_point_group;
+            g.time_active_point_group = a.saved_time_active_point_group;
+            g.freq_active_point_group = a.saved_freq_active_point_group;
+            normalize_active_point_group();
             if (PointGroup* group = active_point_group()) g.marker_color = group->color;
             break;
         case UndoAction::CLEAR_LINES:
@@ -1104,12 +1212,13 @@ void pop_redo() {
                     : g.point_groups.size();
                 PointGroup group = a.point_group_state;
                 group.points.clear();
-                g.point_groups.insert(g.point_groups.begin() + static_cast<std::ptrdiff_t>(insert_at), group);
+                insert_point_group(insert_at, group);
             }
             if (a.point_group_index >= 0 &&
                 a.point_group_index < static_cast<int>(g.point_groups.size())) {
                 g.point_groups[static_cast<std::size_t>(a.point_group_index)].points.push_back(a.point);
                 g.active_point_group = a.point_group_index;
+                active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(a.point_group_index)].mode) = g.active_point_group;
                 g.marker_color = g.point_groups[static_cast<std::size_t>(a.point_group_index)].color;
                 g_undo.push_back(a);
             }
@@ -1124,7 +1233,7 @@ void pop_redo() {
             break;
         case UndoAction::CLEAR_POINTS:
             g_undo.push_back(a);
-            clear_measure_point_groups();
+            clear_measure_point_groups_in_mode(a.cleared_mode);
             break;
         case UndoAction::CLEAR_LINES:
             g_undo.push_back(a);

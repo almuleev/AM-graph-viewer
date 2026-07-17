@@ -165,6 +165,10 @@
     std::vector<App::Marker> markers;
     std::vector<GuideLine> guides;
     int current_group = -1;
+    int active_time_group = -1;
+    int active_freq_group = -1;
+    int last_time_group = -1;
+    int last_freq_group = -1;
 
     for (const std::string& raw_comment : comments) {
         const std::string line = trim_copy(raw_comment);
@@ -306,12 +310,31 @@
                 const std::string name = extract_between(tail, "name=", ", visible=");
                 const std::string visible_text = extract_between(tail, "visible=", ", color=");
                 const std::string color_text = extract_between(tail, "color=", ", display=");
+                const std::string mode_text = extract_between(tail, "mode=", ", active=");
+                const std::string active_text = extract_between(tail, "active=", ", display=");
                 const std::string display_text = extract_after(tail, "display=");
                 group.name = decode_export_text(name);
+                group.mode = g.freq_mode ? PointGroupMode::Frequency : PointGroupMode::Time;
+                const std::string mode = lower_copy(trim_copy(mode_text));
+                if (mode == "frequency" || mode == "fft" || mode == "hz") {
+                    group.mode = PointGroupMode::Frequency;
+                } else if (mode == "time" || mode == "seconds" || mode == "sec") {
+                    group.mode = PointGroupMode::Time;
+                }
                 bool visible = true;
                 if (parse_bool(visible_text, visible)) group.visible = visible;
                 parse_color_triplet(color_text, group.color);
                 parse_point_display(display_text, group.display);
+                if (group.mode == PointGroupMode::Frequency) {
+                    last_freq_group = static_cast<int>(point_groups.size());
+                } else {
+                    last_time_group = static_cast<int>(point_groups.size());
+                }
+                bool active = false;
+                if (parse_bool(active_text, active) && active) {
+                    if (group.mode == PointGroupMode::Frequency) active_freq_group = static_cast<int>(point_groups.size());
+                    else active_time_group = static_cast<int>(point_groups.size());
+                }
                 point_groups.push_back(std::move(group));
                 current_group = static_cast<int>(point_groups.size()) - 1;
                 continue;
@@ -366,7 +389,9 @@
 
     if (!point_groups.empty()) {
         g.point_groups = std::move(point_groups);
-        g.active_point_group = static_cast<int>(g.point_groups.size()) - 1;
+        g.time_active_point_group = active_time_group >= 0 ? active_time_group : last_time_group;
+        g.freq_active_point_group = active_freq_group >= 0 ? active_freq_group : last_freq_group;
+        normalize_active_point_group();
         sync_point_display_from_active_group();
     }
     if (!markers.empty()) {

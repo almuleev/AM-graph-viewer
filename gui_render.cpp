@@ -330,7 +330,7 @@ void draw_measure(HDC dc) {
     HGDIOBJ old = SelectObject(dc, bp);
     HGDIOBJ prev_brush = SelectObject(dc, wb);
     for (const auto& group : g.point_groups) {
-        if (!group.visible || group.points.empty()) continue;
+        if (!group.visible || group.points.empty() || !point_group_matches_mode(group, current_point_group_mode())) continue;
         const std::wstring x_axis_label = L"X";
         const std::wstring y_axis_label = L"Y";
 

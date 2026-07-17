@@ -1375,7 +1375,15 @@ void sync_menu() {
 
 void set_mode(bool freq_mode) {
     if (g.freq_mode == freq_mode) return;
+    const PointGroupMode old_mode = current_point_group_mode();
+    normalize_active_point_group();
+    active_point_group_index_for_mode(old_mode) = g.active_point_group;
     g.freq_mode = freq_mode;
+    normalize_active_point_group();
+    if (PointGroup* group = active_point_group()) {
+        g.marker_color = group->color;
+        sync_point_display_from_active_group();
+    }
     if (g.freq_mode) {
         stop_play();
         hide_gap_details_card();
@@ -1386,6 +1394,12 @@ void set_mode(bool freq_mode) {
         g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
     }
     sync_menu();
+    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
+    if (g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible()) {
+        populate_side_point_group_list();
+    } else {
+        refresh_side_panel_controls();
+    }
     set_status();
     InvalidateRect(g.main, nullptr, TRUE);
 }
@@ -1839,7 +1853,9 @@ int settings_selected_point_group(HWND hwnd) {
 
 void load_selected_point_group_controls(HWND hwnd) {
     const int index = settings_selected_point_group(hwnd);
-    const bool valid = index >= 0 && index < static_cast<int>(g.point_groups.size());
+    const bool valid = index >= 0 &&
+        index < static_cast<int>(g.point_groups.size()) &&
+        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode());
     HWND visible = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_VISIBLE);
     HWND recolor = GetDlgItem(hwnd, IDC_SET_POINT_GROUP_COLOR);
     if (visible) {
@@ -1863,11 +1879,27 @@ void populate_point_group_list(HWND hwnd) {
     SendMessageW(list, LB_RESETCONTENT, 0, 0);
     normalize_active_point_group();
     int selected_index = LB_ERR;
-    for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
-        std::wstring label = point_group_list_label(i, g.point_groups[i]);
-        int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
-        SendMessageW(list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
-        if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+    bool have_mode_groups = false;
+    for (const auto& group : g.point_groups) {
+        if (!point_group_matches_mode(group, current_point_group_mode())) continue;
+        have_mode_groups = true;
+        break;
+    }
+    if (!have_mode_groups) {
+        const int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0,
+            reinterpret_cast<LPARAM>(point_group_empty_text())));
+        if (idx != LB_ERR) {
+            SendMessageW(list, LB_SETITEMDATA, idx, static_cast<LPARAM>(-1));
+            selected_index = idx;
+        }
+    } else {
+        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            if (!point_group_matches_mode(g.point_groups[i], current_point_group_mode())) continue;
+            std::wstring label = point_group_list_label(i, g.point_groups[i]);
+            int idx = static_cast<int>(SendMessageW(list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
+            SendMessageW(list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
+            if (static_cast<int>(i) == previous || static_cast<int>(i) == g.active_point_group) selected_index = idx;
+        }
     }
     if (selected_index != LB_ERR) SendMessageW(list, LB_SETCURSEL, selected_index, 0);
     load_selected_point_group_controls(hwnd);

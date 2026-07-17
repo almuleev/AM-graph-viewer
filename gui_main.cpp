@@ -627,6 +627,11 @@ struct PointDisplay {
     bool dist = false;    // Euclidean distance to the previous point
 };
 
+enum class PointGroupMode : unsigned char {
+    Time = 0,
+    Frequency = 1,
+};
+
 // A reference line the user dropped on the plot. `value` is in data units of
 // the axis it pins (x for vertical, y for horizontal); `freq` records whether
 // it belongs to the Hz view so it only shows in the matching mode.
@@ -640,6 +645,7 @@ struct PointGroup {
     std::wstring name;
     COLORREF color = RGB(0, 120, 215);
     bool visible = true;
+    PointGroupMode mode = PointGroupMode::Time;
     PointDisplay display;
     std::vector<std::pair<double, double>> points;
 };
@@ -725,6 +731,8 @@ struct App {
     COLORREF marker_color = g_theme->marker_color;
     std::vector<PointGroup> point_groups;
     int active_point_group = -1;
+    int time_active_point_group = -1;
+    int freq_active_point_group = -1;
 
     std::vector<GuideLine> guides;  // vertical / horizontal reference lines
     int pending_line = 0;           // 0 none, 1 next click = vertical, 2 = horizontal
@@ -1789,9 +1797,12 @@ void load_side_transform_controls() {
 
 void load_side_point_group_controls() {
     const int index = side_selected_point_group();
-    const bool valid = index >= 0 && index < static_cast<int>(g.point_groups.size());
+    const bool valid = index >= 0 &&
+        index < static_cast<int>(g.point_groups.size()) &&
+        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode());
     if (valid) {
         g.active_point_group = index;
+        active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(index)].mode) = index;
         sync_point_display_from_active_group();
     }
     if (g.side_point_group_visible) {
@@ -1825,7 +1836,14 @@ void populate_side_point_group_list() {
     SendMessageW(g.side_point_group_list, LB_RESETCONTENT, 0, 0);
     normalize_active_point_group();
     int selected_index = LB_ERR;
-    if (g.point_groups.empty()) {
+    bool have_mode_groups = false;
+    for (const auto& group : g.point_groups) {
+        if (point_group_matches_mode(group, current_point_group_mode())) {
+            have_mode_groups = true;
+            break;
+        }
+    }
+    if (!have_mode_groups) {
         const int idx = static_cast<int>(SendMessageW(
             g.side_point_group_list, LB_ADDSTRING, 0,
             reinterpret_cast<LPARAM>(point_group_empty_text())));
@@ -1836,6 +1854,7 @@ void populate_side_point_group_list() {
         }
     } else {
         for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            if (!point_group_matches_mode(g.point_groups[i], current_point_group_mode())) continue;
             std::wstring label = point_group_list_label(i, g.point_groups[i]);
             int idx = static_cast<int>(SendMessageW(g.side_point_group_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
             SendMessageW(g.side_point_group_list, LB_SETITEMDATA, idx, static_cast<LPARAM>(i));
@@ -2351,7 +2370,7 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.cached_global_gap_step = cached_global_gap_step;
     g.cached_global_gap_step_ready = cached_global_gap_step_ready;
     invalidate_plot_analysis_cache();
-    clear_measure_point_groups();
+    clear_all_measure_point_groups();
     g.guides.clear();
     g.markers.clear();
     g.active_marker = -1;
@@ -2842,6 +2861,8 @@ bool save_png(const std::wstring& path) {
             std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + group.name;
             line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
             line += L", color=" + export_color_triplet(group.color);
+            line += L", mode=" + std::wstring(group.mode == PointGroupMode::Frequency ? L"frequency" : L"time");
+            line += L", active=" + std::wstring((i == static_cast<std::size_t>(active_point_group_index_for_mode(group.mode))) ? L"1" : L"0");
             line += L", display=" + export_point_display_text(group.display);
             write_export_comment(out, line, line_end);
             for (std::size_t j = 0; j < group.points.size(); ++j) {
@@ -3969,6 +3990,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         ua.type = UndoAction::CLEAR_POINTS;
                         ua.saved_point_groups = g.point_groups;
                         ua.saved_active_point_group = g.active_point_group;
+                        ua.saved_time_active_point_group = g.time_active_point_group;
+                        ua.saved_freq_active_point_group = g.freq_active_point_group;
+                        ua.cleared_mode = current_point_group_mode();
                         push_undo(ua);
                         clear_measure_point_groups();
                         if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
@@ -4041,9 +4065,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_POINT_GROUP_LIST:
                     if (HIWORD(wp) == LBN_SELCHANGE) {
                         const int index = side_selected_point_group();
-                        if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                        if (index >= 0 &&
+                            index < static_cast<int>(g.point_groups.size()) &&
+                            point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode())) {
                             g.active_point_group = index;
                             g.marker_color = g.point_groups[static_cast<std::size_t>(index)].color;
+                            active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(index)].mode) = index;
                             sync_point_display_from_active_group();
                             save_runtime_settings();
                             if (g.settings_wnd) refresh_settings_controls();
@@ -4056,7 +4083,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_SIDE_POINT_GROUP_VISIBLE: {
                     const int index = side_selected_point_group();
-                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                    if (index >= 0 &&
+                        index < static_cast<int>(g.point_groups.size()) &&
+                        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode())) {
                         const SettingsSnapshot before = capture_settings_snapshot();
                         toggle_checked_state(g.side_point_group_visible);
                         const bool checked = is_toggle_checked(g.side_point_group_visible);
@@ -4084,7 +4113,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 case IDC_SIDE_POINT_GROUP_DELETE: {
                     const int index = side_selected_point_group();
-                    if (index >= 0 && index < static_cast<int>(g.point_groups.size())) {
+                    if (index >= 0 &&
+                        index < static_cast<int>(g.point_groups.size()) &&
+                        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode())) {
                         const SettingsSnapshot before = capture_settings_snapshot();
                         erase_point_group(static_cast<std::size_t>(index));
                         if (PointGroup* group = active_point_group()) g.marker_color = group->color;
@@ -4099,7 +4130,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 case IDC_SIDE_POINT_GROUP_RENAME: {
                     const int index = side_selected_point_group();
-                    if (index >= 0 && index < static_cast<int>(g.point_groups.size()) && g.side_point_group_name) {
+                    if (index >= 0 &&
+                        index < static_cast<int>(g.point_groups.size()) &&
+                        point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode()) &&
+                        g.side_point_group_name) {
                         const SettingsSnapshot before = capture_settings_snapshot();
                         wchar_t buf[256]{};
                         GetWindowTextW(g.side_point_group_name, buf, 256);
@@ -4137,7 +4171,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 case IDC_SIDE_POINT_GROUP_COLOR: {
                     const int index = side_selected_point_group();
-                    if (index < 0 || index >= static_cast<int>(g.point_groups.size())) return 0;
+                    if (index < 0 ||
+                        index >= static_cast<int>(g.point_groups.size()) ||
+                        !point_group_matches_mode(g.point_groups[static_cast<std::size_t>(index)], current_point_group_mode())) return 0;
                     CHOOSECOLORW cc = {};
                     cc.lStructSize = sizeof(cc);
                     cc.hwndOwner = hwnd;
@@ -4148,6 +4184,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         const SettingsSnapshot before = capture_settings_snapshot();
                         g.point_groups[static_cast<std::size_t>(index)].color = cc.rgbResult;
                         g.active_point_group = index;
+                        active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(index)].mode) = index;
                         g.marker_color = cc.rgbResult;
                         record_settings_change(before);
                         save_runtime_settings();
@@ -4560,6 +4597,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 ua.type = UndoAction::CLEAR_POINTS;
                 ua.saved_point_groups = g.point_groups;
                 ua.saved_active_point_group = g.active_point_group;
+                ua.saved_time_active_point_group = g.time_active_point_group;
+                ua.saved_freq_active_point_group = g.freq_active_point_group;
+                ua.cleared_mode = current_point_group_mode();
                 push_undo(ua);
                 clear_measure_point_groups();
                 if (g.settings_wnd) populate_point_group_list(g.settings_wnd);

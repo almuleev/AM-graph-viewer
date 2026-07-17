@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.12.4
+
+- Разделены группы точек для временного и FFT-режимов: у каждого режима теперь свой набор, свой активный элемент и своя отрисовка, чтобы при переключении режимов точки не смешивались.
+- Проверены тексты в интерфейсе и релизных строках: русские подписи должны отображаться корректно без `???` и битых символов.
+- Point groups are now separated between time and FFT modes, with independent active groups and rendering so markers no longer mix when switching views.
+- UI and release text were checked to keep Russian strings readable and avoid `???` or broken characters.
+
 ## v0.12.1
 
 - Вынесены крупные блоки интерфейса из `gui_main.cpp` в отдельные `gui_*.cpp/.hpp` модули, чтобы упростить поддержку и дальнейшее развитие проекта.

@@ -494,7 +494,7 @@ void reset_all_channel_transforms() {
 }
 
 void clear_transform_sensitive_overlays(bool clear_history = true) {
-    clear_measure_point_groups();
+    clear_all_measure_point_groups();
     g.markers.clear();
     g.active_marker = -1;
     g.guides.erase(

@@ -294,10 +294,6 @@ void show_styled_info_prompt(HWND owner, const wchar_t* title, const wchar_t* me
     SetForegroundWindow(owner);
 }
 
-const wchar_t* range_prompt_autofill_text() {
-    return (g_str == &kEn) ? L"Min / Max" : L"Мин / Макс";
-}
-
 double normalize_prompt_bound(double value) {
     return (std::isfinite(value) && std::fabs(value) < 1e-12) ? 0.0 : value;
 }
@@ -733,34 +729,6 @@ void sync_export_prompt_state_from_controls() {
         g_export_prompt.include_graph_settings =
             SendMessageW(g_export_prompt.include_graph_settings_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
-}
-
-bool export_prompt_has_selected_range() {
-    return has_fft_window();
-}
-
-bool export_prompt_has_formulas() {
-    return g.has_non_identity_formula;
-}
-
-bool export_prompt_has_point_groups() {
-    return !g.point_groups.empty();
-}
-
-bool export_prompt_has_markers() {
-    return !g.markers.empty();
-}
-
-bool export_prompt_has_guides() {
-    return !g.guides.empty();
-}
-
-std::wstring export_prompt_unavailable_label(const wchar_t* base_text, bool available, bool english) {
-    std::wstring text = base_text ? base_text : L"";
-    if (!available) {
-        text += english ? L" (none)" : L" (нет)";
-    }
-    return text;
 }
 
 LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {

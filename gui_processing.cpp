@@ -4,10 +4,6 @@
     return std::wstring(L"Channel_") + std::to_wstring(ci + 1);
 }
 
-std::string current_channel_label(std::size_t ci) {
-    return to_acp(channel_display_label(ci).c_str());
-}
-
 void invalidate_formula_runtime() {
     g.formula_runtime_dirty = true;
     invalidate_transformed_channel_cache();
@@ -91,7 +87,6 @@ void ensure_channel_formula_vectors() {
     g.global_formula_mul = global_affine.valid ? global_affine.mul : 1.0;
     g.global_formula_add = global_affine.valid ? global_affine.add : 0.0;
     bool has_non_identity = !g.global_formula_identity;
-    bool has_non_affine = false;
     for (std::size_t i = 0; i < n; ++i) {
         if (g.channel_formulas[i].empty()) g.channel_formulas[i] = default_channel_formula_text();
         if (g.channel_formula_rpn[i].empty()) {
@@ -109,8 +104,6 @@ void ensure_channel_formula_vectors() {
             kind = (mul == 1.0 && add == 0.0) ? TransformRuntimeKind::Identity : TransformRuntimeKind::Affine;
         } else if (g.global_formula_identity && g.channel_formula_identity[i]) {
             kind = TransformRuntimeKind::Identity;
-        } else {
-            has_non_affine = true;
         }
         g.channel_transform_kind[i] = kind;
         g.channel_transform_mul[i] = mul;
@@ -118,7 +111,6 @@ void ensure_channel_formula_vectors() {
         if (kind != TransformRuntimeKind::Identity) has_non_identity = true;
     }
     g.has_non_identity_formula = has_non_identity;
-    g.has_non_affine_formula = has_non_affine;
     g.formula_runtime_dirty = false;
 }
 
@@ -523,13 +515,6 @@ void on_signal_transform_changed(bool preserve_history = false) {
     set_status();
     InvalidateRect(g.main, nullptr, TRUE);
     save_runtime_settings();
-}
-
-double export_time_channel_value(std::size_t channel_index, std::size_t row_index) {
-    if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
-    const auto& column = g.ds.channels[channel_index];
-    if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
-    return rendered_channel_sample(channel_index, row_index);
 }
 
 double export_channel_sample(std::size_t channel_index, std::size_t row_index, bool apply_processing) {

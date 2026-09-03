@@ -330,27 +330,9 @@ void test_export_helpers() {
     check(std::wstring(export_prompt_title_text(true)) == L"Export data", "export title EN");
     check(std::wstring(export_prompt_title_text(false)) == L"Экспорт данных", "export title RU");
     check(std::wstring(export_prompt_intro_text(false)) == L"Выберите, что нужно выгрузить.", "export intro RU");
-    check(export_scope_title_text(ExportDataScope::CurrentView, true) == L"Current view", "current view title");
-    check(export_scope_title_text(ExportDataScope::LoadedFragment, true) == L"Loaded fragment", "fragment title");
-    check(export_scope_title_text(ExportDataScope::RawData, true) == L"Raw data without formulas", "raw title");
-
-    const std::wstring choice = export_scope_choice_text(ExportDataScope::CurrentView, true);
-    check(choice.find(L"Current view") != std::wstring::npos, "choice contains title");
-    check(choice.find(L"\r\n") != std::wstring::npos, "choice contains line break");
-
-    check(export_default_name(L"sample", ExportDataScope::CurrentView, true, false) == L"sample_view_time.csv",
-          "current-view csv name");
-    check(export_default_name(L"sample", ExportDataScope::LoadedFragment, false, true) == L"sample_fragment_freq.txt",
-          "fragment txt name");
-    check(export_default_name(L"sample", ExportDataScope::RawData, true, false) == L"sample_raw_time.csv",
-          "raw csv name");
-
     const std::vector<double> values = {0.0, 0.1, 0.2, 0.3, 0.4};
     const auto bounds = export_range_bounds(values, 0.15, 0.35);
     check(bounds.first == 2 && bounds.second == 4, "export range bounds");
-    check(export_status_prefix(L"CSV", ExportDataScope::CurrentView, true).find(L"Exported CSV") != std::wstring::npos,
-          "status prefix EN");
-    check(std::wstring(export_error_text(true, true)) == L"Failed to export CSV.", "CSV error text EN");
     check(std::wstring(export_include_formulas_text(false)) == L"Формулы", "export formulas RU");
 }
 

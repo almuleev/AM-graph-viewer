@@ -328,8 +328,8 @@ void activate_section_time(const PendingSectionTime& pending,
 
 }  // namespace
 
-Dataset read_lvm_file(const std::string& path, bool verbose) {
-    return read_lvm_file(path, LoadOptions{}, verbose);
+Dataset read_lvm_file(const std::string& path) {
+    return read_lvm_file(path, LoadOptions{});
 }
 
 bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
@@ -469,7 +469,7 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
     return true;
 }
 
-Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool verbose) {
+Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
     Dataset ds;
 
     std::ifstream in(path, std::ios::binary);
@@ -509,7 +509,6 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
     double section_anchor_seconds = 0.0;
     PendingSectionTime pending_section{};
     ActiveSectionTime active_section{};
-    bool used_header_time_rebuild = false;
     bool section_metadata_seen = false;
     std::vector<std::string> column_labels;
 
@@ -613,7 +612,6 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         if (have_raw_time && active_section.valid) {
             parsed[0] = active_section.offset_seconds + (raw_time - active_section.x0);
             used_header_time = true;
-            used_header_time_rebuild = true;
         }
 
         bool keep_row = true;
@@ -650,10 +648,6 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
         if (!section_has_data) {
             section_has_data = true;
             ++section_hits;
-            if (verbose) {
-                // Mirror the Python verbose breadcrumb loosely.
-                // (Section/line indices only; values omitted for brevity.)
-            }
         }
 
         if (!keep_row) continue;
@@ -685,8 +679,6 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool 
     ds.stats.data_sections = section_hits;
     ds.stats.data_rows = row_count;
     ds.stats.max_columns = static_cast<int>(columns.size());
-    ds.time_rebuilt_from_headers = used_header_time_rebuild;
-
     if (row_count == 0 || columns.empty()) {
         ds.error = options.use_time_window
             ? "No data found in the selected time range."

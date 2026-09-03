@@ -86,7 +86,6 @@ enum {
     IDC_HIDE_ALL,
     IDC_EXPORT_SCOPE_CURRENT,
     IDC_EXPORT_SCOPE_FRAGMENT,
-    IDC_EXPORT_SCOPE_RAW,
     IDC_EXPORT_APPLY_SETTINGS,
     IDC_EXPORT_APPLY_DATA,
     IDC_EXPORT_INCLUDE_CHANNEL_NAMES,
@@ -102,7 +101,6 @@ enum {
     IDM_EXIT = 1100,
     IDM_VISMOOTH,       // visual (spline) smoothing toggle
     IDM_VPAN,           // vertical pan toggle
-    IDM_SNAP,           // snap measurement markers to data
     IDM_ADD_VLINE,      // arm: place a vertical guide line
     IDM_ADD_HLINE,      // arm: place a horizontal guide line
     IDM_ADD_VLINE_EXACT, // add a vertical guide line by exact value
@@ -115,15 +113,6 @@ enum {
     IDM_ABOUT,
     IDS_COLOR,          // settings panel: marker colour button
     IDW_START,          // welcome screen: start working
-
-    // Measurement read-out toggles (used as control ids in the settings panel).
-    IDM_PT_NUM = 1200,
-    IDM_PT_X,
-    IDM_PT_Y,
-    IDM_PT_DX,
-    IDM_PT_DY,
-    IDM_PT_INVDT,
-    IDM_PT_DIST,
 
     // Playback speed menu items.
     IDM_SPEED_00001 = 1300,
@@ -179,15 +168,9 @@ enum {
     IDC_SIDE_PT_DIST,
     IDC_SIDE_PT_SNAP,
     IDC_SIDE_FILTER_ENABLE,
-    IDC_SIDE_FILTER_MODE_LABEL,
     IDC_SIDE_FILTER_MODE,
-    IDC_SIDE_FILTER_TOPOLOGY_LABEL,
     IDC_SIDE_FILTER_TOPOLOGY,
-    IDC_SIDE_FILTER_LOW_LABEL,
-    IDC_SIDE_FILTER_LOW_VALUE,
     IDC_SIDE_FILTER_LOW_TRACK,
-    IDC_SIDE_FILTER_HIGH_LABEL,
-    IDC_SIDE_FILTER_HIGH_VALUE,
     IDC_SIDE_FILTER_HIGH_TRACK,
 
     IDC_SET_LANG_RU = 5000,
@@ -202,14 +185,6 @@ enum {
     IDC_SET_HOTKEY_CLEAR,
     IDC_SET_HOTKEY_RESET_ALL,
 
-    IDC_SET_TRANSFORM_LIST = 5100,
-    IDC_SET_GLOBAL_MUL,
-    IDC_SET_GLOBAL_ADD,
-    IDC_SET_CHANNEL_MUL,
-    IDC_SET_CHANNEL_ADD,
-    IDC_SET_TRANSFORM_APPLY,
-    IDC_SET_TRANSFORM_RESET_CHANNEL,
-    IDC_SET_TRANSFORM_RESET_ALL,
     IDC_SET_POINT_GROUP_LIST = 5120,
     IDC_SET_POINT_GROUP_VISIBLE,
     IDC_SET_POINT_COLOR_CURRENT,
@@ -221,8 +196,6 @@ enum {
     IDC_SET_AXIS_Y_LABEL_STATIC,
     IDC_SET_AXIS_Y_LABEL_EDIT,
     IDC_SET_GROUP_GENERAL = 5150,
-    IDC_SET_GROUP_TRANSFORM,
-    IDC_SET_GROUP_POINTS,
     IDC_SET_GROUP_HOTKEYS,
 
     IDW_TITLE = 5200,
@@ -424,35 +397,20 @@ const int IDC_LOADING_CANCEL = 6209;
 
 constexpr UINT WM_APP_ASYNC_SCAN_DONE = WM_APP + 1;
 constexpr UINT WM_APP_ASYNC_LOAD_DONE = WM_APP + 2;
-constexpr UINT_PTR kRuntimeSettingsSaveTimerId = 3;
-constexpr UINT kRuntimeSettingsSaveDelayMs = 750;
-
 // ---- string table --------------------------------------------------------
 struct Strings {
     const wchar_t* app_title;
-    const wchar_t* menu_file; const wchar_t* menu_view; const wchar_t* menu_meas; const wchar_t* menu_lines; const wchar_t* menu_markers; const wchar_t* menu_help;
-    const wchar_t* m_open; const wchar_t* m_savepng; const wchar_t* m_savecsv; const wchar_t* m_undo; const wchar_t* m_redo; const wchar_t* m_exit;
-    const wchar_t* m_timehz; const wchar_t* m_zoomin; const wchar_t* m_zoomout; const wchar_t* m_reset; const wchar_t* m_autoy; const wchar_t* m_smooth; const wchar_t* m_vpan; const wchar_t* m_play; const wchar_t* m_theme; const wchar_t* m_speed;
-    const wchar_t* m_points; const wchar_t* m_ptsettings; const wchar_t* m_clearpts;
-    const wchar_t* m_vline; const wchar_t* m_hline; const wchar_t* m_clearlines;
-    const wchar_t* m_addmarker; const wchar_t* m_clearmarkers;
-    const wchar_t* m_hotkeys; const wchar_t* m_about;
-    const wchar_t* btn_open; const wchar_t* btn_png; const wchar_t* btn_csv; const wchar_t* btn_timehz; const wchar_t* btn_play; const wchar_t* btn_pause;
-    const wchar_t* btn_measure; const wchar_t* btn_reset; const wchar_t* btn_autoy; const wchar_t* btn_settings;
-    const wchar_t* panel_channels;
-    const wchar_t* st_time; const wchar_t* st_hz; const wchar_t* st_channels; const wchar_t* st_points; const wchar_t* st_window; const wchar_t* st_yauto; const wchar_t* st_yfix; const wchar_t* st_lines; const wchar_t* st_markers; const wchar_t* st_speed;
+    const wchar_t* menu_file; const wchar_t* menu_view; const wchar_t* menu_lines; const wchar_t* menu_markers; const wchar_t* menu_help;
+    const wchar_t* btn_open; const wchar_t* btn_png; const wchar_t* btn_csv; const wchar_t* btn_play; const wchar_t* btn_pause;
+    const wchar_t* btn_measure; const wchar_t* btn_reset; const wchar_t* btn_autoy;
+    const wchar_t* st_time; const wchar_t* st_hz; const wchar_t* st_yauto; const wchar_t* st_yfix; const wchar_t* st_lines; const wchar_t* st_markers; const wchar_t* st_speed;
     const wchar_t* plot_xlabel_time; const wchar_t* plot_xlabel_freq;
-    const wchar_t* pt_num; const wchar_t* pt_x; const wchar_t* pt_y; const wchar_t* pt_dx; const wchar_t* pt_dy; const wchar_t* pt_invdt; const wchar_t* pt_dist;
-    const wchar_t* fmt_pt_x; const wchar_t* fmt_pt_dx; const wchar_t* fmt_pt_dy; const wchar_t* fmt_pt_invdt; const wchar_t* fmt_pt_dist;
-    const wchar_t* pt_snap;
-    const wchar_t* dlg_ptsettings_title;
-    const wchar_t* dlg_hotkeys_title; const wchar_t* dlg_about_title;
-    const wchar_t* msg_nodata; const wchar_t* msg_openfirst; const wchar_t* msg_savepng_err; const wchar_t* msg_savecsv_err; const wchar_t* msg_read_err;
+    const wchar_t* fmt_pt_dx; const wchar_t* fmt_pt_dy; const wchar_t* fmt_pt_invdt; const wchar_t* fmt_pt_dist;
+    const wchar_t* dlg_hotkeys_title;
+    const wchar_t* msg_nodata; const wchar_t* msg_openfirst; const wchar_t* msg_savepng_err; const wchar_t* msg_read_err;
     const wchar_t* welcome_title;
-    const wchar_t* welcome_btn_recent; const wchar_t* welcome_btn_settings; const wchar_t* welcome_btn_hotkeys; const wchar_t* welcome_btn_start;
-    const wchar_t* hk_title;
-    const wchar_t* about_body;
-    const wchar_t* hover_open; const wchar_t* hover_png; const wchar_t* hover_csv; const wchar_t* hover_timehz; const wchar_t* hover_play; const wchar_t* hover_pause; const wchar_t* hover_measure; const wchar_t* hover_reset; const wchar_t* hover_autoy; const wchar_t* hover_settings;
+    const wchar_t* welcome_btn_recent; const wchar_t* welcome_btn_hotkeys; const wchar_t* welcome_btn_start;
+    const wchar_t* hover_open; const wchar_t* hover_png; const wchar_t* hover_play; const wchar_t* hover_pause; const wchar_t* hover_measure; const wchar_t* hover_reset; const wchar_t* hover_autoy;
     const wchar_t* lang_ru; const wchar_t* lang_en;
     const wchar_t* m_lang;
     const wchar_t* light_mode;
@@ -461,12 +419,10 @@ struct Strings {
     const wchar_t* light_mode_range_start;
     const wchar_t* light_mode_range_end;
     const wchar_t* light_mode_range_apply;
-    const wchar_t* light_mode_range_invalid_start;
     const wchar_t* light_mode_range_invalid_end;
     const wchar_t* msg_loading;
     const wchar_t* msg_loading_light;
     const wchar_t* msg_scanning_range;
-    const wchar_t* msg_openprompt;
     const wchar_t* msg_delta_f;
     const wchar_t* msg_delta_t;
     const wchar_t* st_spline;
@@ -477,13 +433,10 @@ struct Strings {
     const wchar_t* unit_sec;
     const wchar_t* theme_light;
     const wchar_t* theme_dark;
-    const wchar_t* dlg_color;
     const wchar_t* msg_error_title;
     const wchar_t* msg_saved_png;
-    const wchar_t* msg_saved_csv;
     const wchar_t* filter_open;
     const wchar_t* filter_png;
-    const wchar_t* filter_csv;
     const wchar_t* csv_time;
     const wchar_t* csv_freq;
     const wchar_t* status_vline;
@@ -493,28 +446,16 @@ struct Strings {
 
 static const Strings kRu = {
     L"AM Graph Viewer",
-    L"Файл", L"Вид", L"Точки", L"Линии", L"Маркеры", L"Справка",
-    L"Открыть файл…\tCtrl+O", L"Сохранить PNG…\tCtrl+S", L"Сохранить как…\tCtrl+Shift+S", L"Отменить\tCtrl+Z", L"Повторить\tCtrl+Shift+Z", L"Выход\tAlt+F4",
-    L"Время / Гц\tM", L"Увеличить\t+", L"Уменьшить\t−", L"Сбросить вид\tHome", L"Автомасштабирование", L"Сглаживание\tC", L"Вертикальное панорамирование\tP", L"Старт/стоп\tПробел", L"Тёмная тема\tT", L"Скорость воспроизведения…",
-    L"Точки\tV", L"Настройки", L"Очистить\tDelete",
-    L"Вертикальная\tL", L"Горизонтальная\tH", L"Очистить",
-    L"Добавить\tK", L"Очистить",
-    L"Горячие клавиши\tF1", L"О программе",
-    L"Открыть", L"PNG", L"Сохранить как…", L"Время/Гц", L"Старт", L"Стоп", L"Точки", L"Сброс", L"АвтоМасштаб", L"Настройки",
-    L"Каналы",
-    L"Время", L"Гц (FFT)", L"Каналов", L"Точек", L"Окно", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость воспроизведения",
+    L"Файл", L"Вид", L"Линии", L"Маркеры", L"Справка",
+    L"Открыть", L"PNG", L"Сохранить как…", L"Старт", L"Стоп", L"Точки", L"Сброс", L"АвтоМасштаб",
+    L"Время", L"Гц (FFT)", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость воспроизведения",
     L"Время, c", L"Частота, Гц",
-    L"Показывать номер точки", L"Показывать координату X", L"Показывать координату Y", L"Расстояние между точками по X (Δx)", L"Расстояние между точками по Y (Δy)", L"Частота 1/Δt", L"Расстояние d (по прямой)",
-    L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Гц", L"d=%.5g",
-    L"Примагничивать маркеры к графику",
-    L"Настройки точек измерения",
-    L"Горячие клавиши — AM Graph Viewer", L"О программе — AM Graph Viewer",
-    L"Нет данных", L"Сначала откройте файл.", L"Не удалось сохранить PNG.", L"Не удалось выгрузить файл.", L"Ошибка чтения",
+    L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Гц", L"d=%.5g",
+    L"Горячие клавиши — AM Graph Viewer",
+    L"Нет данных", L"Сначала откройте файл.", L"Не удалось сохранить PNG.", L"Ошибка чтения",
     L"AM Graph Viewer",
-    L"Недавние файлы", L"Настройки точек…", L"Горячие клавиши", L"Начать работу",
-    L"Файлы\n  O / Ctrl+O\t— Открыть\n  S / Ctrl+S\t— PNG\n  Ctrl+Shift+S\t— Сохранить как\n  Ctrl+Z\t— Отменить\n  Ctrl+Shift+Z\t— Повторить\n\nВид\n  M\t— Время/Гц\n  C\t— Сглаживание\n  + / ↑\t— Увеличить\n  − / ↓\t— Уменьшить\n  ← / →\t— Сдвиг влево/вправо\n  Home\t— Сброс\n  Ctrl+Home\t— В начало\n  Ctrl+End\t— В конец\n  Пробел\t— Старт/стоп\n\nЛинии и маркеры\n  L\t— Вертикальная линия\n  H\t— Горизонтальная линия\n  K\t— Маркер\n  Esc\t— Отменить добавление\n\nТочки\n  V\t— Режим точек вкл/выкл\n  Delete\t— Очистить точки\n\nМышь\n  Колесо\t— Масштаб под курсором\n  Shift+колесо\t— Прокрутка влево/вправо\n  Ctrl+колесо\t— Масштаб по высоте (Y)\n  Alt+колесо\t— Сдвиг вверх/вниз (Y)\n  ЛКМ + тяга\t— Панорамирование (вкл/выкл вертикальное через Вид)\n  ЛКМ\t— Поставить точку / линию / маркер (в режиме)\n  ПКМ\t— Очистить точки\n\n  F1\t— Эта справка",
-    L"AM Graph Viewer — просмотрщик сигналов LabVIEW (.lvm / .txt / .csv)\n\nНативное приложение Win32 + GDI/GDI+, без внешних\nзависимостей и без Qt. Время и спектр (БПФ), измерения\nс примагничиванием, направляющие линии, визуальное\nсглаживание, экспорт PNG/CSV/TXT/LVM.\n\nСборка: build_gui.ps1 (MinGW g++) или make gui.",
-    L"Открыть файл…", L"PNG", L"Сохранить как", L"Переключить Время / Гц", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"АвтоМасштаб", L"Настройки точек",
+    L"Недавние файлы", L"Горячие клавиши", L"Начать работу",
+    L"Открыть файл…", L"PNG", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"АвтоМасштаб",
     L"Русский", L"English", L"Язык",
     L"Лёгкий режим",
     L"   |   Лёгкий режим: открыт только выбранный временной фрагмент",
@@ -522,12 +463,10 @@ static const Strings kRu = {
     L"С какой секунды открыть фрагмент:",
     L"По какую секунду открыть фрагмент:",
     L"Открыть фрагмент",
-    L"Введите конечное число не меньше 0, например 0, 1.5 или 12.",
     L"Введите конечное число больше начального времени.",
     L"Загрузка файла...\r\nПожалуйста, подождите",
     L"Лёгкий режим: загрузка фрагмента...\r\nПожалуйста, подождите",
     L"Лёгкий режим: сканирование диапазона времени...\r\nПожалуйста, подождите",
-    L"Откройте файл .lvm, .txt или .csv (кнопка «Открыть файл» / клавиша O)",
     L"   |   Δf = %.5g Гц,  Δamp = %.4g",
     L"   |   Δt = %.6g c,  Δy = %.5g,  1/Δt = %.6g Гц",
     L" (+сплайн)",
@@ -538,13 +477,10 @@ static const Strings kRu = {
     L"c",
     L"Светлая тема",
     L"Тёмная тема",
-    L"Цвет маркеров…",
     L"Ошибка",
     L"Сохранено (PNG): ",
-    L"Выгружено: ",
     L"LVM / текст / CSV файлы\0*.lvm;*.txt;*.csv\0Все файлы\0*.*\0",
     L"PNG изображение\0*.png\0Все файлы\0*.*\0",
-    L"CSV файл\0*.csv\0Все файлы\0*.*\0",
     L"Время",
     L"Частота",
     L"Кликните на графике, чтобы поставить вертикальную линию (Esc — отмена). Можно добавить несколько линий подряд.",
@@ -554,28 +490,16 @@ static const Strings kRu = {
 
 static const Strings kEn = {
     L"AM Graph Viewer",
-    L"File", L"View", L"Points", L"Lines", L"Markers", L"Help",
-    L"Open file…\tCtrl+O", L"Save PNG…\tCtrl+S", L"Save as…\tCtrl+Shift+S", L"Undo\tCtrl+Z", L"Redo\tCtrl+Shift+Z", L"Exit\tAlt+F4",
-    L"Time / Hz\tM", L"Zoom in\t+", L"Zoom out\t−", L"Reset view\tHome", L"Auto zoom", L"Smoothing\tC", L"Vertical pan\tP", L"Play / Pause\tSpace", L"Dark theme\tT", L"Playback speed…",
-    L"Points\tV", L"Settings", L"Clear\tDelete",
-    L"Vertical\tL", L"Horizontal\tH", L"Clear",
-    L"Add\tK", L"Clear",
-    L"Keyboard shortcuts\tF1", L"About",
-    L"Open", L"PNG", L"Save as…", L"Time/Hz", L"▶ Play", L"⏸ Pause", L"Points", L"Reset", L"Auto zoom", L"Settings",
-    L"Channels",
-    L"Time", L"Hz (FFT)", L"Channels", L"Points", L"Window", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Playback speed",
+    L"File", L"View", L"Lines", L"Markers", L"Help",
+    L"Open", L"PNG", L"Save as…", L"▶ Play", L"⏸ Pause", L"Points", L"Reset", L"Auto zoom",
+    L"Time", L"Hz (FFT)", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Playback speed",
     L"Time, s", L"Frequency, Hz",
-    L"Show point number", L"Show X coordinate", L"Show Y coordinate", L"Distance along X (Δx)", L"Distance along Y (Δy)", L"Frequency 1/Δt", L"Straight-line distance d",
-    L"X=%.5g", L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Hz", L"d=%.5g",
-    L"Snap markers to graph",
-    L"Measurement point settings",
-    L"Keyboard shortcuts — AM Graph Viewer", L"About — AM Graph Viewer",
-    L"No data", L"Open a file first.", L"Failed to save PNG.", L"Failed to export file.", L"Read error",
+    L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Hz", L"d=%.5g",
+    L"Keyboard shortcuts — AM Graph Viewer",
+    L"No data", L"Open a file first.", L"Failed to save PNG.", L"Read error",
     L"AM Graph Viewer",
-    L"Recent files", L"Point settings…", L"Keyboard shortcuts", L"Start working",
-    L"Files\n  O / Ctrl+O\t— Open\n  S / Ctrl+S\t— PNG\n  Ctrl+Shift+S\t— Save as\n  Ctrl+Z\t— Undo\n  Ctrl+Shift+Z\t— Redo\n\nView\n  M\t— Time / Hz\n  C\t— Smoothing\n  + / ↑\t— Zoom in\n  − / ↓\t— Zoom out\n  ← / →\t— Pan left / right\n  Home\t— Reset view\n  Ctrl+Home\t— Go to start\n  Ctrl+End\t— Go to end\n  Space\t— Play / Pause\n\nLines and markers\n  L\t— Vertical line\n  H\t— Horizontal line\n  K\t— Marker\n  Esc\t— Cancel adding\n\nPoints\n  V\t— Measure mode on/off\n  Delete\t— Clear points\n\nMouse\n  Wheel\t— Zoom under cursor\n  Shift+wheel\t— Pan left / right\n  Ctrl+wheel\t— Zoom Y\n  Alt+wheel\t— Pan up/down (Y)\n  Left-drag\t— Pan (toggle vertical via View)\n  Left-click\t— Drop point / line / marker (in mode)\n  Right-click\t— Clear points\n\n  F1\t— This help",
-    L"AM Graph Viewer — LabVIEW signal viewer (.lvm / .txt / .csv)\n\nNative Win32 + GDI/GDI+ application, no external\ndependencies, no Qt. Time and spectrum (FFT), measurements\nwith snapping, guide lines, visual smoothing, PNG and unified save-as export.\n\nBuild: build_gui.ps1 (MinGW g++) or make gui.",
-    L"Open file…", L"PNG", L"Save as", L"Toggle Time / Hz", L"Playback", L"Pause", L"Measurement point mode", L"Reset view", L"Auto zoom", L"Point settings",
+    L"Recent files", L"Keyboard shortcuts", L"Start working",
+    L"Open file…", L"PNG", L"Playback", L"Pause", L"Measurement point mode", L"Reset view", L"Auto zoom",
     L"Русский", L"English", L"Language",
     L"Light mode",
     L"   |   Light mode: only the selected time fragment is open",
@@ -583,12 +507,10 @@ static const Strings kEn = {
     L"Open the fragment starting from this second:",
     L"Open the fragment until this second:",
     L"Open fragment",
-    L"Enter a finite number greater than or equal to 0, for example 0, 1.5, or 12.",
     L"Enter a finite number greater than the start time.",
     L"Loading file...\r\nPlease wait",
     L"Light mode: loading fragment...\r\nPlease wait",
     L"Light mode: scanning time range...\r\nPlease wait",
-    L"Open a .lvm, .txt, or .csv file (click \"Open file\" / press O)",
     L"   |   Δf = %.5g Hz,  Δamp = %.4g",
     L"   |   Δt = %.6g s,  Δy = %.5g,  1/Δt = %.6g Hz",
     L" (+spline)",
@@ -599,13 +521,10 @@ static const Strings kEn = {
     L"s",
     L"Light theme",
     L"Dark theme",
-    L"Marker colour…",
     L"Error",
     L"Saved (PNG): ",
-    L"Exported: ",
     L"LVM / text / CSV files\0*.lvm;*.txt;*.csv\0All files\0*.*\0",
     L"PNG image\0*.png\0All files\0*.*\0",
-    L"CSV file\0*.csv\0All files\0*.*\0",
     L"Time",
     L"Frequency",
     L"Click on the plot to place a vertical line (Esc to cancel). You can add multiple lines.",
@@ -700,7 +619,6 @@ struct App {
     std::vector<std::vector<double>> filtered_channel_cache;
     std::vector<char> filtered_channel_cache_valid;
     bool has_non_identity_formula = false;
-    bool has_non_affine_formula = false;
     bool freq_mode = false;
 
     double data_t0 = 0.0, data_t1 = 1.0;
@@ -790,7 +708,6 @@ struct App {
     double gap_details_duration = 0.0;
     long long gap_details_missing_samples = 0;
     double gap_details_reference_step = 0.0;
-    bool runtime_settings_save_pending = false;
     bool current_file_partial = false;
     double light_mode_open_start = 0.0;
     double light_mode_open_end = 10.0;
@@ -1059,15 +976,6 @@ void save_runtime_settings_now() {
 }
 
 void save_runtime_settings() {
-    save_runtime_settings_now();
-}
-
-void flush_runtime_settings_save() {
-    if (g.main && IsWindow(g.main)) {
-        KillTimer(g.main, kRuntimeSettingsSaveTimerId);
-    }
-    if (!g.runtime_settings_save_pending) return;
-    g.runtime_settings_save_pending = false;
     save_runtime_settings_now();
 }
 
@@ -3666,10 +3574,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_TIMER:
-            if (LOWORD(wp) == kRuntimeSettingsSaveTimerId) {
-                flush_runtime_settings_save();
-                return 0;
-            }
             if (LOWORD(wp) == 2) {
                 POINT pt;
                 GetCursorPos(&pt);
@@ -4786,10 +4690,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             request_async_load_cancel();
             hide_loading();
-            flush_runtime_settings_save();
             save_app_settings();
             stop_play();
-            KillTimer(hwnd, kRuntimeSettingsSaveTimerId);
             KillTimer(hwnd, 2);
             release_backbuffer();
             if (g.ui_font && g.ui_font != reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)))
@@ -4898,10 +4800,6 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
     if (!g.main) return 1;
     SendMessageW(g.main, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(class_icon));
     SendMessageW(g.main, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(class_icon));
-    if (g.runtime_settings_save_pending) {
-        save_runtime_settings();
-    }
-
     ShowWindow(g.main, show);
     UpdateWindow(g.main);
     DragAcceptFiles(g.main, TRUE);

@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    lvm::Dataset ds = lvm::read_lvm_file(file, verbose);
+    lvm::Dataset ds = lvm::read_lvm_file(file);
     if (!ds.ok) {
         std::cerr << "Error: " << ds.error << "\n";
         return 1;

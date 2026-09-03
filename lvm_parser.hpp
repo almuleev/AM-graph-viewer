@@ -61,7 +61,6 @@ struct Dataset {
     std::vector<std::string> export_comments;  // optional `# ...` metadata from exported files
     ParseStats stats;
     bool partial = false;                      // true when loading stopped early by options
-    bool time_rebuilt_from_headers = false;    // true when section Date/Time + X0 rebuilt the timeline
     bool ok = false;
     std::string error;
 
@@ -70,8 +69,8 @@ struct Dataset {
 };
 
 // Read and parse a file. Returns ok=false with `error` set on failure.
-Dataset read_lvm_file(const std::string& path, bool verbose = false);
-Dataset read_lvm_file(const std::string& path, const LoadOptions& options, bool verbose = false);
+Dataset read_lvm_file(const std::string& path);
+Dataset read_lvm_file(const std::string& path, const LoadOptions& options);
 bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
                       const std::atomic<bool>* cancel_flag = nullptr, ScanIndex* out_index = nullptr);
 

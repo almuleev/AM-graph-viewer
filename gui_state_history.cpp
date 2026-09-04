@@ -50,9 +50,7 @@ struct UndoAction {
 std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
 WNDPROC g_channel_edit_proc = nullptr;
-void populate_point_group_list(HWND hwnd);
 void refresh_side_panel_controls();
-void refresh_settings_controls();
 void apply_side_panel_visibility();
 void set_side_panel_tab(int tab);
 int side_panel_width();
@@ -60,7 +58,6 @@ void layout();
 void update_side_panel_scrollbar(int viewport_top, int content_height);
 bool side_panel_hit_test(const POINT& pt);
 void scroll_side_panel(int delta);
-void load_side_transform_controls();
 std::wstring format_edit_number(double value);
 std::wstring format_optional_edit_number(double value);
 COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
@@ -69,7 +66,6 @@ void invalidate_formula_runtime();
 void invalidate_formula_runtime_channel(std::size_t channel_index);
 void invalidate_transformed_channel_cache();
 void invalidate_filtered_channel_cache();
-void normalize_filter_bounds();
 double current_filter_sample_step();
 double current_filter_nyquist();
 double clamp_filter_cutoff(double hz, double nyquist);
@@ -82,23 +78,16 @@ void ensure_filtered_channel_cache(std::size_t channel_index);
 void ensure_transformed_channel_cache(std::size_t channel_index);
 void load_channel_formulas_from_ini();
 void finish_channel_rename(bool apply);
-void save_runtime_settings();
 void set_status();
 void sync_menu();
-void clear_spectrum_cache_state();
-void invalidate_plot_analysis_cache();
-void compute_spectrum();
 void compute_spectrum_from_current_source();
 bool ensure_current_spectrum();
 double visible_spectrum_ymax();
 SettingsSnapshot capture_settings_snapshot();
 void ensure_channel_formula_storage();
-void ensure_channel_formulas_loaded();
 bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot& b);
 void apply_settings_snapshot(const SettingsSnapshot& snapshot);
 bool record_settings_change(const SettingsSnapshot& before);
-bool is_toggle_checked(HWND hwnd);
-void set_toggle_checked(HWND hwnd, bool checked);
 void toggle_checked_state(HWND hwnd);
 std::wstring channel_display_label(std::size_t ci);
 std::wstring normalize_axis_label_text(const std::wstring& text, const wchar_t* fallback);
@@ -257,27 +246,27 @@ const wchar_t* side_pt_num_text() {
 }
 
 const wchar_t* side_pt_x_text() {
-    return (g_str == &kEn) ? L"X" : L"X";
+    return L"X";
 }
 
 const wchar_t* side_pt_y_text() {
-    return (g_str == &kEn) ? L"Y" : L"Y";
+    return L"Y";
 }
 
 const wchar_t* side_pt_dx_text() {
-    return (g_str == &kEn) ? L"Δx" : L"Δx";
+    return L"Δx";
 }
 
 const wchar_t* side_pt_dy_text() {
-    return (g_str == &kEn) ? L"Δy" : L"Δy";
+    return L"Δy";
 }
 
 const wchar_t* side_pt_invdt_text() {
-    return (g_str == &kEn) ? L"1/Δt" : L"1/Δt";
+    return L"1/Δt";
 }
 
 const wchar_t* side_pt_dist_text() {
-    return (g_str == &kEn) ? L"d" : L"d";
+    return L"d";
 }
 
 const wchar_t* side_pt_snap_text() {
@@ -715,7 +704,7 @@ void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
     g.y_amp_max = snapshot.y_amp_max;
     sync_channel_controls_from_state();
     recompute_transforms_from_state();
-    if (g.settings_wnd) refresh_settings_controls();
+    refresh_settings_controls();
     refresh_side_panel_controls();
     set_status();
     InvalidateRect(g.main, nullptr, TRUE);
@@ -799,7 +788,6 @@ void pop_undo() {
         default: break;
     }
     sync_point_display_from_active_group();
-    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
     refresh_side_panel_controls();
 }
 void pop_redo() {
@@ -853,7 +841,6 @@ void pop_redo() {
         default: break;
     }
     sync_point_display_from_active_group();
-    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
     refresh_side_panel_controls();
 }
 

@@ -69,8 +69,7 @@ enum {
     IDC_OPEN = 1001,
     IDC_SAVEPNG,
     IDC_SAVECSV,
-    IDC_MODE,
-    IDC_PLAY,
+    IDC_PLAY = 1005,
     IDC_MEASURE,
     IDC_ZOOMIN,
     IDC_ZOOMOUT,
@@ -111,8 +110,7 @@ enum {
     IDM_CLEAR_POINTS,
     IDM_HOTKEYS,
     IDM_ABOUT,
-    IDS_COLOR,          // settings panel: marker colour button
-    IDW_START,          // welcome screen: start working
+    IDW_START = 1114,   // welcome screen: start working
 
     // Playback speed menu items.
     IDM_SPEED_00001 = 1300,
@@ -185,12 +183,7 @@ enum {
     IDC_SET_HOTKEY_CLEAR,
     IDC_SET_HOTKEY_RESET_ALL,
 
-    IDC_SET_POINT_GROUP_LIST = 5120,
-    IDC_SET_POINT_GROUP_VISIBLE,
-    IDC_SET_POINT_COLOR_CURRENT,
-    IDC_SET_POINT_GROUP_COLOR,
-    IDC_SET_POINT_GROUP_NEW,
-    IDC_SET_GAP_MARKERS,
+    IDC_SET_GAP_MARKERS = 5125,
     IDC_SET_AXIS_X_LABEL_STATIC,
     IDC_SET_AXIS_X_LABEL_EDIT,
     IDC_SET_AXIS_Y_LABEL_STATIC,
@@ -400,7 +393,6 @@ constexpr UINT WM_APP_ASYNC_LOAD_DONE = WM_APP + 2;
 // ---- string table --------------------------------------------------------
 struct Strings {
     const wchar_t* app_title;
-    const wchar_t* menu_file; const wchar_t* menu_view; const wchar_t* menu_lines; const wchar_t* menu_markers; const wchar_t* menu_help;
     const wchar_t* btn_open; const wchar_t* btn_png; const wchar_t* btn_csv; const wchar_t* btn_play; const wchar_t* btn_pause;
     const wchar_t* btn_measure; const wchar_t* btn_reset; const wchar_t* btn_autoy;
     const wchar_t* st_time; const wchar_t* st_hz; const wchar_t* st_yauto; const wchar_t* st_yfix; const wchar_t* st_lines; const wchar_t* st_markers; const wchar_t* st_speed;
@@ -446,7 +438,6 @@ struct Strings {
 
 static const Strings kRu = {
     L"AM Graph Viewer",
-    L"Файл", L"Вид", L"Линии", L"Маркеры", L"Справка",
     L"Открыть", L"PNG", L"Сохранить как…", L"Старт", L"Стоп", L"Точки", L"Сброс", L"АвтоМасштаб",
     L"Время", L"Гц (FFT)", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость воспроизведения",
     L"Время, c", L"Частота, Гц",
@@ -490,7 +481,6 @@ static const Strings kRu = {
 
 static const Strings kEn = {
     L"AM Graph Viewer",
-    L"File", L"View", L"Lines", L"Markers", L"Help",
     L"Open", L"PNG", L"Save as…", L"▶ Play", L"⏸ Pause", L"Points", L"Reset", L"Auto zoom",
     L"Time", L"Hz (FFT)", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Playback speed",
     L"Time, s", L"Frequency, Hz",
@@ -1239,7 +1229,6 @@ void set_status() {
     }
 }
 
-void ensure_channel_formula_vectors();
 double transform_channel_value(std::size_t ci, double raw);
 int channel_index_by_name(const std::string& name);
 
@@ -1434,7 +1423,7 @@ void finish_channel_rename(bool apply) {
     g_channel_edit_proc = nullptr;
     g.editing_channel = -1;
     if (track_change) record_settings_change(before);
-    if (g.settings_wnd) refresh_settings_controls();
+    refresh_settings_controls();
     set_status();
     InvalidateRect(g.main, nullptr, FALSE);
 }
@@ -1899,7 +1888,6 @@ void enable_file_drop_support(HWND hwnd);
 void toggle_welcome_recent_files_panel(HWND owner);
 void show_welcome_recent_files_panel(HWND owner);
 void hide_welcome_recent_files_panel();
-bool welcome_recent_files_panel_visible();
 
 #include "gui_layout.cpp"
 void clamp_range(double& lo, double& hi, double minb, double maxb, double minw) {
@@ -3154,12 +3142,12 @@ void load_runtime_settings() {
 std::wstring key_name(WORD key) {
     switch (key) {
         case 0: return g_str == &kEn ? L"None" : L"Нет";
-        case VK_TAB: return g_str == &kEn ? L"Tab" : L"Tab";
-        case VK_BACK: return g_str == &kEn ? L"Backspace" : L"Backspace";
-        case VK_RETURN: return g_str == &kEn ? L"Enter" : L"Enter";
-        case VK_INSERT: return g_str == &kEn ? L"Insert" : L"Insert";
-        case VK_PRIOR: return g_str == &kEn ? L"Page Up" : L"Page Up";
-        case VK_NEXT: return g_str == &kEn ? L"Page Down" : L"Page Down";
+        case VK_TAB: return L"Tab";
+        case VK_BACK: return L"Backspace";
+        case VK_RETURN: return L"Enter";
+        case VK_INSERT: return L"Insert";
+        case VK_PRIOR: return L"Page Up";
+        case VK_NEXT: return L"Page Down";
         case VK_SPACE: return g_str == &kEn ? L"Space" : L"Пробел";
         case VK_LEFT: return g_str == &kEn ? L"Left" : L"Влево";
         case VK_RIGHT: return g_str == &kEn ? L"Right" : L"Вправо";
@@ -3169,12 +3157,12 @@ std::wstring key_name(WORD key) {
         case VK_END: return L"End";
         case VK_DELETE: return L"Delete";
         case VK_ESCAPE: return L"Esc";
-        case VK_PAUSE: return g_str == &kEn ? L"Pause" : L"Pause";
-        case VK_CAPITAL: return g_str == &kEn ? L"Caps Lock" : L"Caps Lock";
-        case VK_NUMLOCK: return g_str == &kEn ? L"Num Lock" : L"Num Lock";
-        case VK_SCROLL: return g_str == &kEn ? L"Scroll Lock" : L"Scroll Lock";
-        case VK_SNAPSHOT: return g_str == &kEn ? L"Print Screen" : L"Print Screen";
-        case VK_APPS: return g_str == &kEn ? L"Menu" : L"Menu";
+        case VK_PAUSE: return L"Pause";
+        case VK_CAPITAL: return L"Caps Lock";
+        case VK_NUMLOCK: return L"Num Lock";
+        case VK_SCROLL: return L"Scroll Lock";
+        case VK_SNAPSHOT: return L"Print Screen";
+        case VK_APPS: return L"Menu";
         case VK_OEM_PLUS: return L"+";
         case VK_OEM_MINUS: return L"-";
         default:
@@ -3634,9 +3622,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
                 case IDC_SAVECSV: save_as_dialog(); return 0;
                 case IDM_EXIT: DestroyWindow(hwnd); return 0;
-                case IDC_MODE:
-                    set_mode(!g.freq_mode);
-                    return 0;
                 case IDM_MODE_TIME:
                     set_mode(false);
                     return 0;
@@ -3722,7 +3707,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     assign_global_formula(formula, compiled);
                     on_signal_transform_changed(true);
                     record_settings_change(before);
-                    if (g.settings_wnd) refresh_settings_controls();
+                    refresh_settings_controls();
                     load_side_transform_controls();
                     return 0;
                 }
@@ -3742,7 +3727,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                             }
                             g_channel_colors[static_cast<std::size_t>(g.side_selected_channel)] = cc.rgbResult;
                             record_settings_change(before);
-                            if (g.settings_wnd) refresh_settings_controls();
+                            refresh_settings_controls();
                             refresh_side_panel_controls();
                             InvalidateRect(hwnd, nullptr, FALSE);
                         }
@@ -3781,7 +3766,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (changed) {
                         on_signal_transform_changed(true);
                         record_settings_change(before);
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         load_side_transform_controls();
                     }
                     return 0;
@@ -3792,7 +3777,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         reset_channel_transform(static_cast<std::size_t>(g.side_selected_channel));
                         on_signal_transform_changed(true);
                         record_settings_change(before);
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         load_side_transform_controls();
                     }
                     return 0;
@@ -3802,7 +3787,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         reset_all_channel_transforms();
                         on_signal_transform_changed(true);
                         record_settings_change(before);
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         load_side_transform_controls();
                     }
                     return 0;
@@ -3899,7 +3884,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         ua.cleared_mode = current_point_group_mode();
                         push_undo(ua);
                         clear_measure_point_groups();
-                        if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
                         refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
@@ -3977,7 +3961,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                             active_point_group_index_for_mode(g.point_groups[static_cast<std::size_t>(index)].mode) = index;
                             sync_point_display_from_active_group();
                             save_runtime_settings();
-                            if (g.settings_wnd) refresh_settings_controls();
+                            refresh_settings_controls();
                             load_side_point_group_controls();
                             refresh_side_panel_controls();
                             set_status();
@@ -3996,7 +3980,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         g.point_groups[static_cast<std::size_t>(index)].visible = checked;
                         record_settings_change(before);
                         save_runtime_settings();
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         load_side_point_group_controls();
                         refresh_side_panel_controls();
                         set_status();
@@ -4009,7 +3993,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     create_point_group(g.marker_color);
                     record_settings_change(before);
                     save_runtime_settings();
-                    if (g.settings_wnd) refresh_settings_controls();
+                    refresh_settings_controls();
                     refresh_side_panel_controls();
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -4025,7 +4009,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         if (PointGroup* group = active_point_group()) g.marker_color = group->color;
                         record_settings_change(before);
                         save_runtime_settings();
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         refresh_side_panel_controls();
                         set_status();
                         InvalidateRect(hwnd, nullptr, FALSE);
@@ -4047,7 +4031,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         }
                         g.point_groups[static_cast<std::size_t>(index)].name = name;
                         record_settings_change(before);
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
@@ -4067,7 +4051,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         if (group && group->points.empty()) group->color = g.marker_color;
                         record_settings_change(before);
                         save_runtime_settings();
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
@@ -4092,7 +4076,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         g.marker_color = cc.rgbResult;
                         record_settings_change(before);
                         save_runtime_settings();
-                        if (g.settings_wnd) refresh_settings_controls();
+                        refresh_settings_controls();
                         refresh_side_panel_controls();
                         InvalidateRect(hwnd, nullptr, FALSE);
                     }
@@ -4122,7 +4106,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g.pdisp = *display;
                     record_settings_change(before);
                     save_runtime_settings();
-                    if (g.settings_wnd) refresh_settings_controls();
+                    refresh_settings_controls();
                     sync_point_display_from_active_group();
                     refresh_side_panel_controls();
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -4134,7 +4118,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g.snap_to_data = is_toggle_checked(GetDlgItem(hwnd, id));
                     record_settings_change(before);
                     save_runtime_settings();
-                    if (g.settings_wnd) refresh_settings_controls();
+                    refresh_settings_controls();
                     refresh_side_panel_controls();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
@@ -4472,7 +4456,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     ua.point_group_state = g.point_groups[static_cast<std::size_t>(group_index)];
                     ua.point_group_state.points.clear();
                     push_undo(ua);
-                    if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
                     refresh_side_panel_controls();
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
@@ -4506,7 +4489,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 ua.cleared_mode = current_point_group_mode();
                 push_undo(ua);
                 clear_measure_point_groups();
-                if (g.settings_wnd) populate_point_group_list(g.settings_wnd);
                 set_status();
                 InvalidateRect(hwnd, nullptr, FALSE);
             }

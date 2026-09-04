@@ -249,13 +249,13 @@ int frequency_to_filter_slider(double hz, double nyquist) {
 
 std::wstring filter_frequency_text(double hz) {
     if (!(hz > 0.0) || !std::isfinite(hz)) {
-        return g_str == &kEn ? L"off" : L"РІС‹РєР»";
+        return g_str == &kEn ? L"off" : L"выкл";
     }
     wchar_t buf[64];
     if (hz >= 1000.0) {
-        swprintf(buf, 64, g_str == &kEn ? L"%.6g kHz" : L"%.6g РєР“С†", hz / 1000.0);
+        swprintf(buf, 64, g_str == &kEn ? L"%.6g kHz" : L"%.6g кГц", hz / 1000.0);
     } else {
-        swprintf(buf, 64, g_str == &kEn ? L"%.6g Hz" : L"%.6g Р“С†", hz);
+        swprintf(buf, 64, g_str == &kEn ? L"%.6g Hz" : L"%.6g Гц", hz);
     }
     return buf;
 }

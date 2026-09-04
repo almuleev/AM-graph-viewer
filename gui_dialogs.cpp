@@ -40,7 +40,6 @@ struct InfoPromptState {
     HWND wnd = nullptr;
     HWND ok_button = nullptr;
     bool done = false;
-    bool accepted = false;
     bool error = false;
     std::wstring title;
     std::wstring message;
@@ -71,7 +70,6 @@ struct ExportPromptState {
     HWND include_graph_settings_check = nullptr;
     bool done = false;
     bool accepted = false;
-    bool invalid_format = false;
     ExportFileFormat selected_format = ExportFileFormat::Csv;
     ExportRangeMode selected_range = ExportRangeMode::Visible;
     bool apply_processing_to_data = true;
@@ -172,7 +170,6 @@ LRESULT CALLBACK InfoPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_COMMAND:
             if (LOWORD(wp) == IDOK || LOWORD(wp) == IDCANCEL) {
-                g_info_prompt.accepted = true;
                 DestroyWindow(hwnd);
                 return 0;
             }
@@ -255,7 +252,6 @@ void show_styled_info_prompt(HWND owner, const wchar_t* title, const wchar_t* me
     }
 
     g_info_prompt.done = false;
-    g_info_prompt.accepted = false;
     g_info_prompt.error = error;
     g_info_prompt.title = title ? title : L"";
     g_info_prompt.message = message ? message : L"";

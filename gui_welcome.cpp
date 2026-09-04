@@ -1,7 +1,5 @@
 ﻿// ---- welcome / start screen ----------------------------------------------
 
-void rebuild_ui();
-
 struct RecentFilesPanelState {
     HWND wnd = nullptr;
     std::array<HWND, kMaxRecentFiles> items{};
@@ -96,7 +94,7 @@ void draw_recent_file_panel_button(HDC dc, const RECT& r, const wchar_t* txt, bo
     SelectObject(dc, old_font);
 }
 
-void update_recent_files_panel_items(HWND owner) {
+void update_recent_files_panel_items() {
     if (!g_recent_files_panel.wnd || !IsWindow(g_recent_files_panel.wnd)) return;
     const HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     for (std::size_t i = 0; i < kMaxRecentFiles; ++i) {
@@ -168,7 +166,7 @@ void layout_welcome_recent_files_panel(HWND owner) {
             ShowWindow(item, SW_HIDE);
         }
     }
-    update_recent_files_panel_items(owner);
+    update_recent_files_panel_items();
 }
 
 void hide_welcome_recent_files_panel() {
@@ -229,7 +227,7 @@ LRESULT CALLBACK WelcomeRecentPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
                     g_recent_files_panel.items[i] = item;
                 }
             }
-            update_recent_files_panel_items(GetParent(hwnd));
+            update_recent_files_panel_items();
             return 0;
         }
         case WM_COMMAND: {

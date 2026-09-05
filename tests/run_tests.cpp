@@ -566,6 +566,65 @@ void test_fft_irregular_timestamps() {
     check(cancelled_cleanly, "resampling respects FFT cancellation");
 }
 
+void test_fft_gap_regressions() {
+    std::printf("test_fft_gap_regressions\n");
+    // Compare every bin against the same available values on a compact axis.
+    // Non-periodic values make losing or interpolating a fragment observable.
+    for (int gap_count : {10, 10000}) {
+        for (int pattern = 0; pattern < 4; ++pattern) {
+            lvm::Dataset compact, recorded;
+            compact.names = recorded.names = {"A", "B"};
+            compact.channels.resize(2); recorded.channels.resize(2);
+            const int rows = pattern == 0 ? gap_count * 3 + 1 : gap_count + 1001;
+            double time = 0;
+            int gaps = 0;
+            for (int i = 0; i < rows; ++i) {
+                const bool gap = i && (pattern == 0 ? i % 3 == 0 : i > 1000);
+                if (i) time += (1.0 + (gap ? (pattern == 0 || pattern == 3 ? 1 + gaps % 3 : 1024.0 * (1 + gaps % 7)) : 0.0)) / 1024;
+                if (gap) ++gaps;
+                compact.time.push_back(i / 1024.0);
+                recorded.time.push_back(time);
+                for (int c = 0; c < 2; ++c) {
+                    const double value = std::sin(i * (0.19 + c * 0.27)) + (i % 31 == 0 ? 3.0 : 0.0);
+                    compact.channels[c].push_back(value);
+                    recorded.channels[c].push_back(value);
+                }
+            }
+            // Explicit cap is the only permitted source of truncation.
+            const int cap = pattern == 2 ? rows - 3 : 0;
+            const auto expected = lvm::compute_spectrum(compact, cap);
+            const auto actual = lvm::compute_spectrum(recorded, cap);
+            check(gaps == gap_count && actual.ok && expected.ok, "gap oracle setup");
+            check(actual.gaps_ignored && !actual.resampled, "short and dominant large gaps are compressed without interpolation");
+            check(actual.n == expected.n && actual.source_end == recorded.time[expected.n - 1], "all selected values and correct physical bounds retained");
+            check(actual.freqs == expected.freqs, "gap-compressed frequency bins match compact reference");
+            check(actual.amp == expected.amp, "every amplitude in both channels matches compact reference");
+        }
+    }
+
+    lvm::Dataset jittered;
+    jittered.names = {"A"}; jittered.channels.resize(1);
+    for (int i = 0; i < 256; ++i) {
+        const double t = (i + 0.1 * std::sin(i * 0.3)) / 1024.0;
+        jittered.time.push_back(t); jittered.channels[0].push_back(std::sin(t * 200));
+    }
+    jittered.time.push_back(1000); jittered.channels[0].push_back(0.4);
+    const auto moderate = lvm::compute_spectrum(jittered, 0);
+    jittered.time.back() = 1e100;
+    const auto huge = lvm::compute_spectrum(jittered, 0);
+    check(moderate.ok && huge.ok && moderate.resampled && huge.resampled, "huge gap does not suppress jitter correction");
+    check(huge.freqs == moderate.freqs && huge.amp == moderate.amp, "gap duration cannot change the compacted spectrum");
+
+    // Rows beyond an explicit cap must not change sampling inference.
+    lvm::Dataset capped;
+    capped.names = {"A"}; capped.channels.resize(1);
+    for (int i = 0; i < 16; ++i) { capped.time.push_back(i / 1024.0); capped.channels[0].push_back(std::sin(i)); }
+    const auto before = lvm::compute_spectrum(capped, 16);
+    for (int i = 0; i < 256; ++i) { capped.time.push_back(capped.time.back() + 1e-6); capped.channels[0].push_back(i); }
+    const auto after = lvm::compute_spectrum(capped, 16);
+    check(after.ok && after.freqs == before.freqs && after.amp == before.amp, "unselected tail cannot affect capped FFT");
+}
+
 void test_minmax_and_spectrum_import() {
     std::printf("test_minmax_and_spectrum_import\n");
     std::vector<double> values(1027);
@@ -610,6 +669,7 @@ int main() {
     test_data_integrity_regressions();
     test_spectrum_integrity_regressions();
     test_fft_irregular_timestamps();
+    test_fft_gap_regressions();
     test_minmax_and_spectrum_import();
     test_basic_parse();
     test_metadata_and_nan();

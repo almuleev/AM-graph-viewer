@@ -10,7 +10,7 @@ if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
 Set-Location $PSScriptRoot
 
 # Identify the actual checkout, including uncommitted source changes.
-$version = git -c core.excludesFile=NUL describe --tags --always --dirty 2>$null
+$version = git -c core.excludesFile= describe --tags --always --dirty 2>$null
 if (-not $version) { $version = "dev" }
 
 $outName = "AMGraphViewer-$version-win-x64.exe"

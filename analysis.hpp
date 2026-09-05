@@ -34,10 +34,12 @@ struct Spectrum {
 };
 
 // Compute the magnitude spectrum for every channel. `max_samples > 0` caps the
-// sample count using the first N selected samples. Gaps greater than four
-// median time steps are compressed to one typical step, so every available
+// sample count using the first N selected samples. Recognized timestamp gaps
+// (> 1.5 estimated sample steps) are compressed to one typical step, so every available
 // sample in the selected range is retained. Values are linearly interpolated
-// onto an evenly spaced grid based on this gap-free timeline.
+// onto an evenly spaced grid based on this gap-free timeline. See sampling.hpp
+// for cadence inference. NaN channel values are filled with the channel mean;
+// they are not treated as missing timestamps and are not removed independently.
 Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<bool>* cancel = nullptr);
 
 // Return up to `count` strongest spectral peaks (local maxima), excluding DC.

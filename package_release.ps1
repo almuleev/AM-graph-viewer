@@ -25,7 +25,7 @@ while ($ancestor.Length -ge $releaseRoot.Length) {
 }
 $OutputDir = $releaseTarget
 
-$version = git -c core.excludesFile=NUL describe --tags --always --dirty 2>$null
+$version = git -c core.excludesFile= describe --tags --always --dirty 2>$null
 if (-not $version) { $version = "dev" }
 $guiExe = "AMGraphViewer-$version-win-x64.exe"
 $zipName = "AMGraphViewer-$version-win-x64.zip"

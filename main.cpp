@@ -197,7 +197,7 @@ void print_peaks(const lvm::Spectrum& spec, int peak_count) {
         std::cout << "\nFFT spectrum (N=" << spec.n << ", dt=" << fmt(spec.sample_dt)
                   << " s, Nyquist=" << fmt(spec.nyquist) << " Hz)\n";
     }
-    if (spec.gaps_ignored) std::cout << "  Timestamp gaps ignored; all selected samples used.\n";
+    if (spec.gaps_ignored) std::cout << "  Timestamp gaps ignored; " << spec.n << " samples used.\n";
     if (spec.resampled) std::cout << "  Uneven timestamps resampled by linear interpolation.\n";
     for (std::size_t c = 0; c < spec.names.size(); ++c) {
         const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[c], peak_count);

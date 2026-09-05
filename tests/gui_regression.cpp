@@ -174,6 +174,129 @@ void fft_recording_recovery() {
     require(source && resampled && gaps_ignored, "export records full FFT source, interpolation and ignored gaps");
 }
 
+void fft_selected_gap_range() {
+    // Selection boundaries lie between samples, inside gaps. Large outside
+    // impulses must not leak into the FFT; both interior channels must survive.
+    constexpr std::size_t count = 12032, lo = 100, hi = 11932;
+    std::vector<double> time(count);
+    std::vector<std::vector<double>> values(2, std::vector<double>(count));
+    lvm::Dataset compact;
+    compact.names = {"A", "B"}; compact.channels.resize(2);
+    for (std::size_t i = 0; i < count; ++i) {
+        time[i] = i ? time[i - 1] + (i % 8 ? 1025.0 : 1.0) / 1024 : 50.0;
+        for (std::size_t c = 0; c < 2; ++c) {
+            values[c][i] = i < lo || i >= hi ? 1e6 : std::sin(i * (0.13 + 0.2 * c));
+            if (i >= lo && i < hi) compact.channels[c].push_back(values[c][i]);
+        }
+        if (i >= lo && i < hi) compact.time.push_back((i - lo) / 1024.0);
+    }
+    const auto expected = lvm::compute_spectrum(compact, 0);
+    require(expected.ok, "selected-range FFT oracle");
+    for (bool light : {false, true}) for (bool stitched : {false, true}) {
+        reset_document({"A", "B"}, time, values);
+        g.light_mode = light; g.stitch_time_gaps = stitched; g.visible = {0, 1};
+        const double start = (time[lo - 1] + time[lo]) / 2;
+        const double end = (time[hi - 1] + time[hi]) / 2;
+        set_fft_window(start, end);
+        set_mode(true);
+        require(g.spec_valid && g.spec.n == int(hi - lo) && g.spec_source_from_selection, "GUI FFT uses the entire selected range in every display mode");
+        near(g.spec.source_start, time[lo], "selected FFT first included timestamp");
+        near(g.spec.source_end, time[hi - 1], "selected FFT last included timestamp");
+        require(g.spec.freqs == expected.freqs && g.spec.amp.back() == expected.amp[1], "selected GUI FFT matches all compact reference bins");
+        require(g.spec.source_channels.back() == 1, "selected FFT keeps original visible channel identity");
+        ExportOptions opts; opts.include_hidden_channels = true; opts.apply_processing_to_data = false;
+        lvm::Spectrum exported; std::vector<int> channels; bool all = false;
+        require(build_export_spectrum(opts, exported, channels, all), "selected FFT export rebuilds all channels");
+        require(exported.freqs == expected.freqs && exported.amp == expected.amp, "selected FFT export uses every sample and excludes outside impulses");
+    }
+}
+
+void stitched_gap_regressions() {
+    std::vector<double> time(11001), values(11001);
+    for (std::size_t i = 0; i < time.size(); ++i) {
+        time[i] = i ? time[i - 1] + (i > 1000 ? 1025.0 : 1.0) / 1024 : 0;
+        values[i] = std::sin(i);
+    }
+    reset_document({"A"}, time, {values});
+    g.stitch_time_gaps = true;
+    near(stitched_time_at_index(11000), 11000.0 / 1024, "graph compresses 10000 gaps even when they are the majority");
+    bool invertible = true;
+    for (std::size_t i = 0; i < time.size(); i += 113) {
+        invertible = invertible && std::fabs(raw_time_from_stitched(i / 1024.0) - time[i]) < 1e-9;
+    }
+    require(invertible, "graph selection maps compact positions back across many gaps");
+    reset_document({"A"}, {0, 1, 2, 1e100}, {{0, 1, 2, 3}});
+    g.stitch_time_gaps = true;
+    near(stitched_time_at_index(3), 3, "huge gap does not collapse the graph axis");
+    near(raw_time_from_stitched(1.5), 1.5, "huge final gap cannot move a selection in the initial segment");
+    reset_document({"A"}, {0, 1, 2, 4, 5, 6}, {{0, 1, 2, 3, 4, 5}});
+    g.stitch_time_gaps = true;
+    near(stitched_time_at_index(5), 5, "graph also compresses a single missing sample");
+}
+
+void light_mode_fft_visibility() {
+    std::vector<double> time(8192);
+    std::vector<std::vector<double>> values(3, std::vector<double>(time.size()));
+    for (std::size_t i = 0; i < time.size(); ++i) {
+        time[i] = i / 1024.0;
+        for (std::size_t c = 0; c < values.size(); ++c) values[c][i] = std::sin(i * (0.1 + c * 0.2));
+    }
+    reset_document({"A", "B", "C"}, time, values);
+    g.light_mode = true; g.visible = {1, 1, 0}; g.freq_mode = true;
+    // A message-only window exercises the production asynchronous branch
+    // without showing any UI. Earlier GUI tests used only its synchronous path.
+    struct TestWindow {
+        HWND handle = CreateWindowExW(0, L"STATIC", L"FFT regression", 0, 0, 0, 0, 0,
+                                      HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ~TestWindow() { g_spectrum_worker.cancel(); g.main = nullptr; if (handle) DestroyWindow(handle); }
+    } window;
+    require(window.handle != nullptr, "message-only FFT test window");
+    g.main = window.handle;
+    const auto finish = [] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        std::optional<lvm::SpectrumWorker::Result> result;
+        while (!result && std::chrono::steady_clock::now() < deadline) {
+            result = g_spectrum_worker.take_result();
+            if (!result) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(result && result->generation == g.spec_generation, "production worker returns the current generation");
+        apply_spectrum_result(std::move(result->spectrum));
+        require(g.spec_valid && !g.spec_pending, "production FFT leaves loading state only after applying its result");
+    };
+    compute_spectrum_for_window(time.front(), time.back(), true);
+    require(g.spec_pending && !g.spec_valid, "initial LM FFT enters asynchronous loading state");
+    const auto initial_generation = g.spec_generation;
+    for (const auto& visible : std::vector<std::vector<char>>{{0,1,0}, {0,0,0}, {1,1,0}}) {
+        g.visible = visible;
+        require(!ensure_current_spectrum() && g.spec_pending, "visibility toggles keep pending FFT in loading state");
+        require(g.spec_generation == initial_generation, "hiding or restoring requested channels does not restart pending FFT");
+    }
+    finish();
+    require(g.spec.source_channels == std::vector<std::size_t>{0,1}, "LM calculates only requested channels");
+    const double* cached_amplitudes = g.spec.amp[1].data();
+    for (const auto& visible : std::vector<std::vector<char>>{{0,1,0}, {0,0,0}, {1,1,0}}) {
+        g.visible = visible;
+        require(ensure_current_spectrum() && !g.spec_pending, "hiding and restoring cached channels is immediate");
+        require(g.spec_generation == initial_generation && g.spec.amp[1].data() == cached_amplitudes,
+                "visibility preserves existing FFT buffers without recomputation");
+    }
+    g.visible = {0,1,1};
+    require(!ensure_current_spectrum() && g.spec_pending && g.spec_generation > initial_generation,
+            "showing an uncomputed channel schedules background FFT");
+    finish();
+    require(g.spec.source_channels == std::vector<std::size_t>{1,2}, "new LM request respects current visible channels");
+    const auto prior_window = g.spec_generation;
+    compute_spectrum_for_window(time[100], time[2000], true);
+    require(g.spec_pending && g.spec_generation > prior_window, "changing the source window invalidates cached spectra");
+    finish();
+    require(g.spec.n == 1901, "recomputed LM FFT uses the new source window");
+    const auto prior_transform = g.spec_generation;
+    g.global_formula = L"2*x"; rebuild_formula_cache_from_state();
+    on_signal_transform_changed();
+    require(g.spec_pending && g.spec_generation > prior_transform, "changing processing invalidates cached spectra");
+    finish();
+}
+
 void light_mode_and_history() {
     reset_document({"gap"}, {0, 1, 2, 102, 103, 104}, {{0, 1, 2, 3, 4, 5}});
     g.stitch_time_gaps = true;
@@ -272,7 +395,8 @@ int main() {
     std::filesystem::create_directories(test_dir);
     try {
         exports(); processing(); fft_recording_recovery();
-        light_mode_and_history(); reopen_spectrum();
+        light_mode_and_history(); reopen_spectrum(); fft_selected_gap_range(); stitched_gap_regressions();
+        light_mode_fft_visibility();
         std::cout << checks << " GUI integration checks passed\n";
         return 0;
     } catch(const std::exception& ex) {

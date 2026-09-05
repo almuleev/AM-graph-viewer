@@ -8,18 +8,9 @@
 #include <stdexcept>
 
 #include "fft.hpp"
+#include "sampling.hpp"
 
 namespace lvm {
-namespace {
-
-// Median of a non-empty vector, without sorting all samples or copying it.
-double median(std::vector<double>& v) {
-    const std::size_t mid = v.size() / 2;
-    std::nth_element(v.begin(), v.begin() + mid, v.end());
-    return v.size() % 2 ? v[mid] : 0.5 * v[mid] + 0.5 * *std::max_element(v.begin(), v.begin() + mid);
-}
-
-}  // namespace
 
 Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<bool>* cancel) {
     const auto check_cancel = [&] { if (cancel && cancel->load(std::memory_order_relaxed)) throw std::runtime_error("Operation cancelled."); };
@@ -83,12 +74,20 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<
         return spec;
     }
 
+    const std::size_t begin = 0;
+    const std::size_t end = max_samples > 0
+        ? std::min(rows, static_cast<std::size_t>(max_samples)) : rows;
+    if (end > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        spec.error = "FFT is too large; select a smaller time window.";
+        return spec;
+    }
+
     // Validate the axis and estimate its typical spacing. Small clock jitter and
     // rounded timestamps are common in real measurements, not a reason to fail.
     std::vector<double> positive_dt;
-    positive_dt.reserve(rows - 1);
+    positive_dt.reserve(end - 1);
     if (!std::isfinite(ds.time.front())) { spec.error = "Invalid time axis."; return spec; }
-    for (std::size_t i = 1; i < rows; ++i) {
+    for (std::size_t i = 1; i < end; ++i) {
         if ((i & 0xFFFF) == 0) check_cancel();
         const double d = ds.time[i] - ds.time[i - 1];
         if (!std::isfinite(ds.time[i]) || !std::isfinite(d) || d <= 0.0) {
@@ -97,19 +96,8 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<
         }
         positive_dt.push_back(d);
     }
-    const double typical_dt = median(positive_dt);
+    const double typical_dt = typical_sample_spacing(positive_dt);
     check_cancel();
-    const std::size_t begin = 0;
-    const std::size_t end = max_samples > 0
-        ? std::min(rows, static_cast<std::size_t>(max_samples)) : rows;
-    if (end < 4) {
-        spec.error = "FFT sample cap leaves fewer than 4 samples.";
-        return spec;
-    }
-    if (end > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-        spec.error = "FFT is too large; select a smaller time window.";
-        return spec;
-    }
 
     const int n = static_cast<int>(end);
     spec.n = n;
@@ -119,7 +107,9 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<
     // time, not unavailable values, so it is compressed to a normal step.
     // This retains every sample before and after every gap.
     std::vector<long double> offsets(static_cast<std::size_t>(n), 0.0L);
-    const double gap_limit = typical_dt * 4.0;
+    // A missing sample already gives a two-step interval. Keep a margin for
+    // rounding/jitter, but do not require an outage longer than four steps.
+    const double gap_limit = typical_dt * sampling_gap_factor;
     for (int i = 1; i < n; ++i) {
         if ((i & 0xFFFF) == 0) check_cancel();
         double step = ds.time[static_cast<std::size_t>(i)] - ds.time[static_cast<std::size_t>(i - 1)];
@@ -133,9 +123,11 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<
         spec.error = "Invalid sample spacing.";
         return spec;
     }
-    const double rounding = 2 * std::numeric_limits<double>::epsilon() *
-        std::max(std::fabs(spec.source_start), std::fabs(spec.source_end));
-    const double tolerance = std::max(rounding, spec.sample_dt * 1e-6);
+    // Only the compact axis matters here. The physical end may be arbitrarily
+    // far away after an outage and must not suppress resampling of real jitter.
+    const long double tolerance = std::max(
+        2 * std::numeric_limits<long double>::epsilon() * offsets.back(),
+        static_cast<long double>(spec.sample_dt) * 1e-6L);
     for (int i = 1; i < n - 1; ++i) {
         if ((i & 0xFFFF) == 0) check_cancel();
         const long double offset = offsets[static_cast<std::size_t>(i)];

@@ -39,11 +39,21 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 
 FFT accepts uneven and rounded timestamps by linearly interpolating values onto
 an evenly spaced gap-free grid with the same sample count. Gaps greater than
-four median time steps are removed from the FFT timeline, while all samples on
+1.5 estimated sample steps are compressed to one step on the FFT timeline, while all samples on
 both sides of every gap remain in the calculation. This is reported in the
 status bar and spectrum export metadata. Interpolation can attenuate high frequencies; an
 original uniformly sampled recording is preferable for precise analysis.
 The original time-domain data is preserved.
+
+Cadence is inferred from the median interval. When a short-interval cluster
+(at least two intervals) is separated from long outages by a factor greater
+than four, its median is used even if outages are the majority. Dominant short
+gaps are also detected when intervals are integer multiples of the lower-cluster
+median within 5% of one sample step. This remains
+an estimate: timestamps alone cannot unambiguously distinguish a sample-rate
+change from missing samples. Uniformly long intervals require external cadence
+information to recover the original rate. Missing channel values (`NaN`) are
+handled separately by filling with the channel mean, without shifting channels.
 
 ### Command-line mode
 
@@ -56,6 +66,7 @@ The original time-domain data is preserved.
 ### Current development changes
 
 - Light Mode includes every sample in its min/max ranges, preserving single-sample impulses.
+- Light Mode computes FFT in the background for requested channels. Hiding and restoring a channel from the current cache does not restart FFT. Showing an uncached channel schedules a new job for visible channels; the cache holds the latest job, not every previously viewed channel. Changing the source interval or processing requires recalculation.
 - Settings include “Stitch time gaps in the graph”. It compresses only the displayed time axis and navigation; source data, measurements, and export retain real timestamps.
 - Filter sliders apply on release and create one undo action, including affected measurements.
 - History retains up to 128 actions and 64 MiB of payload. Old entries are removed at the limit; an action larger than the entire budget clears history.

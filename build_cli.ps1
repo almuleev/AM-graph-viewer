@@ -4,7 +4,7 @@ Set-Location $PSScriptRoot
 if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
     $env:Path = "C:\msys64\ucrt64\bin;" + $env:Path
 }
-$version = git -c core.excludesFile=NUL describe --tags --always --dirty 2>$null
+$version = git -c core.excludesFile= describe --tags --always --dirty 2>$null
 if (-not $version) { $version = 'dev' }
 $versionDefine = '-DAPP_VERSION=\"' + $version + '\"'
 & g++ -std=c++17 -O2 -Wall -Wextra -finput-charset=UTF-8 -static $versionDefine -o lvm_reader.exe main.cpp lvm_parser.cpp data_io.cpp filter_engine.cpp spectrum_worker.cpp fft.cpp analysis.cpp -lshell32

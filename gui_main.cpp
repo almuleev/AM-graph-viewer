@@ -58,6 +58,7 @@ using std::min;
 #include <gdiplus.h>
 
 #include "analysis.hpp"
+#include "sampling.hpp"
 #include "data_io.hpp"
 #include "filter_engine.hpp"
 #include "spectrum_worker.hpp"
@@ -690,8 +691,7 @@ struct App {
     bool stitch_time_gaps = false;
     bool stitched_time_ready = false;
     std::vector<std::size_t> stitched_gap_right_indices;
-    std::vector<double> stitched_gap_removed;
-    double stitched_gap_step = 0.0;
+    std::vector<double> stitched_gap_display_right;
     bool noise_threshold_enabled = false;
     double noise_threshold_min = -std::numeric_limits<double>::infinity();
     double noise_threshold_max = std::numeric_limits<double>::infinity();
@@ -1280,9 +1280,16 @@ void apply_spectrum_result(lvm::Spectrum spectrum) {
     g.spec_fit_pending = false;
 }
 
-bool spectrum_visibility_changed() {
+bool spectrum_needs_visible_channels() {
     if (!g.light_mode) return false;
-    return g.spec_visible_state.size() != g.visible.size() || g.spec_visible_state != g.visible;
+    // This mask describes channels included in the current attempt (including
+    // an in-flight request), not the current display. Hiding a channel cannot
+    // invalidate its FFT. Keep attempted channels even when they have too few
+    // finite values, so repainting does not endlessly retry the same failure.
+    for (std::size_t c = 0; c < g.visible.size(); ++c) {
+        if (g.visible[c] && (c >= g.spec_visible_state.size() || !g.spec_visible_state[c])) return true;
+    }
+    return false;
 }
 
 bool build_time_window_dataset(const lvm::Dataset& in, double start, double end, lvm::Dataset& out,
@@ -1438,7 +1445,7 @@ void compute_spectrum() {
 
 bool ensure_current_spectrum() {
     if (!has_data()) return false;
-    if (!g.spec_attempted || spectrum_visibility_changed()) compute_spectrum();
+    if (!g.spec_attempted || spectrum_needs_visible_channels()) compute_spectrum();
     return g.spec_valid;
 }
 
@@ -2250,27 +2257,37 @@ void ensure_global_gap_step_ready() {
 void invalidate_stitched_time_cache() {
     g.stitched_time_ready = false;
     g.stitched_gap_right_indices.clear();
-    g.stitched_gap_removed.clear();
-    g.stitched_gap_step = 0.0;
+    g.stitched_gap_display_right.clear();
 }
 
 void ensure_stitched_time_cache() {
     if (g.stitched_time_ready) return;
-    g.stitched_time_ready = true;
     if (g.ds.time.size() < 2) return;
-    ensure_global_gap_step_ready();
-    const double step = g.cached_global_gap_step;
+    std::vector<double> intervals;
+    intervals.reserve(g.ds.time.size() - 1);
+    for (std::size_t i = 1; i < g.ds.time.size(); ++i) {
+        const double duration = g.ds.time[i] - g.ds.time[i - 1];
+        if (std::isfinite(duration) && duration > 0) intervals.push_back(duration);
+    }
+    const double step = lvm::typical_sample_spacing(intervals);
     if (!(std::isfinite(step) && step > 0.0)) return;
-    const double threshold = step * 64.0;
-    double removed = 0.0;
+    const double threshold = step * lvm::sampling_gap_factor;
+    std::vector<std::size_t> right_indices;
+    std::vector<double> display_right;
+    double previous_raw = g.ds.time.front(), previous_display = previous_raw;
     for (std::size_t i = 1; i < g.ds.time.size(); ++i) {
         const double duration = g.ds.time[i] - g.ds.time[i - 1];
         if (!std::isfinite(duration) || duration <= threshold) continue;
-        removed += duration - step;
-        g.stitched_gap_right_indices.push_back(i);
-        g.stitched_gap_removed.push_back(removed);
+        // Accumulate continuous segment lengths, never subtract a huge total
+        // outage from a huge timestamp: that loses the whole visible interval.
+        previous_display += (g.ds.time[i - 1] - previous_raw) + step;
+        previous_raw = g.ds.time[i];
+        right_indices.push_back(i);
+        display_right.push_back(previous_display);
     }
-    g.stitched_gap_step = step;
+    g.stitched_gap_right_indices = std::move(right_indices);
+    g.stitched_gap_display_right = std::move(display_right);
+    g.stitched_time_ready = true;
 }
 
 double stitched_time_at_index(std::size_t index) {
@@ -2278,7 +2295,9 @@ double stitched_time_at_index(std::size_t index) {
     ensure_stitched_time_cache();
     const auto position = std::upper_bound(g.stitched_gap_right_indices.begin(), g.stitched_gap_right_indices.end(), index);
     const std::size_t count = static_cast<std::size_t>(position - g.stitched_gap_right_indices.begin());
-    return g.ds.time[index] - (count ? g.stitched_gap_removed[count - 1] : 0.0);
+    if (!count) return g.ds.time[index];
+    return g.stitched_gap_display_right[count - 1] +
+        (g.ds.time[index] - g.ds.time[g.stitched_gap_right_indices[count - 1]]);
 }
 
 double stitched_time_from_raw(double time) {
@@ -2288,15 +2307,10 @@ double stitched_time_from_raw(double time) {
     if (time <= source.front()) return time;
     if (time >= source.back()) return stitched_time_at_index(source.size() - 1);
     const std::size_t right = static_cast<std::size_t>(std::lower_bound(source.begin(), source.end(), time) - source.begin());
-    const auto gap = std::lower_bound(g.stitched_gap_right_indices.begin(), g.stitched_gap_right_indices.end(), right);
-    if (gap != g.stitched_gap_right_indices.end() && *gap == right && time < source[right]) {
-        const std::size_t gap_position = static_cast<std::size_t>(gap - g.stitched_gap_right_indices.begin());
-        const double previous_removed = gap_position ? g.stitched_gap_removed[gap_position - 1] : 0.0;
-        const double duration = source[right] - source[right - 1];
-        return source[right - 1] - previous_removed + (time - source[right - 1]) * g.stitched_gap_step / duration;
-    }
-    const std::size_t left = static_cast<std::size_t>(std::upper_bound(source.begin(), source.end(), time) - source.begin() - 1);
-    return stitched_time_at_index(left) + (time - source[left]);
+    if (time == source[right]) return stitched_time_at_index(right);
+    const double left_display = stitched_time_at_index(right - 1);
+    const double fraction = (time - source[right - 1]) / (source[right] - source[right - 1]);
+    return left_display + fraction * (stitched_time_at_index(right) - left_display);
 }
 
 double raw_time_from_stitched(double time) {
@@ -2305,13 +2319,18 @@ double raw_time_from_stitched(double time) {
     const double last = stitched_time_at_index(g.ds.time.size() - 1);
     if (time <= first) return g.ds.time.front();
     if (time >= last) return g.ds.time.back();
-    double lo = g.ds.time.front(), hi = g.ds.time.back();
-    for (int iteration = 0; iteration < 64; ++iteration) {
-        const double mid = lo + (hi - lo) * 0.5;
-        if (stitched_time_from_raw(mid) < time) lo = mid;
+    // Search sample indices, not physical time. The number of iterations is
+    // bounded by sample count even for astronomically long outages.
+    std::size_t lo = 0, hi = g.ds.time.size() - 1;
+    while (hi - lo > 1) {
+        const std::size_t mid = lo + (hi - lo) / 2;
+        if (stitched_time_at_index(mid) < time) lo = mid;
         else hi = mid;
     }
-    return lo + (hi - lo) * 0.5;
+    const double left = stitched_time_at_index(lo), right = stitched_time_at_index(hi);
+    if (time == right) return g.ds.time[hi];
+    const double fraction = (time - left) / (right - left);
+    return g.ds.time[lo] + fraction * (g.ds.time[hi] - g.ds.time[lo]);
 }
 
 void invalidate_plot_analysis_cache() {

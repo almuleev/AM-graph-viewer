@@ -1,5 +1,137 @@
-﻿void apply_export_metadata_from_comments(const std::vector<std::string>& comments) {
+void write_export_metadata(std::ofstream& out,
+                           const ExportOptions& opts,
+                           bool csv,
+                           double range_start,
+                           double range_end,
+                           bool actual_selected_range,
+                           const std::vector<std::size_t>& exported_channels) {
+    const char* line_end = csv ? "\n" : "\r\n";
+
+    write_export_comment(out, L"[export]", line_end);
+    write_export_key_value(out, L"schema_version", L"2", line_end);
+    write_export_key_value(out, L"text_encoding", L"percent_utf8", line_end);
+    write_export_key_value(out, L"range_mode", export_range_mode_key(opts.selected_range), line_end);
+    write_export_key_value(out, L"range_source", actual_selected_range ? L"selected" : L"visible", line_end);
+    write_export_key_value(out, L"data_mode", export_processing_mode_key(opts.apply_processing_to_data), line_end);
+    write_export_key_value(out, L"plot_mode", g.freq_mode ? L"frequency" : L"time", line_end);
+    write_export_key_value(out, L"range_start", format_edit_number(range_start), line_end);
+    write_export_key_value(out, L"range_end", format_edit_number(range_end), line_end);
+    if (!g.file_name.empty()) {
+        write_export_key_value(out, L"source_file", export_metadata_text(g.file_name), line_end);
+    }
+    write_export_key_value(out, L"partial_fragment", g.current_file_partial ? L"1" : L"0", line_end);
+    write_export_comment(out, L"", line_end);
+
+    if (opts.include_graph_settings) {
+        write_export_comment(out, L"[graph_settings]", line_end);
+        write_export_key_value(out, L"axis_x_label", export_metadata_text(g.axis_x_label), line_end);
+        write_export_key_value(out, L"axis_y_label", export_metadata_text(g.axis_y_label), line_end);
+        write_export_key_value(out, L"marker_color", export_color_triplet(g.marker_color), line_end);
+        write_export_key_value(out, L"smoothing", g.visual_smooth ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"vertical_pan", g.vertical_pan ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"snap_to_data", g.snap_to_data ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"stitch_time_gaps", g.stitch_time_gaps ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"light_mode", g.light_mode ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"auto_y", g.auto_y ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"y_lock_min", format_optional_edit_number(g.y_lock_min), line_end);
+        write_export_key_value(out, L"y_lock_max", format_optional_edit_number(g.y_lock_max), line_end);
+        write_export_key_value(out, L"auto_y_amp", g.auto_y_amp ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"y_amp_max", format_optional_edit_number(g.y_amp_max), line_end);
+        write_export_key_value(out, L"play_speed", format_edit_number(g.play_speed), line_end);
+        write_export_key_value(out, L"point_display", export_point_display_text(g.pdisp), line_end);
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_filter_settings) {
+        write_export_comment(out, L"[filter_settings]", line_end);
+        write_export_key_value(out, L"enabled", g.noise_threshold_enabled ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"mode", export_filter_mode_key(g.noise_threshold_mode), line_end);
+        write_export_key_value(out, L"topology", export_filter_topology_key(g.noise_threshold_topology), line_end);
+        write_export_key_value(out, L"low_cutoff", format_optional_edit_number(g.noise_threshold_min), line_end);
+        write_export_key_value(out, L"high_cutoff", format_optional_edit_number(g.noise_threshold_max), line_end);
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_channel_names || opts.include_hidden_channels) {
+        write_export_comment(out, L"[channels]", line_end);
+        ensure_channel_formula_vectors();
+        for (std::size_t j = 0; j < exported_channels.size(); ++j) {
+            const std::size_t c = exported_channels[j];
+            std::wstring line = L"channel[" + std::to_wstring(j + 1) + L"] name=" + export_metadata_text(export_channel_label_text(c, opts.include_channel_names));
+            line += L", visible=";
+            line += (c < g.visible.size() && g.visible[c]) ? L"1" : L"0";
+            line += L", color=" + export_color_triplet(channel_color(c));
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_formulas) {
+        write_export_comment(out, L"[formulas]", line_end);
+        write_export_key_value(out, L"global", export_metadata_text(g.global_formula), line_end);
+        for (std::size_t j = 0; j < exported_channels.size(); ++j) {
+            const std::size_t c = exported_channels[j];
+            write_export_key_value(out, L"channel[" + std::to_wstring(j + 1) + L"]", export_metadata_text(g.channel_formulas[c]), line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_points && !g.point_groups.empty()) {
+        write_export_comment(out, L"[point_groups]", line_end);
+        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
+            const auto& group = g.point_groups[i];
+            std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + export_metadata_text(group.name);
+            line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
+            line += L", color=" + export_color_triplet(group.color);
+            line += L", mode=" + std::wstring(group.mode == PointGroupMode::Frequency ? L"frequency" : L"time");
+            line += L", active=" + std::wstring((i == static_cast<std::size_t>(active_point_group_index_for_mode(group.mode))) ? L"1" : L"0");
+            line += L", display=" + export_point_display_text(group.display);
+            write_export_comment(out, line, line_end);
+            for (std::size_t j = 0; j < group.points.size(); ++j) {
+                const auto& pt = group.points[j];
+                std::wstring point_line = L"point[" + std::to_wstring(j + 1) + L"] x=" + format_edit_number(pt.first);
+                point_line += L", y=" + format_edit_number(pt.second);
+                write_export_comment(out, point_line, line_end);
+            }
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_markers && !g.markers.empty()) {
+        write_export_comment(out, L"[markers]", line_end);
+        for (std::size_t i = 0; i < g.markers.size(); ++i) {
+            const auto& m = g.markers[i];
+            std::wstring line = L"marker[" + std::to_wstring(i + 1) + L"] label=" + export_metadata_text(m.label);
+            line += L", x=" + format_edit_number(m.x);
+            line += L", y=" + format_edit_number(m.y);
+            line += L", mode=" + std::wstring(m.freq ? L"frequency" : L"time");
+            const auto found = m.channel >= 0 ? std::find(exported_channels.begin(), exported_channels.end(), static_cast<std::size_t>(m.channel)) : exported_channels.end();
+            const int export_channel = found == exported_channels.end() ? -1 : static_cast<int>(found - exported_channels.begin());
+            line += L", snapped=" + std::wstring(m.snapped && export_channel >= 0 ? L"1" : L"0");
+            line += L", channel=" + std::to_wstring(export_channel);
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+
+    if (opts.include_guides && !g.guides.empty()) {
+        write_export_comment(out, L"[guides]", line_end);
+        for (std::size_t i = 0; i < g.guides.size(); ++i) {
+            const auto& gl = g.guides[i];
+            std::wstring line = L"guide[" + std::to_wstring(i + 1) + L"] kind=" + (gl.vertical ? L"vertical" : L"horizontal");
+            line += L", value=" + format_edit_number(gl.value);
+            line += L", mode=" + std::wstring(gl.freq ? L"frequency" : L"time");
+            write_export_comment(out, line, line_end);
+        }
+        write_export_comment(out, L"", line_end);
+    }
+}
+
+void apply_export_metadata_from_comments(const std::vector<std::string>& comments) {
     if (comments.empty() || g.ds.channel_count() == 0) return;
+    const bool encoded_text = std::find(comments.begin(), comments.end(), "text_encoding=percent_utf8") != comments.end();
+    const bool already_processed = g.ds.frequency_axis || std::find(comments.begin(), comments.end(), "data_mode=applied_to_data") != comments.end();
 
     enum class ExportSection {
         None,
@@ -38,7 +170,7 @@
         }
         int numeric = 0;
         char tail = '\0';
-        if (std::sscanf(value.c_str(), "%d%c", &numeric, &tail) >= 1) {
+        if (std::sscanf(value.c_str(), "%d%c", &numeric, &tail) == 1) {
             out = (numeric != 0);
             return true;
         }
@@ -49,7 +181,7 @@
         if (value.empty()) return false;
         char* end = nullptr;
         const long parsed = std::strtol(value.c_str(), &end, 10);
-        if (end == value.c_str() || *end != '\0') return false;
+        if (end == value.c_str() || *end != '\0' || parsed < std::numeric_limits<int>::min() || parsed > std::numeric_limits<int>::max()) return false;
         out = static_cast<int>(parsed);
         return true;
     };
@@ -58,7 +190,7 @@
         if (value.empty()) return false;
         char* end = nullptr;
         const double parsed = std::strtod(value.c_str(), &end);
-        if (end == value.c_str() || *end != '\0') return false;
+        if (end == value.c_str() || *end != '\0' || !std::isfinite(parsed)) return false;
         out = parsed;
         return true;
     };
@@ -72,9 +204,21 @@
     };
     auto decode_export_text = [&](const std::string& text) {
         if (text.empty()) return std::wstring();
-        std::wstring utf8 = to_w(text);
+        std::string decoded;
+        auto hex = [](char ch) -> int {
+            if (ch >= '0' && ch <= '9') return ch - '0';
+            if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+            if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+            return -1;
+        };
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            if (encoded_text && text[i] == '%' && i + 2 < text.size() && hex(text[i+1]) >= 0 && hex(text[i+2]) >= 0) {
+                decoded += static_cast<char>((hex(text[i+1]) << 4) | hex(text[i+2])); i += 2;
+            } else decoded += text[i];
+        }
+        std::wstring utf8 = to_w(decoded);
         if (!utf8.empty()) return utf8;
-        return to_w_acp(text);
+        return to_w_acp(decoded);
     };
     auto extract_after = [&](const std::string& text, const std::string& prefix) {
         const std::size_t pos = text.find(prefix);
@@ -215,8 +359,11 @@
                 parse_bool(value, g.snap_to_data);
             } else if (key == "show_gap_markers") {
                 parse_bool(value, g.show_gap_markers);
+            } else if (key == "stitch_time_gaps") {
+                parse_bool(value, g.stitch_time_gaps);
+                if (g.stitch_time_gaps) hide_gap_details_card();
             } else if (key == "light_mode") {
-                parse_bool(value, g.light_mode);
+                // Loading policy is a user preference, not a property of the signal.
             } else if (key == "auto_y") {
                 parse_bool(value, g.auto_y);
             } else if (key == "y_lock_min") {
@@ -401,6 +548,12 @@
     if (!guides.empty()) {
         g.guides = std::move(guides);
     }
+    if (already_processed) {
+        g.global_formula = L"x";
+        g.channel_formulas.assign(g.ds.channel_count(), L"x");
+        g.noise_threshold_enabled = false;
+        imported_formulas = true;
+    }
     if (imported_formulas) {
         g.formula_ini_deferred = false;
         rebuild_formula_cache_from_state();
@@ -414,9 +567,8 @@ std::wstring lvm_current_date_text(const SYSTEMTIME& st);
 std::wstring lvm_current_time_text(const SYSTEMTIME& st);
 double lvm_export_nominal_delta_x();
 
-bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
-    std::ofstream out(to_acp(path.c_str()), std::ios::binary);
-    if (!out) return false;
+bool write_tabular_export(std::ofstream& out, const ExportOptions& opts) {
+    if (!has_data()) return false;
 
     const bool csv = opts.format == ExportFileFormat::Csv;
     const char sep = csv ? ',' : '\t';
@@ -444,8 +596,7 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
         if (export_end <= export_start) return false;
 
         std::vector<std::size_t> cols;
-        write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range);
-        out << to_acp(g_str->csv_freq);
+        std::vector<std::size_t> source_cols;
         for (std::size_t j = 0; j < export_spec.amp.size(); ++j) {
             const int ci = (j < spec_channel_indices.size()) ? spec_channel_indices[j] : -1;
             const bool visible_channel =
@@ -453,12 +604,24 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
                 g.visible[static_cast<std::size_t>(ci)];
             if (export_all_channels || visible_channel) {
                 const std::size_t label_index = (ci >= 0) ? static_cast<std::size_t>(ci) : j;
-                out << sep << to_acp(export_channel_label_text(label_index, opts.include_channel_names).c_str());
+                source_cols.push_back(label_index);
                 cols.push_back(j);
             }
         }
-        if (cols.empty()) {
-            for (std::size_t j = 0; j < export_spec.amp.size(); ++j) cols.push_back(j);
+        if (cols.empty()) return false;
+        write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range, source_cols);
+        write_export_comment(out, L"[fft_sampling]", line_end);
+        write_export_key_value(out, L"source_start", to_w(numfmt(export_spec.source_start)), line_end);
+        write_export_key_value(out, L"source_end", to_w(numfmt(export_spec.source_end)), line_end);
+        write_export_key_value(out, L"sample_dt", to_w(numfmt(export_spec.sample_dt)), line_end);
+        write_export_key_value(out, L"sample_count", std::to_wstring(export_spec.n), line_end);
+        write_export_key_value(out, L"gaps_ignored", export_spec.gaps_ignored ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"resampled", export_spec.resampled ? L"1" : L"0", line_end);
+        write_export_comment(out, L"", line_end);
+        out << "Frequency";
+        for (std::size_t c : source_cols) {
+            const std::string name = to_utf8(export_channel_label_text(c, opts.include_channel_names));
+            out << sep << (csv ? lvm::csv_field(name) : lvm::tsv_header_field(name));
         }
         out << line_end;
         std::size_t begin = 0;
@@ -492,11 +655,13 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
         export_start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
         export_end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
     }
-    write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range);
-    out << to_acp(g_str->csv_time);
     const std::vector<std::size_t> cols = export_channel_indices(opts.include_hidden_channels);
+    if (cols.empty()) return false;
+    write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range, cols);
+    out << "Time";
     for (std::size_t c : cols) {
-        out << sep << to_acp(export_channel_label_text(c, opts.include_channel_names).c_str());
+        const std::string name = to_utf8(export_channel_label_text(c, opts.include_channel_names));
+        out << sep << (csv ? lvm::csv_field(name) : lvm::tsv_header_field(name));
     }
     out << line_end;
 
@@ -507,6 +672,7 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
         begin = bounds.first;
         end = bounds.second;
     }
+    if (begin >= end) return false;
     for (std::size_t r = begin; r < end; ++r) {
         out << numfmt(g.ds.time[r]);
         for (std::size_t c : cols) {
@@ -517,7 +683,11 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
     return true;
 }
 
-bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
+bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
+    return lvm::atomic_write_file(std::filesystem::path(path), [&](std::ofstream& out) { return write_tabular_export(out, opts); }, &g.last_error);
+}
+
+bool write_lvm_export(std::ofstream& out, const ExportOptions& opts) {
     if (!has_data() || g.freq_mode) return false;
 
     double export_start = 0.0;
@@ -532,8 +702,7 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
 
     const std::vector<std::size_t> cols = export_channel_indices(opts.include_hidden_channels);
 
-    std::ofstream out(to_acp(path.c_str()), std::ios::binary);
-    if (!out) return false;
+    if (cols.empty()) return false;
 
     const char* line_end = "\r\n";
     SYSTEMTIME stamp{};
@@ -545,7 +714,7 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
     const std::wstring delta_x_text = format_edit_number(delta_x);
     auto repeat_header = [&](const char* key, const std::wstring& value) {
         out << key;
-        const std::string encoded = to_acp(value.c_str());
+        const std::string encoded = to_utf8(value);
         for (std::size_t i = 0; i < cols.size(); ++i) {
             out << '\t' << encoded;
         }
@@ -558,7 +727,7 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
         return text;
     };
 
-    write_export_metadata(out, opts, false, export_start, export_end, actual_selected_range);
+    write_export_metadata(out, opts, false, export_start, export_end, actual_selected_range, cols);
     out << "LabVIEW Measurement" << line_end;
     out << "Writer_Version\t0.92" << line_end;
     out << "Reader_Version\t1" << line_end;
@@ -566,9 +735,9 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
     out << "Multi_Headings\tYes" << line_end;
     out << "X_Columns\tMulti" << line_end;
     out << "Time_Pref\tAbsolute" << line_end;
-    out << "Operator\t" << to_acp(L"AM Graph Viewer") << line_end;
-    out << "Date\t" << to_acp(date_text.c_str()) << line_end;
-    out << "Time\t" << to_acp(time_text.c_str()) << line_end;
+    out << "Operator\tAM Graph Viewer" << line_end;
+    out << "Date\t" << to_utf8(date_text) << line_end;
+    out << "Time\t" << to_utf8(time_text) << line_end;
     out << "***End_of_Header***" << line_end << line_end;
 
     out << "Channels\t" << cols.size() << line_end;
@@ -584,7 +753,7 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
     std::string labels = "X_Value";
     for (std::size_t i = 0; i < cols.size(); ++i) {
         labels.push_back('\t');
-        labels += clean_label(to_acp(export_channel_label_text(cols[i], opts.include_channel_names).c_str()));
+        labels += clean_label(to_utf8(export_channel_label_text(cols[i], opts.include_channel_names)));
         if (i + 1 < cols.size()) {
             labels.push_back('\t');
             labels += "X_Value";
@@ -594,9 +763,9 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
     out << labels << line_end;
 
     for (std::size_t r = begin; r < end; ++r) {
-        std::string row = numfmt(g.ds.time[r]);
+        std::string row;
         for (std::size_t c : cols) {
-            row.push_back('\t');
+            if (!row.empty()) row.push_back('\t');
             row += numfmt(g.ds.time[r]);
             row.push_back('\t');
             row += numfmt(export_channel_sample(c, r, opts.apply_processing_to_data));
@@ -605,6 +774,10 @@ bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
         out << row << line_end;
     }
     return true;
+}
+
+bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
+    return lvm::atomic_write_file(std::filesystem::path(path), [&](std::ofstream& out) { return write_lvm_export(out, opts); }, &g.last_error);
 }
 
 bool save_dialog(std::wstring& out_path, const wchar_t* filter, const wchar_t* defext,
@@ -660,16 +833,16 @@ const wchar_t* export_file_filter(ExportFileFormat format) {
     switch (format) {
         case ExportFileFormat::Txt:
             return en ? L"TXT file\0*.txt\0All files\0*.*\0"
-                      : L"TXT С„Р°Р№Р»\0*.txt\0Р’СЃРµ С„Р°Р№Р»С‹\0*.*\0";
+                      : L"TXT файлы\0*.txt\0Все файлы\0*.*\0";
         case ExportFileFormat::Csv:
             return en ? L"CSV file\0*.csv\0All files\0*.*\0"
-                      : L"CSV С„Р°Р№Р»\0*.csv\0Р’СЃРµ С„Р°Р№Р»С‹\0*.*\0";
+                      : L"CSV файлы\0*.csv\0Все файлы\0*.*\0";
         case ExportFileFormat::Lvm:
             return en ? L"LVM file\0*.lvm\0All files\0*.*\0"
-                      : L"LVM С„Р°Р№Р»\0*.lvm\0Р’СЃРµ С„Р°Р№Р»С‹\0*.*\0";
+                      : L"LVM файлы\0*.lvm\0Все файлы\0*.*\0";
     }
     return en ? L"TXT file\0*.txt\0All files\0*.*\0"
-              : L"TXT С„Р°Р№Р»\0*.txt\0Р’СЃРµ С„Р°Р№Р»С‹\0*.*\0";
+              : L"TXT файлы\0*.txt\0Все файлы\0*.*\0";
 }
 
 const wchar_t* export_file_name(ExportFileFormat format) {
@@ -699,7 +872,7 @@ void save_as_dialog() {
     if (opts.format == ExportFileFormat::Lvm && g.freq_mode) {
         MessageBoxW(g.main,
                     g_str == &kEn ? L"LVM export is available only in Time mode."
-                                   : L"Р­РєСЃРїРѕСЂС‚ LVM РґРѕСЃС‚СѓРїРµРЅ С‚РѕР»СЊРєРѕ РІ СЂРµР¶РёРјРµ Р’СЂРµРјСЏ.",
+                                   : L"Экспорт LVM доступен только в режиме времени.",
                     g_str->msg_error_title, MB_ICONINFORMATION);
         return;
     }
@@ -714,7 +887,7 @@ void save_as_dialog() {
         status_msg(export_status_prefix(export_file_name(opts.format), opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
     } else {
         MessageBoxW(g.main,
-                    g_str == &kEn ? L"Failed to export file." : L"РќРµ СѓРґР°Р»РѕСЃСЊ РІС‹РіСЂСѓР·РёС‚СЊ С„Р°Р№Р».",
+                    g_str == &kEn ? L"Failed to export file." : L"Не удалось сохранить файл.",
                     g_str->msg_error_title, MB_ICONERROR);
     }
 }

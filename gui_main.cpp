@@ -58,6 +58,10 @@ using std::min;
 #include <gdiplus.h>
 
 #include "analysis.hpp"
+#include "data_io.hpp"
+#include "filter_engine.hpp"
+#include "spectrum_worker.hpp"
+#include "minmax_index.hpp"
 #include "export_helpers.hpp"
 #include "gap_details.hpp"
 #include "formula_engine.hpp"
@@ -184,6 +188,7 @@ enum {
     IDC_SET_HOTKEY_RESET_ALL,
 
     IDC_SET_GAP_MARKERS = 5125,
+    IDC_SET_STITCH_GAPS,
     IDC_SET_AXIS_X_LABEL_STATIC,
     IDC_SET_AXIS_X_LABEL_EDIT,
     IDC_SET_AXIS_Y_LABEL_STATIC,
@@ -571,24 +576,13 @@ enum class AsyncLoadStage : unsigned char {
     LoadingFile = 2
 };
 
-enum FilterMode {
-    FilterModeLowPass = 0,
-    FilterModeHighPass = 1,
-    FilterModeBandPass = 2,
-    FilterModeBandStop = 3,
-};
-
-enum FilterTopology {
-    FilterTopologyButterworth = 0,
-    FilterTopologyBessel = 1,
-    FilterTopologyChebyshev = 2,
-    FilterTopologyLinkwitzRiley = 3,
-};
 
 
 struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
+    std::vector<MinMaxIndex> envelopes;
+    std::vector<unsigned long long> envelope_serial;
     std::vector<std::wstring> channel_labels;  // user-editable display names
     std::wstring global_formula = L"x";
     std::vector<FormulaToken> global_formula_rpn;
@@ -618,6 +612,10 @@ struct App {
 
     lvm::Spectrum spec;
     bool spec_valid = false;
+    bool spec_attempted = false;
+    bool spec_pending = false;
+    bool spec_fit_pending = false;
+    std::uint64_t spec_generation = 0;
     std::vector<int> spec_channel_indices;
     std::vector<char> spec_visible_state;
     double cached_global_gap_step = 0.0;
@@ -689,6 +687,11 @@ struct App {
     int active_marker = -1;
     bool light_mode = false;
     bool show_gap_markers = true;
+    bool stitch_time_gaps = false;
+    bool stitched_time_ready = false;
+    std::vector<std::size_t> stitched_gap_right_indices;
+    std::vector<double> stitched_gap_removed;
+    double stitched_gap_step = 0.0;
     bool noise_threshold_enabled = false;
     double noise_threshold_min = -std::numeric_limits<double>::infinity();
     double noise_threshold_max = std::numeric_limits<double>::infinity();
@@ -708,6 +711,7 @@ struct App {
     double cached_scan_start = 0.0;
     double cached_scan_end = 0.0;
     bool cached_scan_valid = false;
+    std::shared_ptr<const lvm::ScanIndex> cached_scan_index;
 
     std::wstring file_name;
     std::vector<std::wstring> recent_files;
@@ -821,11 +825,10 @@ struct App {
 };
 
 App g;
+std::thread g_load_worker;
+bool g_settings_dirty = false;
+lvm::SpectrumWorker g_spectrum_worker;
 ULONG_PTR g_gdiplus_token = 0;
-std::size_t light_mode_render_stride(std::size_t sample_count, std::size_t target_samples) {
-    if (!g.light_mode || target_samples == 0 || sample_count <= target_samples) return 1;
-    return (sample_count + target_samples - 1) / target_samples;
-}
 void refresh_settings_controls();
 void ensure_channel_formulas_loaded();
 void invalidate_plot_analysis_cache();
@@ -915,6 +918,7 @@ void save_runtime_settings_now() {
     WritePrivateProfileStringW(L"ui", L"snap_to_data", g.snap_to_data ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"light_mode", g.light_mode ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", g_config_path.c_str());
+    WritePrivateProfileStringW(L"ui", L"stitch_time_gaps", g.stitch_time_gaps ? L"1" : L"0", g_config_path.c_str());
     normalize_filter_bounds();
     WritePrivateProfileStringW(L"ui", L"filter_enabled", g.noise_threshold_enabled ? L"1" : L"0", g_config_path.c_str());
     WritePrivateProfileStringW(L"ui", L"filter_mode", std::to_wstring(g.noise_threshold_mode).c_str(), g_config_path.c_str());
@@ -966,7 +970,8 @@ void save_runtime_settings_now() {
 }
 
 void save_runtime_settings() {
-    save_runtime_settings_now();
+    g_settings_dirty = true;
+    if (g.main && IsWindow(g.main)) SetTimer(g.main, 3, 400, nullptr);
 }
 
 bool is_toggle_checked(HWND hwnd);
@@ -1008,6 +1013,7 @@ struct AsyncScanResult {
     double range_start = 0.0;
     double range_end = 0.0;
     std::string error;
+    std::shared_ptr<lvm::ScanIndex> index;
 };
 
 struct AsyncLoadResult {
@@ -1030,32 +1036,30 @@ RECT g_legend_box = {0,0,0,0};
 #include "gui_state_history.cpp"
 std::wstring to_w(const std::string& s) {
     if (s.empty()) return L"";
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
-    if (n > 0) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], n);
+    UINT encoding = CP_UTF8;
+    DWORD flags = MB_ERR_INVALID_CHARS;
+    int n = MultiByteToWideChar(encoding, flags, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    if (n == 0) { encoding = CP_ACP; flags = 0; n = MultiByteToWideChar(encoding, flags, s.data(), static_cast<int>(s.size()), nullptr, 0); }
+    std::wstring w(n > 0 ? n : 0, L'\0');
+    if (n > 0) MultiByteToWideChar(encoding, flags, s.data(), static_cast<int>(s.size()), w.data(), n);
     return w;
 }
 
 std::wstring to_w_acp(const std::string& s) {
     if (s.empty()) return L"";
     int n = MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(n > 0 ? n - 1 : 0, L'\0');
+    std::wstring w(n > 0 ? n : 0, L'\0');
     if (n > 0) MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, &w[0], n);
+    if (!w.empty()) w.pop_back();
     return w;
-}
-
-std::string to_acp(const wchar_t* w) {
-    int n = WideCharToMultiByte(CP_ACP, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    std::string s(n > 0 ? n - 1 : 0, '\0');
-    if (n > 0) WideCharToMultiByte(CP_ACP, 0, w, -1, &s[0], n, nullptr, nullptr);
-    return s;
 }
 
 std::string to_utf8(const std::wstring& w) {
     if (w.empty()) return "";
     int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string s(n > 0 ? n - 1 : 0, '\0');
+    std::string s(n > 0 ? n : 0, '\0');
     if (n > 0) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], n, nullptr, nullptr);
+    if (!s.empty()) s.pop_back();
     return s;
 }
 
@@ -1063,7 +1067,7 @@ std::string to_utf8(const std::wstring& w) {
 std::string numfmt(double v) {
     if (std::isnan(v)) return "";
     char b[32];
-    std::snprintf(b, sizeof(b), "%.15g", v);
+    std::snprintf(b, sizeof(b), "%.17g", v);
     return b;
 }
 
@@ -1156,6 +1160,22 @@ std::wstring fft_window_status(double start, double end, bool from_selection) {
     return buf;
 }
 
+std::wstring spectrum_sampling_status(const lvm::Spectrum& spec) {
+    if (!spec.ok) return {};
+    std::wstring text;
+    if (spec.gaps_ignored) {
+        wchar_t buf[180];
+        swprintf(buf, 180, g_str == &kEn
+            ? L"   |   FFT ignored timestamp gaps; all selected samples used"
+            : L"   |   FFT без учёта пропусков времени; использованы все выбранные отсчёты");
+        text = buf;
+    }
+    if (spec.resampled) text += g_str == &kEn
+        ? L"   |   Uneven timestamps: linear interpolation"
+        : L"   |   Неравномерное время: линейная интерполяция";
+    return text;
+}
+
 void set_status() {
     std::wstring s;
     wchar_t buf[512];
@@ -1165,7 +1185,8 @@ void set_status() {
         s = g_str->msg_nodata;
     } else if (g.freq_mode) {
         swprintf(buf, 512,
-                 g_str->st_hz,
+                 g.ds.frequency_axis ? (g_str == &kEn ? L"Stored spectrum: %zu channels, upper frequency %.6g Hz | %.6g..%.6g Hz"
+                    : L"Загруженный спектр: %zu каналов, верхняя частота %.6g Гц | %.6g..%.6g Гц") : g_str->st_hz,
                  g.ds.channel_count(), g.spec_valid ? g.spec.nyquist : 0.0,
                  g.freq_start, g.freq_end);
         s = buf;
@@ -1176,14 +1197,16 @@ void set_status() {
         s = buf;
         s += g.auto_y ? g_str->st_yauto : g_str->st_yfix;
         if (g.visual_smooth) s += g_str->st_spline;
+        if (g.stitch_time_gaps) s += g_str == &kEn ? L"   |   Time gaps stitched" : L"   |   Пропуски времени склеены";
     }
     if (has_data()) {
         double fft_start, fft_end;
         bool from_selection = false;
         if (g.freq_mode) {
-            if (last_fft_source_window(fft_start, fft_end, from_selection)) {
+            if (!g.ds.frequency_axis && last_fft_source_window(fft_start, fft_end, from_selection)) {
                 s += fft_window_status(fft_start, fft_end, from_selection);
             }
+            if (g.spec_valid) s += spectrum_sampling_status(g.spec);
         } else if (has_fft_window()) {
             s += fft_window_status(g.fft_window_start, g.fft_window_end, true);
         }
@@ -1230,9 +1253,11 @@ void set_status() {
 }
 
 double transform_channel_value(std::size_t ci, double raw);
-int channel_index_by_name(const std::string& name);
-
 void clear_spectrum_cache_state() {
+    g_spectrum_worker.cancel();
+    ++g.spec_generation;
+    g.spec_pending = false;
+    g.spec_attempted = false;
     g.spec_valid = false;
     g.spec = lvm::Spectrum{};
     g.spec_channel_indices.clear();
@@ -1242,8 +1267,17 @@ void clear_spectrum_cache_state() {
 void refresh_spec_channel_indices() {
     g.spec_channel_indices.assign(g.spec.names.size(), -1);
     for (std::size_t i = 0; i < g.spec.names.size(); ++i) {
-        g.spec_channel_indices[i] = channel_index_by_name(g.spec.names[i]);
+        if (i < g.spec.source_channels.size()) g.spec_channel_indices[i] = static_cast<int>(g.spec.source_channels[i]);
     }
+}
+
+void apply_spectrum_result(lvm::Spectrum spectrum) {
+    g.spec = std::move(spectrum);
+    g.spec_valid = g.spec.ok;
+    g.spec_pending = false;
+    refresh_spec_channel_indices();
+    if (g.spec_valid && g.spec_fit_pending) { g.freq_start = 0; g.freq_end = g.spec.nyquist; }
+    g.spec_fit_pending = false;
 }
 
 bool spectrum_visibility_changed() {
@@ -1252,9 +1286,11 @@ bool spectrum_visibility_changed() {
 }
 
 bool build_time_window_dataset(const lvm::Dataset& in, double start, double end, lvm::Dataset& out,
-                               const std::vector<std::size_t>* selected_channels = nullptr) {
+                               const std::vector<std::size_t>* selected_channels = nullptr, bool apply_processing = true) {
     out = lvm::Dataset{};
     out.stats = in.stats;
+    out.frequency_axis = in.frequency_axis;
+    out.export_comments = in.export_comments;
     out.ok = true;
     ensure_channel_formula_vectors();
     if (in.time.empty()) return true;
@@ -1288,12 +1324,12 @@ bool build_time_window_dataset(const lvm::Dataset& in, double start, double end,
         const TransformRuntimeKind kind = (c < g.channel_transform_kind.size())
             ? g.channel_transform_kind[c]
             : TransformRuntimeKind::Identity;
-        if (kind == TransformRuntimeKind::Identity) {
+        if (!apply_processing || kind == TransformRuntimeKind::Identity) {
             const std::size_t base = dst.size();
             dst.insert(dst.end(),
                        in.channels[c].begin() + static_cast<std::ptrdiff_t>(lo),
                        in.channels[c].begin() + static_cast<std::ptrdiff_t>(hi));
-            if (g.noise_threshold_enabled) {
+            if (apply_processing && g.noise_threshold_enabled) {
                 for (std::size_t i = base; i < dst.size(); ++i) {
                     dst[i] = rendered_channel_sample(c, lo + (i - base));
                 }
@@ -1324,6 +1360,7 @@ bool build_time_window_dataset(const lvm::Dataset& in, double start, double end,
 void compute_spectrum_for_window(double start, double end, bool from_selection) {
     if (!has_data()) return;
     clamp_time_window(start, end);
+    g.spec_fit_pending = g.spec_fit_pending || !g.spec_source_valid || g.spec_source_start != start || g.spec_source_end != end;
     g.spec_source_start = start;
     g.spec_source_end = end;
     g.spec_source_from_selection = from_selection;
@@ -1337,6 +1374,7 @@ void compute_spectrum_for_window(double start, double end, bool from_selection) 
     }
     if (!has_visible_channel) {
         clear_spectrum_cache_state();
+        g.spec_attempted = true;
         g.spec_source_valid = end > start;
         g.spec_visible_state = g.visible;
         return;
@@ -1357,11 +1395,24 @@ void compute_spectrum_for_window(double start, double end, bool from_selection) 
         g.spec_visible_state = g.visible;
         return;
     }
-    lvm::Dataset view;
-    build_time_window_dataset(g.ds, start, end, view, &visible_channels);
-    g.spec = lvm::compute_spectrum(view, 16384);
-    g.spec_valid = g.spec.ok;
-    refresh_spec_channel_indices();
+    try {
+        lvm::Dataset view;
+        build_time_window_dataset(g.ds, start, end, view, &visible_channels);
+        g.spec_attempted = true;
+        if (g.main) {
+            g.spec_pending = true;
+            g.spec_valid = false;
+            g_spectrum_worker.submit(std::move(view), visible_channels, ++g.spec_generation);
+        } else {
+            auto spectrum = lvm::compute_spectrum(view, 0);
+            for (auto& c : spectrum.source_channels) c = visible_channels[c];
+            apply_spectrum_result(std::move(spectrum));
+        }
+    } catch (const std::exception& ex) {
+        g.spec = lvm::Spectrum{};
+        g.spec.error = ex.what();
+        g.spec_valid = false; g.spec_pending = false; g.spec_attempted = true;
+    }
     g.spec_visible_state = g.visible;
 }
 
@@ -1387,14 +1438,8 @@ void compute_spectrum() {
 
 bool ensure_current_spectrum() {
     if (!has_data()) return false;
-    if (!g.spec_valid || spectrum_visibility_changed()) compute_spectrum();
+    if (!g.spec_attempted || spectrum_visibility_changed()) compute_spectrum();
     return g.spec_valid;
-}
-
-int channel_index_by_name(const std::string& name) {
-    for (std::size_t i = 0; i < g.ds.names.size(); ++i)
-        if (g.ds.names[i] == name) return static_cast<int>(i);
-    return -1;
 }
 
 void finish_channel_rename(bool apply) {
@@ -2202,16 +2247,83 @@ void ensure_global_gap_step_ready() {
     g.cached_global_gap_step_ready = true;
 }
 
+void invalidate_stitched_time_cache() {
+    g.stitched_time_ready = false;
+    g.stitched_gap_right_indices.clear();
+    g.stitched_gap_removed.clear();
+    g.stitched_gap_step = 0.0;
+}
+
+void ensure_stitched_time_cache() {
+    if (g.stitched_time_ready) return;
+    g.stitched_time_ready = true;
+    if (g.ds.time.size() < 2) return;
+    ensure_global_gap_step_ready();
+    const double step = g.cached_global_gap_step;
+    if (!(std::isfinite(step) && step > 0.0)) return;
+    const double threshold = step * 64.0;
+    double removed = 0.0;
+    for (std::size_t i = 1; i < g.ds.time.size(); ++i) {
+        const double duration = g.ds.time[i] - g.ds.time[i - 1];
+        if (!std::isfinite(duration) || duration <= threshold) continue;
+        removed += duration - step;
+        g.stitched_gap_right_indices.push_back(i);
+        g.stitched_gap_removed.push_back(removed);
+    }
+    g.stitched_gap_step = step;
+}
+
+double stitched_time_at_index(std::size_t index) {
+    if (!g.stitch_time_gaps || index >= g.ds.time.size()) return index < g.ds.time.size() ? g.ds.time[index] : 0.0;
+    ensure_stitched_time_cache();
+    const auto position = std::upper_bound(g.stitched_gap_right_indices.begin(), g.stitched_gap_right_indices.end(), index);
+    const std::size_t count = static_cast<std::size_t>(position - g.stitched_gap_right_indices.begin());
+    return g.ds.time[index] - (count ? g.stitched_gap_removed[count - 1] : 0.0);
+}
+
+double stitched_time_from_raw(double time) {
+    if (!g.stitch_time_gaps || g.ds.time.empty()) return time;
+    ensure_stitched_time_cache();
+    const auto& source = g.ds.time;
+    if (time <= source.front()) return time;
+    if (time >= source.back()) return stitched_time_at_index(source.size() - 1);
+    const std::size_t right = static_cast<std::size_t>(std::lower_bound(source.begin(), source.end(), time) - source.begin());
+    const auto gap = std::lower_bound(g.stitched_gap_right_indices.begin(), g.stitched_gap_right_indices.end(), right);
+    if (gap != g.stitched_gap_right_indices.end() && *gap == right && time < source[right]) {
+        const std::size_t gap_position = static_cast<std::size_t>(gap - g.stitched_gap_right_indices.begin());
+        const double previous_removed = gap_position ? g.stitched_gap_removed[gap_position - 1] : 0.0;
+        const double duration = source[right] - source[right - 1];
+        return source[right - 1] - previous_removed + (time - source[right - 1]) * g.stitched_gap_step / duration;
+    }
+    const std::size_t left = static_cast<std::size_t>(std::upper_bound(source.begin(), source.end(), time) - source.begin() - 1);
+    return stitched_time_at_index(left) + (time - source[left]);
+}
+
+double raw_time_from_stitched(double time) {
+    if (!g.stitch_time_gaps || g.ds.time.empty()) return time;
+    const double first = stitched_time_at_index(0);
+    const double last = stitched_time_at_index(g.ds.time.size() - 1);
+    if (time <= first) return g.ds.time.front();
+    if (time >= last) return g.ds.time.back();
+    double lo = g.ds.time.front(), hi = g.ds.time.back();
+    for (int iteration = 0; iteration < 64; ++iteration) {
+        const double mid = lo + (hi - lo) * 0.5;
+        if (stitched_time_from_raw(mid) < time) lo = mid;
+        else hi = mid;
+    }
+    return lo + (hi - lo) * 0.5;
+}
+
 void invalidate_plot_analysis_cache() {
     ++g.plot_analysis_serial;
     g.time_yrange_cache.valid = false;
 }
 
 template <typename TResult>
-void post_async_result(UINT message, std::unique_ptr<TResult> result) {
+void post_async_result(HWND target, UINT message, std::unique_ptr<TResult> result) {
     TResult* raw = result.release();
     if (!raw) return;
-    if (!g.main || !IsWindow(g.main) || !PostMessageW(g.main, message, 0, reinterpret_cast<LPARAM>(raw))) {
+    if (!target || !PostMessageW(target, message, 0, reinterpret_cast<LPARAM>(raw))) {
         delete raw;
     }
 }
@@ -2235,7 +2347,11 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     }
 
     g.current_file_partial = requested_time_window || ds.partial;
+    g_filter_slider_before.reset();
     g.ds = std::move(ds);
+    invalidate_stitched_time_cache();
+    g.envelopes.clear();
+    g.envelope_serial.clear();
     g.visible.assign(g.ds.channel_count(), hide_channels ? 0 : 1);
     g.channel_labels.assign(g.ds.channel_count(), L"");
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
@@ -2254,8 +2370,9 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.channel_formula_rpn.assign(g.ds.channel_count(), {});
     g.global_formula = default_channel_formula_text();
     g.global_formula_rpn.clear();
-    g.formula_ini_deferred = g.light_mode;
-    if (!g.formula_ini_deferred) load_channel_formulas_from_ini();
+    // Signal transforms belong to this document, never silently inherit another file's calibration.
+    g.formula_ini_deferred = false;
+    g.noise_threshold_enabled = false;
     invalidate_formula_runtime();
     g.data_t0 = g.ds.time.front();
     g.data_t1 = g.ds.time.back();
@@ -2304,11 +2421,17 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.spec_source_valid = false;
     g.freq_start = 0.0;
     g.freq_end = 1.0;
+    if (g.ds.frequency_axis) {
+        g.noise_threshold_enabled = false;
+        g.freq_mode = false;
+        set_mode(true);
+    }
     if (!requested_time_window) {
         g.cached_scan_path = wpath;
         g.cached_scan_start = g.data_t0;
         g.cached_scan_end = g.data_t1;
-        g.cached_scan_valid = true;
+        g.cached_scan_valid = false;
+        g.cached_scan_index.reset();
     }
 
     const wchar_t* base = wcsrchr(wpath.c_str(), L'\\');
@@ -2342,18 +2465,22 @@ bool start_async_scan_task(const std::wstring& wpath) {
     show_loading(g_str->msg_scanning_range, true);
 
     const std::wstring path_copy = wpath;
-    const std::string narrow_path = to_acp(wpath.c_str());
+    const HWND target = g.main;
     try {
-        std::thread([token, path_copy, narrow_path, cancel_flag]() {
+        if (g_load_worker.joinable()) g_load_worker.join();
+        g_load_worker = std::thread([token, path_copy, target, cancel_flag]() {
+          try {
             auto result = std::make_unique<AsyncScanResult>();
             result->token = token;
             result->path = path_copy;
             std::string scan_error;
-            result->ok = lvm::scan_time_bounds(narrow_path, result->range_start, result->range_end, scan_error, cancel_flag.get());
-            result->cancelled = !result->ok && cancel_flag->load(std::memory_order_relaxed);
+            result->index = std::make_shared<lvm::ScanIndex>();
+            result->ok = lvm::scan_time_bounds(std::filesystem::path(path_copy), result->range_start, result->range_end, scan_error, cancel_flag.get(), result->index.get());
+            result->cancelled = cancel_flag->load(std::memory_order_relaxed);
             if (!result->ok) result->error = std::move(scan_error);
-            post_async_result(WM_APP_ASYNC_SCAN_DONE, std::move(result));
-        }).detach();
+            post_async_result(target, WM_APP_ASYNC_SCAN_DONE, std::move(result));
+          } catch (...) { PostMessageW(target, WM_APP_ASYNC_SCAN_DONE, 0, 0); }
+        });
     } catch (const std::exception& ex) {
         g.async_load_stage = AsyncLoadStage::None;
         g.async_load_cancel_flag.reset();
@@ -2372,6 +2499,7 @@ bool start_async_load_task(const std::wstring& wpath, const double* fragment_sta
     }
 
     lvm::LoadOptions load_options{};
+    load_options.scan_index = g.cached_scan_index;
     if (fragment_start && fragment_end && std::isfinite(*fragment_start) &&
         std::isfinite(*fragment_end) && *fragment_end > *fragment_start) {
         load_options.use_time_window = true;
@@ -2387,26 +2515,29 @@ bool start_async_load_task(const std::wstring& wpath, const double* fragment_sta
     show_loading(hide_channels ? g_str->msg_loading_light : g_str->msg_loading, true);
 
     const std::wstring path_copy = wpath;
-    const std::string narrow_path = to_acp(wpath.c_str());
+    const HWND target = g.main;
     try {
-        std::thread([token, path_copy, narrow_path, load_options, hide_channels, cancel_flag]() mutable {
+        if (g_load_worker.joinable()) g_load_worker.join();
+        g_load_worker = std::thread([token, path_copy, target, load_options, hide_channels, cancel_flag]() mutable {
+          try {
             auto result = std::make_unique<AsyncLoadResult>();
             result->token = token;
             result->path = path_copy;
             result->hide_channels = hide_channels;
             result->requested_time_window = load_options.use_time_window;
             load_options.cancel_flag = cancel_flag.get();
-            result->ds = lvm::read_lvm_file(narrow_path, load_options);
+            result->ds = lvm::read_lvm_file(std::filesystem::path(path_copy), load_options);
             result->ok = result->ds.ok;
             result->cancelled = !result->ok && cancel_flag->load(std::memory_order_relaxed);
             if (result->ok) {
-                const std::vector<double> raw_time = result->ds.raw_time.empty() ? result->ds.time : result->ds.raw_time;
-                lvm::drop_duplicate_time_channels(result->ds, raw_time);
-                if (!load_options.use_time_window) {
+                const std::vector<double>& raw_time = result->ds.raw_time.empty() ? result->ds.time : result->ds.raw_time;
+                lvm::drop_duplicate_time_channels(result->ds, raw_time, cancel_flag.get());
+                if (!load_options.use_time_window && !result->ds.frequency_axis) {
                     // Sectioned LabVIEW exports can still contain small backward jumps
                     // between blocks; normalize them so the plot stays strictly ordered.
-                    lvm::make_monotonic(result->ds.time);
+                    lvm::make_monotonic(result->ds.time, cancel_flag.get());
                 }
+                if (result->ds.channel_count() == 0) { result->ok = false; result->error = "No data channels remain after removing duplicate time columns."; }
                 if (!hide_channels) {
                     result->cached_global_gap_step = precompute_global_gap_step(result->ds.time);
                     result->cached_global_gap_step_ready = true;
@@ -2414,8 +2545,10 @@ bool start_async_load_task(const std::wstring& wpath, const double* fragment_sta
             } else {
                 result->error = result->ds.error;
             }
-            post_async_result(WM_APP_ASYNC_LOAD_DONE, std::move(result));
-        }).detach();
+            result->cancelled = cancel_flag->load(std::memory_order_relaxed);
+            post_async_result(target, WM_APP_ASYNC_LOAD_DONE, std::move(result));
+          } catch (...) { PostMessageW(target, WM_APP_ASYNC_LOAD_DONE, 0, 0); }
+        });
     } catch (const std::exception& ex) {
         g.async_load_stage = AsyncLoadStage::None;
         g.async_load_cancel_flag.reset();
@@ -2439,6 +2572,10 @@ bool prompt_and_start_light_mode_load(const std::wstring& wpath, double range_st
 bool load_path_interactive(const std::wstring& wpath) {
     g.last_error.clear();
     if (g.light_mode) {
+        std::error_code ec;
+        g.cached_scan_valid = g.cached_scan_valid && g.cached_scan_index &&
+            std::filesystem::file_size(std::filesystem::path(wpath), ec) == g.cached_scan_index->file_size && !ec &&
+            std::filesystem::last_write_time(std::filesystem::path(wpath), ec) == g.cached_scan_index->modified && !ec;
         if (g.cached_scan_valid && lstrcmpiW(g.cached_scan_path.c_str(), wpath.c_str()) == 0) {
             return prompt_and_start_light_mode_load(wpath, g.cached_scan_start, g.cached_scan_end);
         }
@@ -2509,6 +2646,16 @@ inline double channel_render_value(const ChannelRenderView& view, std::size_t sa
     return value;
 }
 
+const MinMaxIndex& channel_envelope(std::size_t channel, const ChannelRenderView& view) {
+    g.envelopes.resize(g.ds.channel_count());
+    g.envelope_serial.resize(g.ds.channel_count(), 0);
+    if (g.envelope_serial[channel] != g.plot_analysis_serial) {
+        g.envelopes[channel].build(g.ds.rows(), [&](std::size_t i) { return channel_render_value(view, i); });
+        g.envelope_serial[channel] = g.plot_analysis_serial;
+    }
+    return g.envelopes[channel];
+}
+
 bool any_visible_channel() {
     for (char visible : g.visible) {
         if (visible) return true;
@@ -2534,25 +2681,13 @@ bool current_time_yrange_window(std::size_t lo, std::size_t hi, double& ymin, do
         return true;
     }
     ensure_channel_formula_vectors();
-    const std::size_t stride = light_mode_render_stride(hi - lo, g.light_mode ? 120000u : 250000u);
     ymin = 1e300; ymax = -1e300;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
         const ChannelRenderView view = make_channel_render_view(c);
-        for (std::size_t i = lo; i < hi; i += stride) {
-            const double v = channel_render_value(view, i);
-            if (std::isnan(v)) continue;
-            if (v < ymin) ymin = v;
-            if (v > ymax) ymax = v;
-        }
-        if (stride > 1) {
-            const std::size_t last = hi - 1;
-            const double v = channel_render_value(view, last);
-            if (!std::isnan(v)) {
-                if (v < ymin) ymin = v;
-                if (v > ymax) ymax = v;
-            }
-        }
+        const auto range = channel_envelope(c, view).query(lo, hi, [&](std::size_t i) { return channel_render_value(view, i); });
+        ymin = std::min(ymin, range.first);
+        ymax = std::max(ymax, range.second);
     }
     if (ymin > ymax) { ymin = -1; ymax = 1; }
     if (ymax - ymin < 1e-12) { ymin -= 1; ymax += 1; }
@@ -2678,126 +2813,6 @@ bool save_png(const std::wstring& path) {
 }
 
 #include "gui_processing.cpp"
-                           const ExportOptions& opts,
-                           bool csv,
-                           double range_start,
-                           double range_end,
-                           bool actual_selected_range) {
-    const char* line_end = csv ? "\n" : "\r\n";
-
-    write_export_comment(out, L"[export]", line_end);
-    write_export_key_value(out, L"range_mode", export_range_mode_key(opts.selected_range), line_end);
-    write_export_key_value(out, L"range_source", actual_selected_range ? L"selected" : L"visible", line_end);
-    write_export_key_value(out, L"data_mode", export_processing_mode_key(opts.apply_processing_to_data), line_end);
-    write_export_key_value(out, L"plot_mode", g.freq_mode ? L"frequency" : L"time", line_end);
-    write_export_key_value(out, L"range_start", format_edit_number(range_start), line_end);
-    write_export_key_value(out, L"range_end", format_edit_number(range_end), line_end);
-    if (!g.file_name.empty()) {
-        write_export_key_value(out, L"source_file", g.file_name, line_end);
-    }
-    write_export_key_value(out, L"partial_fragment", g.current_file_partial ? L"1" : L"0", line_end);
-    write_export_comment(out, L"", line_end);
-
-    if (opts.include_graph_settings) {
-        write_export_comment(out, L"[graph_settings]", line_end);
-        write_export_key_value(out, L"axis_x_label", g.axis_x_label, line_end);
-        write_export_key_value(out, L"axis_y_label", g.axis_y_label, line_end);
-        write_export_key_value(out, L"marker_color", export_color_triplet(g.marker_color), line_end);
-        write_export_key_value(out, L"smoothing", g.visual_smooth ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"vertical_pan", g.vertical_pan ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"snap_to_data", g.snap_to_data ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"show_gap_markers", g.show_gap_markers ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"light_mode", g.light_mode ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"auto_y", g.auto_y ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"y_lock_min", format_optional_edit_number(g.y_lock_min), line_end);
-        write_export_key_value(out, L"y_lock_max", format_optional_edit_number(g.y_lock_max), line_end);
-        write_export_key_value(out, L"auto_y_amp", g.auto_y_amp ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"y_amp_max", format_optional_edit_number(g.y_amp_max), line_end);
-        write_export_key_value(out, L"play_speed", format_edit_number(g.play_speed), line_end);
-        write_export_key_value(out, L"point_display", export_point_display_text(g.pdisp), line_end);
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_filter_settings) {
-        write_export_comment(out, L"[filter_settings]", line_end);
-        write_export_key_value(out, L"enabled", g.noise_threshold_enabled ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"mode", export_filter_mode_key(g.noise_threshold_mode), line_end);
-        write_export_key_value(out, L"topology", export_filter_topology_key(g.noise_threshold_topology), line_end);
-        write_export_key_value(out, L"low_cutoff", format_optional_edit_number(g.noise_threshold_min), line_end);
-        write_export_key_value(out, L"high_cutoff", format_optional_edit_number(g.noise_threshold_max), line_end);
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_channel_names || opts.include_hidden_channels) {
-        write_export_comment(out, L"[channels]", line_end);
-        ensure_channel_formula_vectors();
-        for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
-            std::wstring line = L"channel[" + std::to_wstring(c + 1) + L"] name=" + channel_display_label(c);
-            line += L", visible=";
-            line += (c < g.visible.size() && g.visible[c]) ? L"1" : L"0";
-            line += L", color=" + export_color_triplet(channel_color(c));
-            write_export_comment(out, line, line_end);
-        }
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_formulas) {
-        write_export_comment(out, L"[formulas]", line_end);
-        write_export_key_value(out, L"global", g.global_formula, line_end);
-        for (std::size_t c = 0; c < g.channel_formulas.size(); ++c) {
-            write_export_key_value(out, L"channel[" + std::to_wstring(c + 1) + L"]", g.channel_formulas[c], line_end);
-        }
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_points && !g.point_groups.empty()) {
-        write_export_comment(out, L"[point_groups]", line_end);
-        for (std::size_t i = 0; i < g.point_groups.size(); ++i) {
-            const auto& group = g.point_groups[i];
-            std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + group.name;
-            line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
-            line += L", color=" + export_color_triplet(group.color);
-            line += L", mode=" + std::wstring(group.mode == PointGroupMode::Frequency ? L"frequency" : L"time");
-            line += L", active=" + std::wstring((i == static_cast<std::size_t>(active_point_group_index_for_mode(group.mode))) ? L"1" : L"0");
-            line += L", display=" + export_point_display_text(group.display);
-            write_export_comment(out, line, line_end);
-            for (std::size_t j = 0; j < group.points.size(); ++j) {
-                const auto& pt = group.points[j];
-                std::wstring point_line = L"point[" + std::to_wstring(j + 1) + L"] x=" + format_edit_number(pt.first);
-                point_line += L", y=" + format_edit_number(pt.second);
-                write_export_comment(out, point_line, line_end);
-            }
-        }
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_markers && !g.markers.empty()) {
-        write_export_comment(out, L"[markers]", line_end);
-        for (std::size_t i = 0; i < g.markers.size(); ++i) {
-            const auto& m = g.markers[i];
-            std::wstring line = L"marker[" + std::to_wstring(i + 1) + L"] label=" + m.label;
-            line += L", x=" + format_edit_number(m.x);
-            line += L", y=" + format_edit_number(m.y);
-            line += L", mode=" + std::wstring(m.freq ? L"frequency" : L"time");
-            line += L", snapped=" + std::wstring(m.snapped ? L"1" : L"0");
-            line += L", channel=" + std::to_wstring(m.channel);
-            write_export_comment(out, line, line_end);
-        }
-        write_export_comment(out, L"", line_end);
-    }
-
-    if (opts.include_guides && !g.guides.empty()) {
-        write_export_comment(out, L"[guides]", line_end);
-        for (std::size_t i = 0; i < g.guides.size(); ++i) {
-            const auto& gl = g.guides[i];
-            std::wstring line = L"guide[" + std::to_wstring(i + 1) + L"] kind=" + (gl.vertical ? L"vertical" : L"horizontal");
-            line += L", value=" + format_edit_number(gl.value);
-            line += L", mode=" + std::wstring(gl.freq ? L"frequency" : L"time");
-            write_export_comment(out, line, line_end);
-        }
-        write_export_comment(out, L"", line_end);
-    }
-}
 
 #include "gui_export_metadata.cpp"
 // ---- hit testing ---------------------------------------------------------
@@ -2807,6 +2822,7 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
     const RECT& p = g.vrect;
     if (p.right <= p.left || p.bottom <= p.top) return false;
     dx = g.vx0 + static_cast<double>(px - p.left) / (p.right - p.left) * (g.vx1 - g.vx0);
+    if (!g.freq_mode && g.stitch_time_gaps) dx = raw_time_from_stitched(dx);
     dy = g.vy0 + static_cast<double>(p.bottom - py) / (p.bottom - p.top) * (g.vy1 - g.vy0);
     return true;
 }
@@ -2823,7 +2839,8 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
     if (pw <= 0 || ph <= 0) return false;
 
     auto to_px = [&](double x) -> double {
-        return static_cast<double>(p.left) + (x - g.vx0) / (g.vx1 - g.vx0) * pw;
+        const double displayed_x = g.freq_mode ? x : stitched_time_from_raw(x);
+        return static_cast<double>(p.left) + (displayed_x - g.vx0) / (g.vx1 - g.vx0) * pw;
     };
     auto to_py = [&](double y) -> double {
         return static_cast<double>(p.bottom) - (y - g.vy0) / (g.vy1 - g.vy0) * ph;
@@ -2874,8 +2891,8 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel = nullptr) 
     ensure_channel_formula_vectors();
     const auto& t = g.ds.time;
     if (t.empty() || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
-    std::size_t lo = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), g.vx0) - t.begin());
-    std::size_t hi = static_cast<std::size_t>(std::upper_bound(t.begin(), t.end(), g.vx1) - t.begin());
+    std::size_t lo = static_cast<std::size_t>(std::lower_bound(t.begin(), t.end(), g.win_start) - t.begin());
+    std::size_t hi = static_cast<std::size_t>(std::upper_bound(t.begin(), t.end(), g.win_end) - t.begin());
     if (lo >= hi) return false;
     for (std::size_t c = 0; c < g.ds.channel_count(); ++c) {
         if (!g.visible[c]) continue;
@@ -2915,7 +2932,8 @@ int hit_test_marker(int px, int py) {
     if (px < p.left || px > p.right || py < p.top || py > p.bottom) return -1;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return -1;
     auto mx = [&](double dx) {
-        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
@@ -3082,6 +3100,7 @@ void load_runtime_settings() {
     g.vertical_pan = read_ini_int(L"ui", L"vertical_pan", g.vertical_pan ? 1 : 0) != 0;
     g.snap_to_data = read_ini_int(L"ui", L"snap_to_data", g.snap_to_data ? 1 : 0) != 0;
     g.show_gap_markers = read_ini_int(L"ui", L"show_gap_markers", g.show_gap_markers ? 1 : 0) != 0;
+    g.stitch_time_gaps = read_ini_int(L"ui", L"stitch_time_gaps", g.stitch_time_gaps ? 1 : 0) != 0;
     g.noise_threshold_enabled = read_ini_int(L"ui", L"filter_enabled", g.noise_threshold_enabled ? 1 : 0) != 0;
     g.noise_threshold_mode = read_ini_int(L"ui", L"filter_mode", g.noise_threshold_mode);
     g.noise_threshold_topology = read_ini_int(L"ui", L"filter_topology", g.noise_threshold_topology);
@@ -3546,23 +3565,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!ctl || g.updating_noise_threshold_edits) return 0;
             const int ctl_id = GetDlgCtrlID(ctl);
             if (ctl_id != IDC_SIDE_FILTER_LOW_TRACK && ctl_id != IDC_SIDE_FILTER_HIGH_TRACK) return 0;
-            const double nyquist = current_filter_nyquist();
-            if (!(nyquist > 0.0)) return 0;
-            if (ctl_id == IDC_SIDE_FILTER_LOW_TRACK) {
-                g.noise_threshold_min = filter_slider_to_frequency(static_cast<int>(SendMessageW(ctl, TBM_GETPOS, 0, 0)), nyquist);
-            } else {
-                g.noise_threshold_max = filter_slider_to_frequency(static_cast<int>(SendMessageW(ctl, TBM_GETPOS, 0, 0)), nyquist);
-            }
-            normalize_filter_bounds();
-            recompute_transforms_from_state();
-            save_runtime_settings();
-            refresh_side_panel_controls();
-            set_status();
-            InvalidateRect(hwnd, nullptr, TRUE);
+            apply_filter_slider_change(ctl_id == IDC_SIDE_FILTER_LOW_TRACK,
+                static_cast<int>(SendMessageW(ctl, TBM_GETPOS, 0, 0)), LOWORD(wp) == TB_THUMBTRACK);
             return 0;
         }
         case WM_TIMER:
+            if (LOWORD(wp) == 3) {
+                KillTimer(hwnd, 3);
+                if (g_settings_dirty) { save_runtime_settings_now(); g_settings_dirty = false; }
+                return 0;
+            }
             if (LOWORD(wp) == 2) {
+                if (auto result = g_spectrum_worker.take_result()) {
+                    if (result->generation == g.spec_generation) {
+                        apply_spectrum_result(std::move(result->spectrum));
+                        set_status(); invalidate_plot();
+                    }
+                }
                 POINT pt;
                 GetCursorPos(&pt);
                 ScreenToClient(hwnd, &pt);
@@ -3615,7 +3634,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 InvalidateRect(hwnd, &pr, FALSE);
             }
             return 0;
+        case WM_CANCELMODE:
+            g_filter_slider_before.reset();
+            refresh_side_panel_controls();
+            return 0;
         case WM_COMMAND: {
+            g_filter_slider_before.reset();
             const int id = LOWORD(wp);
             switch (id) {
                 case IDC_OPEN: open_file(); return 0;
@@ -4129,12 +4153,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         toggle_checked_state(GetDlgItem(hwnd, id));
                         g.noise_threshold_enabled = is_toggle_checked(GetDlgItem(hwnd, id));
                         normalize_filter_bounds();
-                        record_settings_change(before);
-                        recompute_transforms_from_state();
-                        save_runtime_settings();
-                        refresh_side_panel_controls();
-                        set_status();
-                        InvalidateRect(hwnd, nullptr, TRUE);
+                        commit_filter_settings_change(before);
                     }
                     return 0;
                 }
@@ -4153,12 +4172,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                                                                 static_cast<int>(FilterModeLowPass),
                                                                 static_cast<int>(FilterModeBandStop));
                             normalize_filter_bounds();
-                            record_settings_change(before);
-                            recompute_transforms_from_state();
-                            save_runtime_settings();
-                            refresh_side_panel_controls();
-                            set_status();
-                            InvalidateRect(hwnd, nullptr, TRUE);
+                            commit_filter_settings_change(before);
                         }
                     }
                     return 0;
@@ -4177,12 +4191,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                             g.noise_threshold_topology = std::clamp(value,
                                                                     static_cast<int>(FilterTopologyButterworth),
                                                                     static_cast<int>(FilterTopologyLinkwitzRiley));
-                            record_settings_change(before);
-                            recompute_transforms_from_state();
-                            save_runtime_settings();
-                            refresh_side_panel_controls();
-                            set_status();
-                            InvalidateRect(hwnd, nullptr, TRUE);
+                            commit_filter_settings_change(before);
                         }
                     }
                     return 0;
@@ -4379,7 +4388,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (pw > 0) {
                     const int clamped_x = std::clamp(mx, static_cast<int>(p.left), static_cast<int>(p.right));
                     const double frac = static_cast<double>(clamped_x - p.left) / pw;
-                    const double tt = g.win_start + frac * (g.win_end - g.win_start);
+                    const double tt = raw_time_from_stitched(
+                        stitched_time_from_raw(g.win_start) + frac *
+                        (stitched_time_from_raw(g.win_end) - stitched_time_from_raw(g.win_start)));
                     if (fft_window_contains_time(tt)) {
                         clear_fft_window();
                         set_status();
@@ -4501,7 +4512,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     const int clamped_x = std::clamp(GET_X_LPARAM(lp), static_cast<int>(p.left), static_cast<int>(p.right));
                     const double frac = static_cast<double>(clamped_x - p.left) / pw;
                     g.fft_select_current_x = clamped_x;
-                    g.fft_select_current_t = g.win_start + frac * (g.win_end - g.win_start);
+                    g.fft_select_current_t = raw_time_from_stitched(
+                        stitched_time_from_raw(g.win_start) + frac *
+                        (stitched_time_from_raw(g.win_end) - stitched_time_from_raw(g.win_start)));
                     InvalidateRect(hwnd, nullptr, FALSE);
                 }
                 return 0;
@@ -4620,9 +4633,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             break;
         case WM_APP_ASYNC_SCAN_DONE: {
             std::unique_ptr<AsyncScanResult> result(reinterpret_cast<AsyncScanResult*>(lp));
-            if (!result) return 0;
+            if (g_load_worker.joinable()) g_load_worker.join();
+            if (!result) {
+                const bool cancelled = g.async_load_cancel_flag && g.async_load_cancel_flag->load();
+                g.async_load_stage = AsyncLoadStage::None; g.async_load_cancel_flag.reset(); hide_loading();
+                if (!cancelled) MessageBoxW(hwnd, L"Unable to scan file. Check available memory and file access.", g_str->msg_read_err, MB_ICONERROR);
+                return 0;
+            }
             if (result->token != g.async_load_token || g.async_load_stage != AsyncLoadStage::ScanningRange) return 0;
             g.async_load_stage = AsyncLoadStage::None;
+            result->cancelled = result->cancelled || (g.async_load_cancel_flag && g.async_load_cancel_flag->load());
             g.async_load_cancel_flag.reset();
             hide_loading();
             if (result->cancelled) {
@@ -4638,6 +4658,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.cached_scan_start = result->range_start;
             g.cached_scan_end = result->range_end;
             g.cached_scan_valid = true;
+            g.cached_scan_index = result->index;
             if (!prompt_and_start_light_mode_load(result->path, result->range_start, result->range_end) &&
                 !g.last_error.empty()) {
                 MessageBoxW(hwnd, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
@@ -4646,9 +4667,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         case WM_APP_ASYNC_LOAD_DONE: {
             std::unique_ptr<AsyncLoadResult> result(reinterpret_cast<AsyncLoadResult*>(lp));
-            if (!result) return 0;
+            if (g_load_worker.joinable()) g_load_worker.join();
+            if (!result) {
+                const bool cancelled = g.async_load_cancel_flag && g.async_load_cancel_flag->load();
+                g.async_load_stage = AsyncLoadStage::None; g.async_load_cancel_flag.reset(); hide_loading();
+                if (!cancelled) MessageBoxW(hwnd, L"Unable to load file. Check available memory and file access.", g_str->msg_read_err, MB_ICONERROR);
+                return 0;
+            }
             if (result->token != g.async_load_token || g.async_load_stage != AsyncLoadStage::LoadingFile) return 0;
             g.async_load_stage = AsyncLoadStage::None;
+            result->cancelled = result->cancelled || (g.async_load_cancel_flag && g.async_load_cancel_flag->load());
             g.async_load_cancel_flag.reset();
             hide_loading();
             if (result->cancelled) {
@@ -4670,7 +4698,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_DESTROY:
+            KillTimer(hwnd, 3);
+            if (g_settings_dirty) { save_runtime_settings_now(); g_settings_dirty = false; }
+            g_spectrum_worker.cancel();
             request_async_load_cancel();
+            if (g_load_worker.joinable()) g_load_worker.join();
+            {
+                MSG pending{};
+                while (PeekMessageW(&pending, hwnd, WM_APP_ASYNC_SCAN_DONE, WM_APP_ASYNC_LOAD_DONE, PM_REMOVE)) {
+                    if (pending.message == WM_APP_ASYNC_SCAN_DONE) delete reinterpret_cast<AsyncScanResult*>(pending.lParam);
+                    else delete reinterpret_cast<AsyncLoadResult*>(pending.lParam);
+                }
+            }
             hide_loading();
             save_app_settings();
             stop_play();

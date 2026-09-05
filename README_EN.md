@@ -37,6 +37,14 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 - Named markers
 - Undo and redo for points, lines and markers
 
+FFT accepts uneven and rounded timestamps by linearly interpolating values onto
+an evenly spaced gap-free grid with the same sample count. Gaps greater than
+four median time steps are removed from the FFT timeline, while all samples on
+both sides of every gap remain in the calculation. This is reported in the
+status bar and spectrum export metadata. Interpolation can attenuate high frequencies; an
+original uniformly sampled recording is preferable for precise analysis.
+The original time-domain data is preserved.
+
 ### Command-line mode
 
 - File structure and parser information
@@ -44,6 +52,16 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 - CSV export
 - FFT peak inspection
 - Windowed processing for selected time ranges
+
+### Current development changes
+
+- Light Mode includes every sample in its min/max ranges, preserving single-sample impulses.
+- Settings include “Stitch time gaps in the graph”. It compresses only the displayed time axis and navigation; source data, measurements, and export retain real timestamps.
+- Filter sliders apply on release and create one undo action, including affected measurements.
+- History retains up to 128 actions and 64 MiB of payload. Old entries are removed at the limit; an action larger than the entire budget clears history.
+- CSV/TXT files with a `Frequency` column open directly as stored spectra, without another FFT. They contain no time-domain signal.
+- Windows CLI supports Unicode paths. `build_cli.ps1` and `build_gui.ps1` label builds with the checkout version and dirty state; `Start GUI.bat` selects the newest executable.
+- Run `make test` and, on Windows, `make test-gui`. CI builds the CLI/core on Linux and GUI/CLI on Windows.
 
 ## Interface Screenshots
 

@@ -14,6 +14,9 @@
 #include "gap_details.hpp"
 #include "formula_engine.hpp"
 #include "lvm_parser.hpp"
+#include "data_io.hpp"
+#include "minmax_index.hpp"
+#include <limits>
 
 namespace {
 
@@ -386,9 +389,228 @@ void test_scan_and_window_load() {
     check(ds.channel_count() == 2, "windowed load channel count");
 }
 
+void test_data_integrity_regressions() {
+    std::printf("test_data_integrity_regressions\n");
+    const TempFile blank("missing_time.txt", "0\t10\t20\n\t11\t21\n2\t12\t22\n");
+    auto ds = lvm::read_lvm_file(blank.path);
+    check(ds.ok && ds.rows() == 2, "missing timestamp is not replaced by channel value");
+    if(ds.rows() == 2) check_near(ds.channels[0][1],12,1e-12,"columns remain aligned");
+    const TempFile csv("quoted.csv", "\xEF\xBB\xBFTime,\"A, volts\",B\n\"0\",\"10\",\"20\"\n\"1\",\"11\",\"21\"\n");
+    ds = lvm::read_lvm_file(csv.path);
+    check(ds.ok && ds.rows() == 2 && ds.names == std::vector<std::string>{"A, volts","B"}, "BOM and quoted CSV");
+    const TempFile multiline("multiline.csv", "Time,\"line one\nline two\"\n0,10\n1,20\n");
+    ds=lvm::read_lvm_file(multiline.path);
+    check(ds.ok && ds.rows()==2 && ds.names[0]=="line one\nline two","multiline CSV label");
+    const TempFile times("same_times.txt", "0\t10\n1\t11\n11\t12\n0\t13\n1\t14\n");
+    ds = lvm::read_lvm_file(times.path); lvm::make_monotonic(ds.time);
+    lvm::LoadOptions options; options.use_time_window=true; options.time_start=0; options.time_end=100;
+    auto partial=lvm::read_lvm_file(times.path,options);
+    check(ds.time == partial.time,"full and window timeline normalization agree");
+    double start=0,end=0;std::string error;
+    auto index=std::make_shared<lvm::ScanIndex>();
+    check(lvm::scan_time_bounds(times.path,start,end,error,nullptr,index.get()),"indexed scan");
+    check_near(end,ds.time.back(),1e-12,"scan timeline matches full load");
+    options.scan_index=index;options.time_start=1;
+    partial=lvm::read_lvm_file(times.path,options);
+    check(partial.time==std::vector<double>(ds.time.begin()+1,ds.time.end()),"indexed window agrees");
+    auto original=ds.channels;
+    lvm::drop_duplicate_time_channels(ds,ds.raw_time);
+    check(ds.channels==original,"nonduplicate data survives channel compaction");
+    for(const auto* formula:{L"2x",L"x 2",L"x+()",L"1e999",L"sin x",L"x(2)"}) {
+        std::vector<FormulaToken> rpn;std::wstring message;
+        check(!compile_formula_rpn(formula,rpn,message,true) && rpn.empty() && !message.empty(),"invalid formula rejected atomically");
+    }
+    const TempFile destination("atomic.txt","previous data");
+    check(!lvm::atomic_write_file(destination.path,[](std::ofstream& out){out << "new";return false;}),"failed writer returns failure");
+    std::ifstream in(destination.path);std::string text;std::getline(in,text);
+    check(text=="previous data","failed writer preserves original");
+}
+
+void test_spectrum_integrity_regressions() {
+    std::printf("test_spectrum_integrity_regressions\n");
+    lvm::Dataset ds;ds.names={"signal"};ds.channels.resize(1);
+    for(int i=0;i<32768;++i){double t=double(i)/1024;ds.time.push_back(t);ds.channels[0].push_back(std::sin(2*3.14159265358979323846*400*t));}
+    auto spectrum=lvm::compute_spectrum(ds,16384);
+    check(spectrum.ok,"capped spectrum works");
+    if(spectrum.ok){const auto peaks=lvm::find_peaks(spectrum.freqs,spectrum.amp[0],1);check(!peaks.empty(),"capped peak found");if(!peaks.empty())check_near(peaks[0].freq,400,1e-9,"cap cannot alias 400Hz to 112Hz");}
+    ds.channels[0][8]=std::numeric_limits<double>::infinity();
+    check(!lvm::compute_spectrum(ds,0).ok,"infinite input cannot produce successful FFT");
+    ds.channels[0][8]=0;ds.time[10]+=1;
+    check(!lvm::compute_spectrum(ds,0).ok,"invalid time cannot produce successful FFT");
+    ds.time[10]-=1;ds.channels[0].pop_back();
+    check(!lvm::compute_spectrum(ds,0).ok,"misaligned dataset rejected");
+}
+
+void test_fft_irregular_timestamps() {
+    std::printf("test_fft_irregular_timestamps\n");
+    constexpr double pi = 3.14159265358979323846;
+    const auto append_tone = [pi](lvm::Dataset& ds, int count, double start, double dt, double frequency, bool jitter) {
+        for (int i = 0; i < count; ++i) {
+            const double offset = jitter && i > 0 && i < count - 1 ? 0.12 * dt * std::sin(2 * pi * i / 17) : 0;
+            const double t = start + i * dt + offset;
+            ds.time.push_back(t);
+            ds.channels[0].push_back(std::sin(2 * pi * frequency * (t - start)));
+        }
+    };
+    const auto check_tone = [](const lvm::Spectrum& spec, double frequency, double frequency_tolerance) {
+        check(spec.ok, "irregular recording produces FFT");
+        if (!spec.ok) return;
+        const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[0], 1);
+        check(!peaks.empty(), "irregular recording has a peak");
+        if (peaks.empty()) return;
+        check_near(peaks[0].freq, frequency, frequency_tolerance, "irregular timestamps preserve tone frequency");
+        check_near(peaks[0].amp, 1, 0.06, "interpolation preserves low-frequency tone amplitude");
+    };
+
+    lvm::Dataset jittered;
+    jittered.names = {"signal"}; jittered.channels.resize(1);
+    append_tone(jittered, 1024, 0, 1.0 / 1024, 64, true);
+    auto spec = lvm::compute_spectrum(jittered, 0);
+    check_tone(spec, 64, 1e-9);
+    check(spec.resampled && !spec.gaps_ignored && spec.n == 1024, "jitter resamples the whole recording");
+
+    lvm::Dataset rounded;
+    rounded.names = {"signal"}; rounded.channels.resize(1);
+    const double frequency = 32.0 / (512 * 0.03275);
+    append_tone(rounded, 512, 0, 0.03275, frequency, false);
+    for (auto& t : rounded.time) t = std::round(t * 1000) / 1000;
+    spec = lvm::compute_spectrum(rounded, 0);
+    check_tone(spec, frequency, 0.001);
+    check(spec.resampled && !spec.gaps_ignored, "millisecond timestamp rounding does not reject FFT");
+
+    lvm::Dataset gapped;
+    gapped.names = {"signal"}; gapped.channels.resize(1);
+    append_tone(gapped, 128, 0, 1.0 / 1024, 32, false);
+    append_tone(gapped, 1024, 10, 1.0 / 1024, 128, false);
+    spec = lvm::compute_spectrum(gapped, 0);
+    check(spec.gaps_ignored && !spec.resampled && spec.n == 1152, "gap does not discard samples from either side");
+    if (spec.ok) {
+        const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[0], 2);
+        check(peaks.size() == 2, "gap-compressed spectrum retains both signal fragments");
+        if (peaks.size() == 2) {
+            check_near(peaks[0].freq, 128, 1e-9, "longer fragment is present after a gap");
+            check_near(peaks[0].amp, 1024.0 / 1152.0, 0.02, "fragment amplitude reflects all selected samples");
+            check_near(peaks[1].freq, 32, 1e-9, "shorter fragment is present after a gap");
+            check_near(peaks[1].amp, 128.0 / 1152.0, 0.02, "short fragment is not discarded after a gap");
+        }
+    }
+    check_near(spec.source_start, 0, 1e-12, "full selected range start reported");
+    check_near(spec.source_end, gapped.time.back(), 1e-12, "actual FFT source end reported");
+    spec = lvm::compute_spectrum(gapped, 256);
+    check(spec.n == 256 && spec.gaps_ignored, "sample cap applies to selected samples without discarding the gap rule");
+    if (spec.ok) {
+        const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[0], 2);
+        check(peaks.size() == 2, "capped FFT retains data on both sides of a gap");
+        if (peaks.size() == 2) {
+            check_near(peaks[0].amp, 0.5, 0.02, "capped FFT includes the first signal fragment");
+            check_near(peaks[1].amp, 0.5, 0.02, "capped FFT includes the second signal fragment");
+            check(std::abs(peaks[0].freq - 32) < 1e-9 || std::abs(peaks[0].freq - 128) < 1e-9,
+                  "first capped peak has a source frequency");
+            check(std::abs(peaks[1].freq - 32) < 1e-9 || std::abs(peaks[1].freq - 128) < 1e-9,
+                  "second capped peak has a source frequency");
+        }
+    }
+    check_near(spec.source_end, 10 + 127.0 / 1024, 1e-12, "capped FFT reports the selected source window");
+
+    // Large gaps must not allocate a uniform grid spanning the entire gap.
+    gapped.time.push_back(1e100); gapped.channels[0].push_back(0);
+    spec = lvm::compute_spectrum(gapped, 0);
+    check(spec.ok && spec.n == 1153 && spec.gaps_ignored, "huge gap keeps all values and FFT memory bounded");
+
+    lvm::Dataset offset;
+    offset.names = {"signal"}; offset.channels.resize(1);
+    append_tone(offset, 1024, 1e9, 1.0 / 1024, 64, false);
+    spec = lvm::compute_spectrum(offset, 0);
+    check_tone(spec, 64, 1e-9);
+    check(!spec.resampled && !spec.gaps_ignored, "uniform absolute timestamps do not alter samples");
+
+    // Every gap is independently compressed. This simulates 10,000 missing
+    // intervals without allowing the test to pass by keeping just one fragment.
+    lvm::Dataset many_gaps;
+    many_gaps.names = {"signal"}; many_gaps.channels.resize(1);
+    double recorded_time = 0.0;
+    for (int i = 0; i <= 30000; ++i) {
+        if (i) recorded_time += 1.0 / 1024 + (i % 3 == 0 ? 0.1 : 0.0);
+        many_gaps.time.push_back(recorded_time);
+        many_gaps.channels[0].push_back(std::sin(2 * pi * 64 * i / 1024.0));
+    }
+    spec = lvm::compute_spectrum(many_gaps, 0);
+    check(spec.ok && spec.gaps_ignored && spec.n == 30001, "ten thousand gaps retain every selected sample");
+    if (spec.ok) {
+        const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[0], 1);
+        check(!peaks.empty(), "many-gap spectrum has a peak");
+        if (!peaks.empty()) check_near(peaks[0].freq, 64, 0.2, "many gaps do not change sample-rate frequency scale");
+    }
+
+    // A straight line has an exact interpolation oracle. Simply removing the
+    // uniformity check and running FFT on uneven samples fails this comparison.
+    lvm::Dataset uneven, uniform;
+    uneven.names = uniform.names = {"ramp"}; uneven.channels.resize(1); uniform.channels.resize(1);
+    for (int i = 0; i < 16; ++i) {
+        const double t = i + (i > 0 && i < 15 ? (i % 2 ? 0.2 : -0.2) : 0);
+        uneven.time.push_back(t); uneven.channels[0].push_back(2 * t + 3);
+        uniform.time.push_back(i); uniform.channels[0].push_back(2 * i + 3);
+    }
+    const auto interpolated = lvm::compute_spectrum(uneven, 0);
+    const auto reference = lvm::compute_spectrum(uniform, 0);
+    check(interpolated.ok && interpolated.resampled && reference.ok, "linear interpolation oracle setup");
+    if (interpolated.ok && reference.ok) {
+        for (std::size_t k = 0; k < reference.freqs.size(); ++k) {
+            check_near(interpolated.amp[0][k], reference.amp[0][k], 1e-10, "resampling matches the exact uniform signal");
+        }
+    }
+    std::atomic<bool> cancelled{true};
+    bool cancelled_cleanly = false;
+    try { lvm::compute_spectrum(jittered, 0, &cancelled); }
+    catch (const std::runtime_error&) { cancelled_cleanly = true; }
+    check(cancelled_cleanly, "resampling respects FFT cancellation");
+}
+
+void test_minmax_and_spectrum_import() {
+    std::printf("test_minmax_and_spectrum_import\n");
+    std::vector<double> values(1027);
+    for (std::size_t i = 0; i < values.size(); ++i) values[i] = std::sin(i * 0.7);
+    values[64] = 1e35; values[1026] = -1e35; values[130] = std::nan("");
+    const auto sample = [&](std::size_t i) { return values[i]; };
+    MinMaxIndex index; index.build(values.size(), sample);
+    bool exact = true;
+    for (std::size_t lo = 0; lo < values.size(); lo += 13) {
+        for (std::size_t hi = lo; hi <= values.size(); hi += 17) {
+            double low = std::numeric_limits<double>::infinity(), high = -low;
+            for (std::size_t i = lo; i < hi; ++i) if (std::isfinite(values[i])) {
+                low = std::min(low, values[i]); high = std::max(high, values[i]);
+            }
+            const auto range = index.query(lo, hi, sample);
+            exact = exact && range.first == low && range.second == high;
+        }
+    }
+    check(exact, "minmax pyramid matches exhaustive finite sample ranges");
+    check(index.query(1024, 2000, sample).first == -1e35, "minmax includes last partial block without float overflow");
+    const TempFile spectrum("stored.csv", "Frequency,A,B\n0,0,3\n1,1,8\n2,2,5\n");
+    auto ds = lvm::read_lvm_file(spectrum.path);
+    check(ds.ok && ds.frequency_axis, "stored frequency header recognized");
+    lvm::drop_duplicate_time_channels(ds, ds.raw_time);
+    check(ds.channels.size() == 2, "amplitude equal to frequency is not discarded as duplicate time");
+    const auto spec = lvm::compute_spectrum(ds, 0);
+    check(spec.ok && spec.imported && spec.freqs == ds.time && spec.amp == ds.channels, "three-bin spectrum loads without FFT or minimum-four-sample restriction");
+    lvm::LoadOptions options; options.use_time_window = true; options.time_start = 1; options.time_end = 2;
+    const auto window = lvm::read_lvm_file(spectrum.path, options);
+    check(window.ok && window.frequency_axis && window.time == std::vector<double>{1,2}, "spectrum window preserves frequencies");
+    const TempFile invalid("invalid_spectrum.csv", "Frequency,A\n0,3\n2,4\n1,5\n");
+    check(!lvm::read_lvm_file(invalid.path).ok, "invalid spectrum frequency ordering rejected");
+    const TempFile text_spectrum("stored_spectrum.txt", "Frequency\tSensor\n0\t3\n1\t4\n2\t5\n");
+    const auto text_ds = lvm::read_lvm_file(text_spectrum.path);
+    check(text_ds.ok && text_ds.frequency_axis && text_ds.names == std::vector<std::string>{"Sensor"}, "plain TXT spectrum header recognized without metadata");
+    check(lvm::tsv_header_field("A\tB\nC\rD") == "A B C D", "TXT header cannot introduce extra columns or rows");
+}
+
 }  // namespace
 
 int main() {
+    test_data_integrity_regressions();
+    test_spectrum_integrity_regressions();
+    test_fft_irregular_timestamps();
+    test_minmax_and_spectrum_import();
     test_basic_parse();
     test_metadata_and_nan();
     test_decimal_comma();

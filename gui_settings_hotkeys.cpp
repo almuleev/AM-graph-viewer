@@ -1018,7 +1018,8 @@ bool is_settings_hotkey_modifier_id(int id) {
 
 bool is_settings_checkbox_id(int id) {
     return id == IDW_LIGHT_MODE ||
-           id == IDC_SET_GAP_MARKERS;
+           id == IDC_SET_GAP_MARKERS ||
+           id == IDC_SET_STITCH_GAPS;
 }
 
 bool is_welcome_checkbox_id(int id) {
@@ -1031,6 +1032,7 @@ bool uses_manual_toggle_state(HWND hwnd) {
     return is_channel_checkbox_id(id) ||
            is_side_toggle_id(id) ||
            id == IDC_SET_GAP_MARKERS ||
+           id == IDC_SET_STITCH_GAPS ||
            id == IDC_EXPORT_APPLY_SETTINGS ||
            id == IDC_EXPORT_APPLY_DATA ||
            id == IDC_EXPORT_INCLUDE_CHANNEL_NAMES ||
@@ -1349,7 +1351,9 @@ void show_about() {
 // Refresh every checkable menu item from the current app state. Cheap, so we
 // just call it whenever a toggle changes (menu, toolbar, or accelerator).
 void sync_menu() {
+    if (g.mode_time) EnableWindow(g.mode_time, !g.ds.frequency_axis);
     if (!g.menu) return;
+    EnableMenuItem(g.menu, IDM_MODE_TIME, MF_BYCOMMAND | (g.ds.frequency_axis ? MF_GRAYED : MF_ENABLED));
     auto chk = [&](UINT id, bool on) {
         CheckMenuItem(g.menu, id, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));
     };
@@ -1371,6 +1375,7 @@ void sync_menu() {
 }
 
 void set_mode(bool freq_mode) {
+    if (g.ds.frequency_axis && !freq_mode) return; // A spectrum file contains no time-domain samples.
     if (g.freq_mode == freq_mode) return;
     const PointGroupMode old_mode = current_point_group_mode();
     normalize_active_point_group();
@@ -1386,6 +1391,7 @@ void set_mode(bool freq_mode) {
         hide_gap_details_card();
     }
     if (g.freq_mode) {
+        g.spec_fit_pending = true;
         compute_spectrum_from_current_source();
         g.freq_start = 0.0;
         g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
@@ -1698,6 +1704,8 @@ void refresh_settings_controls() {
     }
     set_toggle_checked(GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
     if (HWND gap = GetDlgItem(g.settings_wnd, IDC_SET_GAP_MARKERS)) SetWindowTextW(gap, gap_markers_toggle_text());
+    set_toggle_checked(GetDlgItem(g.settings_wnd, IDC_SET_STITCH_GAPS), g.stitch_time_gaps);
+    if (HWND stitch = GetDlgItem(g.settings_wnd, IDC_SET_STITCH_GAPS)) SetWindowTextW(stitch, stitch_gaps_toggle_text());
     if (HWND xlbl = GetDlgItem(g.settings_wnd, IDC_SET_AXIS_X_LABEL_STATIC)) SetWindowTextW(xlbl, axis_x_label_text());
     if (HWND ylbl = GetDlgItem(g.settings_wnd, IDC_SET_AXIS_Y_LABEL_STATIC)) SetWindowTextW(ylbl, axis_y_label_text());
     if (HWND xedit = GetDlgItem(g.settings_wnd, IDC_SET_AXIS_X_LABEL_EDIT)) {
@@ -1756,10 +1764,11 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mkcheck(g_str->light_mode, 28, 64, 278, 28, IDW_LIGHT_MODE);
             set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
             mkcheck(gap_markers_toggle_text(), 28, 98, 278, 28, IDC_SET_GAP_MARKERS);
-            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 156, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 152, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
-            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 184, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 180, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            mkcheck(stitch_gaps_toggle_text(), 28, 128, 360, 28, IDC_SET_STITCH_GAPS);
+            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 188, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
+            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 184, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 216, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
+            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 212, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
 
             mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 310, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
@@ -1779,6 +1788,7 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
             set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
             set_toggle_checked(GetDlgItem(hwnd, IDC_SET_GAP_MARKERS), g.show_gap_markers);
+            set_toggle_checked(GetDlgItem(hwnd, IDC_SET_STITCH_GAPS), g.stitch_time_gaps);
             enable_file_drop_support(hwnd);
             return 0;
         }
@@ -1806,6 +1816,17 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         toggle_checked_state(ctl);
                         g.show_gap_markers = checked();
                         if (!g.show_gap_markers) hide_gap_details_card();
+                        invalidate_plot_analysis_cache();
+                        save_runtime_settings();
+                        InvalidateRect(g.main, nullptr, FALSE);
+                        refresh_settings_controls();
+                    }
+                    return 0;
+                case IDC_SET_STITCH_GAPS:
+                    if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
+                        toggle_checked_state(ctl);
+                        g.stitch_time_gaps = checked();
+                        hide_gap_details_card();
                         invalidate_plot_analysis_cache();
                         save_runtime_settings();
                         InvalidateRect(g.main, nullptr, FALSE);

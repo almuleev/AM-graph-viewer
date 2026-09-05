@@ -5,14 +5,16 @@ WINDRES  ?= windres
 # Static linking keeps the binary self-contained (no libstdc++/libgcc DLLs).
 LDFLAGS  ?= -static
 TARGET   := lvm_reader
-# Extract version from the latest git tag (e.g. v0.4.4).
-VERSION  := $(shell git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)
+# Identify the actual checkout, including uncommitted source changes.
+VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+CPPFLAGS += -DAPP_VERSION=\"$(VERSION)\"
 
 # Parser/analysis library shared by the CLI and the tests.
-LIB_SRC  := lvm_parser.cpp fft.cpp analysis.cpp
+LIB_SRC  := lvm_parser.cpp fft.cpp analysis.cpp data_io.cpp filter_engine.cpp spectrum_worker.cpp
 APP_SRC  := main.cpp $(LIB_SRC)
 APP_OBJ  := $(APP_SRC:.cpp=.o)
-HDRS     := lvm_parser.hpp fft.hpp analysis.hpp export_helpers.hpp formula_engine.hpp gap_details.hpp
+HDRS     := $(wildcard *.hpp)
+GUI_PARTS := $(wildcard gui_*.cpp)
 GUI_RES  := AM_logo.o
 
 ifeq ($(OS),Windows_NT)
@@ -25,21 +27,31 @@ else
     GUI_BIN  := AMGraphViewer-$(VERSION)
 endif
 
-.PHONY: all clean run test gui
+.PHONY: all clean run test gui test-gui FORCE
 
 all: $(BIN)
+
+# Refresh the CLI version even when only the checkout/dirty state changed.
+main.o: FORCE
+FORCE:
 
 $(BIN): $(APP_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(APP_OBJ) $(LDFLAGS)
 
 %.o: %.cpp $(HDRS)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 run: $(BIN)
 	./$(BIN) lvm_files_for_tests/test.lvm
 
 test: $(TEST_BIN)
 	./$(TEST_BIN)
+
+test-gui: tests/gui_regression.exe
+	./tests/gui_regression.exe
+
+tests/gui_regression.exe: tests/gui_regression.cpp $(GUI_PARTS) $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(HDRS)
+	$(CXX) $(CXXFLAGS) -I. -o $@ tests/gui_regression.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 
 $(TEST_BIN): tests/run_tests.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -I. -o $@ tests/run_tests.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(LDFLAGS)
@@ -51,7 +63,7 @@ gui: $(GUI_BIN)
 $(GUI_RES): AM_logo.rc AM_logo.ico
 	$(WINDRES) -O coff -i $< -o $@
 
-$(GUI_BIN): gui_main.cpp gap_details.cpp $(LIB_SRC) $(HDRS) $(GUI_RES)
+$(GUI_BIN): $(GUI_PARTS) gap_details.cpp export_helpers.cpp formula_engine.cpp $(LIB_SRC) $(HDRS) $(GUI_RES)
 	$(CXX) $(CXXFLAGS) -DAPP_VERSION_W=L\"$(VERSION)\" -municode -mwindows -o $@ gui_main.cpp gap_details.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp $(GUI_RES) $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 
 clean:

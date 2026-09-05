@@ -78,6 +78,13 @@ bool compile_formula_rpn(const std::wstring& raw_text,
                          std::wstring& error,
                          bool english) {
     const std::wstring text = normalize_formula_text(raw_text);
+    error.clear();
+    // Commit only a complete program; a rejected edit cannot leave partial RPN.
+    struct OutputGuard {
+        std::vector<FormulaToken>& out;
+        bool committed = false;
+        ~OutputGuard() { if (!committed) out.clear(); }
+    } output_guard{out};
     struct StackEntry {
         FormulaOp op = FormulaOp::Add;
         bool is_lparen = false;
@@ -106,10 +113,11 @@ bool compile_formula_rpn(const std::wstring& raw_text,
         if (iswspace(ch)) { ++i; continue; }
 
         if ((ch >= L'0' && ch <= L'9') || ch == L'.') {
+            if (!expect_value) return push_error(error, english, L"Missing operator.", L"Пропущен оператор.");
             const wchar_t* begin = text.c_str() + i;
             wchar_t* end = nullptr;
             double value = wcstod(begin, &end);
-            if (begin == end) {
+            if (begin == end || !std::isfinite(value)) {
                 return push_error(error, english, L"Invalid number in coefficient.", L"Некорректное число в коэффициенте.");
             }
             i = static_cast<std::size_t>(end - text.c_str());
@@ -119,6 +127,7 @@ bool compile_formula_rpn(const std::wstring& raw_text,
         }
 
         if (iswalpha(ch)) {
+            if (!expect_value) return push_error(error, english, L"Missing operator.", L"Пропущен оператор.");
             std::size_t j = i;
             while (j < text.size() && (iswalpha(text[j]) || iswdigit(text[j]) || text[j] == L'_')) ++j;
             std::wstring name = text.substr(i, j - i);
@@ -132,6 +141,10 @@ bool compile_formula_rpn(const std::wstring& raw_text,
                     error = (english ? L"Unknown function: " : L"Неизвестная функция: ") + name;
                     return false;
                 }
+                std::size_t next = j;
+                while (next < text.size() && iswspace(text[next])) ++next;
+                if (next == text.size() || text[next] != L'(')
+                    return push_error(error, english, L"Function requires parentheses.", L"Для функции нужны скобки.");
                 ops.push_back({fn, false});
                 expect_value = true;
             }
@@ -140,12 +153,14 @@ bool compile_formula_rpn(const std::wstring& raw_text,
         }
 
         if (ch == L'(') {
+            if (!expect_value) return push_error(error, english, L"Missing operator.", L"Пропущен оператор.");
             ops.push_back({FormulaOp::Add, true});
             ++i;
             expect_value = true;
             continue;
         }
         if (ch == L')') {
+            if (expect_value) return push_error(error, english, L"Missing operand.", L"Пропущен аргумент.");
             bool found_lparen = false;
             while (!ops.empty()) {
                 if (ops.back().is_lparen) {
@@ -196,7 +211,18 @@ bool compile_formula_rpn(const std::wstring& raw_text,
         out.push_back({ops.back().op, 0.0});
         ops.pop_back();
     }
-    return !out.empty();
+    std::size_t depth = 0;
+    for (const auto& token : out) {
+        if (token.op == FormulaOp::Number || token.op == FormulaOp::Variable) ++depth;
+        else {
+            const std::size_t arity = (token.op == FormulaOp::Neg || formula_is_function(token.op)) ? 1 : 2;
+            if (depth < arity) return push_error(error, english, L"Missing operand.", L"Пропущен аргумент.");
+            depth = depth - arity + 1;
+        }
+    }
+    if (depth != 1) return push_error(error, english, L"Invalid expression.", L"Некорректное выражение.");
+    output_guard.committed = true;
+    return true;
 }
 
 bool formula_rpn_is_identity(const std::vector<FormulaToken>& rpn) {
@@ -212,7 +238,7 @@ AffineFormulaInfo analyze_formula_rpn_affine(const std::vector<FormulaToken>& rp
         return value.valid && value.mul == 0.0;
     };
     auto push = [&](AffineFormulaInfo value) -> bool {
-        if (!value.valid) return false;
+        if (!value.valid || !std::isfinite(value.mul) || !std::isfinite(value.add)) return false;
         stack.push_back(value);
         return true;
     };

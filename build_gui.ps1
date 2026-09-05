@@ -9,9 +9,9 @@ if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
 
 Set-Location $PSScriptRoot
 
-# Extract version from the latest git tag (e.g. v0.4.4).
-$version = git describe --tags --abbrev=0 2>$null
-if (-not $version) { $version = "v0.0.0" }
+# Identify the actual checkout, including uncommitted source changes.
+$version = git -c core.excludesFile=NUL describe --tags --always --dirty 2>$null
+if (-not $version) { $version = "dev" }
 
 $outName = "AMGraphViewer-$version-win-x64.exe"
 $versionDefine = '-DAPP_VERSION_W=L\"' + $version + '\"'
@@ -32,11 +32,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $flags = @(
-    "-std=c++17", "-O2", "-finput-charset=UTF-8", "-municode", "-static", "-mwindows",
+    "-std=c++17", "-O2", "-Wall", "-Wextra", "-finput-charset=UTF-8", "-municode", "-static", "-mwindows",
     $versionDefine,
     "-o", $outName,
     $resourceObj,
-    "gui_main.cpp", "gap_details.cpp", "lvm_parser.cpp", "fft.cpp", "analysis.cpp", "export_helpers.cpp", "formula_engine.cpp",
+    "gui_main.cpp", "gap_details.cpp", "lvm_parser.cpp", "data_io.cpp", "filter_engine.cpp", "spectrum_worker.cpp", "fft.cpp", "analysis.cpp", "export_helpers.cpp", "formula_engine.cpp",
     "-lcomdlg32", "-lgdi32", "-luser32", "-lgdiplus", "-lcomctl32"
 )
 

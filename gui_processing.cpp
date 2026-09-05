@@ -34,6 +34,7 @@ void invalidate_transformed_channel_cache() {
 
 void invalidate_filtered_channel_cache() {
     const std::size_t n = g.ds.channel_count();
+    if (!g.noise_threshold_enabled) g.filtered_channel_cache.clear();
     g.filtered_channel_cache.resize(n);
     g.filtered_channel_cache_valid.assign(n, 0);
 }
@@ -106,6 +107,7 @@ void ensure_channel_formula_vectors() {
             kind = TransformRuntimeKind::Identity;
         }
         g.channel_transform_kind[i] = kind;
+        if (kind != TransformRuntimeKind::CachedFormula) std::vector<double>().swap(g.transformed_channel_cache[i]);
         g.channel_transform_mul[i] = mul;
         g.channel_transform_add[i] = add;
         if (kind != TransformRuntimeKind::Identity) has_non_identity = true;
@@ -134,7 +136,7 @@ void ensure_transformed_channel_cache(std::size_t channel_index) {
 }
 
 double transform_channel_value(std::size_t ci, double raw) {
-    if (std::isnan(raw)) return raw;
+    if (!std::isfinite(raw)) return std::numeric_limits<double>::quiet_NaN();
     if (!g.has_non_identity_formula) return raw;
     if (ci >= g.channel_transform_kind.size()) return raw;
     const TransformRuntimeKind kind = g.channel_transform_kind[ci];
@@ -147,10 +149,11 @@ double transform_channel_value(std::size_t ci, double raw) {
         : (g.global_formula_affine
             ? (raw * g.global_formula_mul + g.global_formula_add)
             : eval_formula_rpn(g.global_formula_rpn, raw));
-    const double base = std::isfinite(global_value) ? global_value : raw;
+    if (!std::isfinite(global_value)) return std::numeric_limits<double>::quiet_NaN();
+    const double base = global_value;
     if (ci < g.channel_formula_identity.size() && g.channel_formula_identity[ci]) return base;
     const double value = eval_formula_rpn(g.channel_formula_rpn[ci], base);
-    return std::isfinite(value) ? value : raw;
+    return std::isfinite(value) ? value : std::numeric_limits<double>::quiet_NaN();
 }
 
 std::wstring format_edit_number(double value) {
@@ -175,28 +178,14 @@ bool parse_wide_double_text(const wchar_t* text, double& out) {
     double value = wcstod(begin, &end);
     if (begin == end) return false;
     while (*end == L' ' || *end == L'\t' || *end == L'\r' || *end == L'\n') ++end;
-    if (*end != 0) return false;
+    if (*end != 0 || !std::isfinite(value)) return false;
     out = value;
     return true;
 }
 
 constexpr double kFilterSliderRange = 1000.0;
 constexpr double kFilterSliderGamma = 4.0;
-constexpr double kButterworthQ = 0.70710678118654752440;
-constexpr double kBesselQ = 0.57735026918962576451;
 
-struct BiquadCoefficients {
-    double b0 = 1.0;
-    double b1 = 0.0;
-    double b2 = 0.0;
-    double a1 = 0.0;
-    double a2 = 0.0;
-};
-
-struct BiquadState {
-    double z1 = 0.0;
-    double z2 = 0.0;
-};
 
 double current_filter_sample_step() {
     if (!has_data() || g.ds.time.size() < 2) return 0.0;
@@ -213,6 +202,7 @@ double current_filter_sample_step() {
 }
 
 double current_filter_nyquist() {
+    if (g.ds.frequency_axis) return 0.0;
     const double step = current_filter_sample_step();
     return (step > 0.0) ? (0.5 / step) : 0.0;
 }
@@ -260,48 +250,6 @@ std::wstring filter_frequency_text(double hz) {
     return buf;
 }
 
-BiquadCoefficients design_biquad(FilterMode mode, int topology, double cutoff_hz, double sample_rate) {
-    BiquadCoefficients coeffs;
-    if (!(sample_rate > 0.0) || !(cutoff_hz > 0.0) || !std::isfinite(cutoff_hz)) return coeffs;
-    if (mode != FilterModeLowPass && mode != FilterModeHighPass) return coeffs;
-    cutoff_hz = std::clamp(cutoff_hz, 0.0, sample_rate * 0.499);
-    if (!(cutoff_hz > 0.0)) return coeffs;
-    const double q = (topology == FilterTopologyBessel) ? kBesselQ :
-                     (topology == FilterTopologyChebyshev) ? 0.92 :
-                     kButterworthQ;
-    const double omega = 2.0 * 3.14159265358979323846 * cutoff_hz / sample_rate;
-    const double sn = std::sin(omega);
-    const double cs = std::cos(omega);
-    const double alpha = sn / (2.0 * q);
-    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
-    double a0 = 1.0, a1 = 0.0, a2 = 0.0;
-    if (mode == FilterModeLowPass) {
-        b0 = (1.0 - cs) * 0.5;
-        b1 = 1.0 - cs;
-        b2 = (1.0 - cs) * 0.5;
-    } else {
-        b0 = (1.0 + cs) * 0.5;
-        b1 = -(1.0 + cs);
-        b2 = (1.0 + cs) * 0.5;
-    }
-    a0 = 1.0 + alpha;
-    a1 = -2.0 * cs;
-    a2 = 1.0 - alpha;
-    if (!(std::abs(a0) > 0.0)) return coeffs;
-    coeffs.b0 = b0 / a0;
-    coeffs.b1 = b1 / a0;
-    coeffs.b2 = b2 / a0;
-    coeffs.a1 = a1 / a0;
-    coeffs.a2 = a2 / a0;
-    return coeffs;
-}
-
-double process_biquad_sample(const BiquadCoefficients& coeffs, BiquadState& state, double input) {
-    const double output = coeffs.b0 * input + state.z1;
-    state.z1 = coeffs.b1 * input - coeffs.a1 * output + state.z2;
-    state.z2 = coeffs.b2 * input - coeffs.a2 * output;
-    return output;
-}
 
 double transformed_channel_sample(std::size_t channel_index, std::size_t row_index) {
     if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
@@ -342,127 +290,24 @@ void ensure_filtered_channel_cache(std::size_t channel_index) {
     if (!g.noise_threshold_enabled || channel_index >= g.ds.channel_count()) return;
     if (channel_index >= g.filtered_channel_cache_valid.size()) invalidate_filtered_channel_cache();
     if (g.filtered_channel_cache_valid[channel_index]) return;
-
-    const auto& time = g.ds.time;
-    const auto& src = g.ds.channels[channel_index];
-    auto& dst = g.filtered_channel_cache[channel_index];
-    dst.resize(src.size());
-    if (src.empty() || time.empty()) {
-        g.filtered_channel_cache_valid[channel_index] = 1;
-        return;
+    const std::vector<double>* samples = &g.ds.channels[channel_index];
+    std::vector<double> transformed;
+    const auto kind = g.channel_transform_kind[channel_index];
+    if (kind == TransformRuntimeKind::CachedFormula) {
+        ensure_transformed_channel_cache(channel_index);
+        samples = &g.transformed_channel_cache[channel_index];
+    } else if (kind == TransformRuntimeKind::Affine) {
+        transformed.resize(g.ds.rows());
+        for (std::size_t i = 0; i < transformed.size(); ++i) transformed[i] = transformed_channel_sample(channel_index, i);
+        samples = &transformed;
     }
-
-    const double step = current_filter_sample_step();
-    const double nyquist = (step > 0.0) ? (0.5 / step) : 0.0;
-    if (!(nyquist > 0.0)) {
-        for (std::size_t i = 0; i < src.size(); ++i) dst[i] = transformed_channel_sample(channel_index, i);
-        g.filtered_channel_cache_valid[channel_index] = 1;
-        return;
-    }
-
-    const double sample_rate = 1.0 / step;
-    const double gap_threshold = step * 64.0;
-    const int mode = (g.noise_threshold_mode >= FilterModeLowPass && g.noise_threshold_mode <= FilterModeBandStop)
-        ? g.noise_threshold_mode
-        : FilterModeLowPass;
-    const int topology = (g.noise_threshold_topology == FilterTopologyBessel)
-        ? FilterTopologyBessel
-        : (g.noise_threshold_topology == FilterTopologyChebyshev)
-            ? FilterTopologyChebyshev
-            : (g.noise_threshold_topology == FilterTopologyLinkwitzRiley)
-                ? FilterTopologyLinkwitzRiley
-                : FilterTopologyButterworth;
-    const double low_cutoff = clamp_filter_cutoff(g.noise_threshold_min, nyquist);
-    const double high_cutoff = clamp_filter_cutoff(g.noise_threshold_max, nyquist);
-    const BiquadCoefficients lowpass = design_biquad(FilterModeLowPass, topology, high_cutoff, sample_rate);
-    const BiquadCoefficients highpass = design_biquad(FilterModeHighPass, topology, low_cutoff, sample_rate);
-    const bool linkwitz_riley = topology == FilterTopologyLinkwitzRiley;
-    const BiquadCoefficients lowpass_lr = design_biquad(FilterModeLowPass, FilterTopologyButterworth, high_cutoff, sample_rate);
-    const BiquadCoefficients highpass_lr = design_biquad(FilterModeHighPass, FilterTopologyButterworth, low_cutoff, sample_rate);
-
-    BiquadState stage1{};
-    BiquadState stage2{};
-    BiquadState stage3{};
-    BiquadState stage4{};
-    bool have_segment = false;
-    double prev_time = 0.0;
-    for (std::size_t i = 0; i < src.size(); ++i) {
-        const double input = transformed_channel_sample(channel_index, i);
-        const double tt = time[i];
-        const bool finite = std::isfinite(input) && std::isfinite(tt);
-        if (!finite) {
-            dst[i] = input;
-            stage1 = {};
-            stage2 = {};
-            have_segment = false;
-            prev_time = tt;
-            continue;
-        }
-        if (have_segment) {
-            const double dt = tt - prev_time;
-            if (!(dt > 0.0) || !std::isfinite(dt) || dt > gap_threshold) {
-                stage1 = {};
-                stage2 = {};
-                have_segment = false;
-            }
-        }
-
-        double output = input;
-        if (linkwitz_riley) {
-            switch (mode) {
-                case FilterModeHighPass: {
-                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
-                    output = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
-                    break;
-                }
-                case FilterModeBandPass: {
-                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
-                    const double hp2 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
-                    const double bp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage3, hp2) : hp2;
-                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage4, bp1) : bp1;
-                    break;
-                }
-                case FilterModeBandStop: {
-                    const double hp1 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage1, input) : input;
-                    const double hp2 = (low_cutoff > 0.0) ? process_biquad_sample(highpass_lr, stage2, hp1) : hp1;
-                    const double bp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage3, hp2) : hp2;
-                    const double bp2 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage4, bp1) : bp1;
-                    output = input - bp2;
-                    break;
-                }
-                case FilterModeLowPass:
-                default: {
-                    const double lp1 = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage1, input) : input;
-                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass_lr, stage2, lp1) : lp1;
-                    break;
-                }
-            }
-        } else {
-            switch (mode) {
-                case FilterModeHighPass:
-                    output = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
-                    break;
-                case FilterModeBandPass: {
-                    const double hp = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
-                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage2, hp) : hp;
-                    break;
-                }
-                case FilterModeBandStop: {
-                    const double hp = (low_cutoff > 0.0) ? process_biquad_sample(highpass, stage1, input) : input;
-                    const double bp = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage2, hp) : hp;
-                    output = input - bp;
-                    break;
-                }
-                case FilterModeLowPass:
-                default:
-                    output = (high_cutoff < nyquist) ? process_biquad_sample(lowpass, stage1, input) : input;
-                    break;
-            }
-        }
-        dst[i] = output;
-        have_segment = true;
-        prev_time = tt;
-    }
+    FilterSettings settings;
+    settings.mode = g.noise_threshold_mode;
+    settings.topology = g.noise_threshold_topology;
+    settings.low_cutoff = g.noise_threshold_min;
+    settings.high_cutoff = g.noise_threshold_max;
+    settings.sample_step = current_filter_sample_step();
+    g.filtered_channel_cache[channel_index] = filter_signal(g.ds.time, *samples, settings);
     g.filtered_channel_cache_valid[channel_index] = 1;
 }
 
@@ -517,6 +362,35 @@ void on_signal_transform_changed(bool preserve_history = false) {
     save_runtime_settings();
 }
 
+void commit_filter_settings_change(const SettingsSnapshot& before) {
+    if (!settings_snapshot_differs(before, capture_settings_snapshot())) return;
+    if (before.noise_threshold_enabled || g.noise_threshold_enabled) clear_transform_sensitive_overlays(false);
+    recompute_transforms_from_state();
+    record_settings_change(before);
+    save_runtime_settings();
+    refresh_side_panel_controls();
+    set_status();
+    if (g.main) InvalidateRect(g.main, nullptr, TRUE);
+}
+
+void apply_filter_slider_change(bool low_cutoff, int position, bool preview) {
+    const double nyquist = current_filter_nyquist();
+    if (!(nyquist > 0)) return;
+    const double value = filter_slider_to_frequency(position, nyquist);
+    if (preview) {
+        if (!g_filter_slider_before) g_filter_slider_before = capture_settings_snapshot();
+        HWND label = low_cutoff ? g.side_filter_low_value : g.side_filter_high_value;
+        if (label) SetWindowTextW(label, filter_frequency_text(value).c_str());
+        return;
+    }
+    SettingsSnapshot before = g_filter_slider_before ? std::move(*g_filter_slider_before) : capture_settings_snapshot();
+    g_filter_slider_before.reset();
+    if (low_cutoff) g.noise_threshold_min = value;
+    else g.noise_threshold_max = value;
+    normalize_filter_bounds();
+    commit_filter_settings_change(before);
+}
+
 double export_channel_sample(std::size_t channel_index, std::size_t row_index, bool apply_processing) {
     if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
     const auto& column = g.ds.channels[channel_index];
@@ -543,18 +417,14 @@ std::vector<std::size_t> export_channel_indices(bool include_hidden_channels) {
     for (std::size_t c = 0; c < count; ++c) {
         if (c < g.visible.size() && g.visible[c]) cols.push_back(c);
     }
-    if (cols.empty()) {
-        cols.reserve(count);
-        for (std::size_t c = 0; c < count; ++c) cols.push_back(c);
-    }
     return cols;
 }
 
 std::vector<int> export_spectrum_channel_indices(const lvm::Spectrum& spec) {
     std::vector<int> indices;
     indices.reserve(spec.names.size());
-    for (const auto& name : spec.names) {
-        indices.push_back(channel_index_by_name(name));
+    for (std::size_t c : spec.source_channels) {
+        indices.push_back(static_cast<int>(c));
     }
     return indices;
 }
@@ -564,7 +434,7 @@ bool build_export_spectrum(const ExportOptions& opts, lvm::Spectrum& out_spec,
     if (!has_data() || !g.freq_mode) return false;
     out_all_channels = false;
     const bool have_current_spectrum = ensure_current_spectrum();
-    if (!opts.include_hidden_channels && have_current_spectrum) {
+    if (opts.apply_processing_to_data && !opts.include_hidden_channels && have_current_spectrum) {
         out_spec = g.spec;
         out_channel_indices = g.spec_channel_indices;
         return out_spec.ok;
@@ -581,12 +451,14 @@ bool build_export_spectrum(const ExportOptions& opts, lvm::Spectrum& out_spec,
     std::vector<std::size_t> all_channels;
     all_channels.reserve(g.ds.channel_count());
     for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
-        all_channels.push_back(i);
+        if (opts.include_hidden_channels || (i < g.visible.size() && g.visible[i])) all_channels.push_back(i);
     }
 
     lvm::Dataset view;
-    build_time_window_dataset(g.ds, source_start, source_end, view, &all_channels);
-    out_spec = lvm::compute_spectrum(view, 16384);
+    if (all_channels.empty()) return false;
+    build_time_window_dataset(g.ds, source_start, source_end, view, &all_channels, opts.apply_processing_to_data);
+    out_spec = lvm::compute_spectrum(view, 0);
+    for (auto& c : out_spec.source_channels) c = all_channels[c];
     if (!out_spec.ok) return false;
     out_channel_indices = export_spectrum_channel_indices(out_spec);
     out_all_channels = true;
@@ -694,4 +566,14 @@ bool export_range_bounds_for_mode(ExportRangeMode range, double& start, double& 
     return false;
 }
 
-void write_export_metadata(std::ofstream& out,
+std::wstring export_metadata_text(const std::wstring& value) {
+    const std::string utf8 = to_utf8(value);
+    const wchar_t* hex = L"0123456789ABCDEF";
+    std::wstring encoded;
+    for (unsigned char ch : utf8) {
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == ' ' || ch == '_' || ch == '-' || ch == '.') encoded += ch;
+        else { encoded += L'%'; encoded += hex[ch >> 4]; encoded += hex[ch & 15]; }
+    }
+    return encoded;
+}

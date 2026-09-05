@@ -179,7 +179,8 @@ void draw_guides(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
@@ -239,7 +240,8 @@ void draw_markers(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0) return;
     auto mx = [&](double dx) {
-        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
@@ -311,7 +313,8 @@ void draw_measure(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        return p.left + static_cast<int>((dx - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
+        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
@@ -530,11 +533,13 @@ void draw_time(HDC dc, const RECT& p) {
     current_time_yrange_window(lo, hi, ymin, ymax);
     if (!g.auto_y) { ymin = g.y_lock_min; ymax = g.y_lock_max; }
 
-    draw_axes(dc, p, g.win_start, g.win_end, ymin, ymax, g_str->plot_xlabel_time);
+    const double displayed_start = stitched_time_from_raw(g.win_start);
+    const double displayed_end = stitched_time_from_raw(g.win_end);
+    draw_axes(dc, p, displayed_start, displayed_end, ymin, ymax, g_str->plot_xlabel_time);
 
     const int pw = p.right - p.left, ph = p.bottom - p.top;
-    const double xspan = g.win_end - g.win_start;
-    auto mapx = [&](double tt) { return p.left + static_cast<int>((tt - g.win_start) / xspan * pw); };
+    const double xspan = displayed_end - displayed_start;
+    auto mapx = [&](double tt) { return p.left + static_cast<int>((stitched_time_from_raw(tt) - displayed_start) / xspan * pw); };
     auto mapy = [&](double yy) { return p.bottom - static_cast<int>((yy - ymin) / (ymax - ymin) * ph); };
 
     HRGN clip = CreateRectRgn(p.left + 1, p.top + 1, p.right, p.bottom);
@@ -569,7 +574,7 @@ void draw_time(HDC dc, const RECT& p) {
         }
     }
 
-    static std::vector<float> cmin, cmax;
+    static std::vector<double> cmin, cmax;
     const bool visible_channels = any_visible_channel();
     // Keep the sparse path for genuinely small windows only; it is more expensive
     // per sample than the min/max projection used for denser views.
@@ -578,7 +583,7 @@ void draw_time(HDC dc, const RECT& p) {
     const std::size_t light_mode_gap_budget = std::max<std::size_t>(static_cast<std::size_t>(pw) * 48, 120000);
     const std::size_t normal_gap_budget = std::max<std::size_t>(static_cast<std::size_t>(pw) * 96, 220000);
     const bool enable_gap_scan =
-        g.show_gap_markers &&
+        g.show_gap_markers && !g.stitch_time_gaps &&
         (!g.light_mode || visible_channels) &&
         (hi - lo <= (g.light_mode ? light_mode_gap_budget : normal_gap_budget));
     const double gap_step = enable_gap_scan ? effective_time_gap_step(t, lo, hi) : 0.0;
@@ -651,7 +656,7 @@ void draw_time(HDC dc, const RECT& p) {
         DeleteObject(clip);
         g_legend_items.clear();
         g_legend_box = {0, 0, 0, 0};
-        g.vx0 = g.win_start; g.vx1 = g.win_end; g.vy0 = ymin; g.vy1 = ymax;
+        g.vx0 = displayed_start; g.vx1 = displayed_end; g.vy0 = ymin; g.vy1 = ymax;
         g.vrect = p; g.vvalid = true;
         return;
     }
@@ -683,7 +688,7 @@ void draw_time(HDC dc, const RECT& p) {
                 if (std::isnan(v)) { flush(); continue; }
                 if (!run.empty() && i > lo) {
                     const double dt = t[i] - t[i - 1];
-                    if (std::isfinite(dt) && dt > gap_threshold) flush();
+                    if (!g.stitch_time_gaps && std::isfinite(dt) && dt > gap_threshold) flush();
                 }
                 run.push_back(POINT{mapx(t[i]), mapy(v)});
             }
@@ -706,36 +711,27 @@ void draw_time(HDC dc, const RECT& p) {
                 DeleteObject(dot);
             }
         } else {
-            cmin.resize(pw, 1e30f);
-            cmax.resize(pw, -1e30f);
-            std::fill(cmin.begin(), cmin.end(), 1e30f);
-            std::fill(cmax.begin(), cmax.end(), -1e30f);
-            const std::size_t dense_budget = g.light_mode
-                ? std::max<std::size_t>(static_cast<std::size_t>(pw) * 40, 4000)
-                : std::max<std::size_t>(static_cast<std::size_t>(pw) * 96, 8000);
-            const std::size_t dense_stride = light_mode_render_stride(hi - lo, dense_budget);
-            for (std::size_t i = lo; i < hi; i += dense_stride) {
-                const float v = static_cast<float>(channel_render_value(view, i));
-                if (std::isnan(v)) continue;
-                int cxp = mapx(t[i]) - p.left;
-                if (cxp < 0 || cxp >= pw) continue;
-                if (v < cmin[cxp]) cmin[cxp] = v;
-                if (v > cmax[cxp]) cmax[cxp] = v;
-            }
-            if (dense_stride > 1) {
-                const std::size_t last = hi - 1;
-                const float v = static_cast<float>(channel_render_value(view, last));
-                if (!std::isnan(v)) {
-                    int cxp = mapx(t[last]) - p.left;
-                    if (cxp >= 0 && cxp < pw) {
-                        if (v < cmin[cxp]) cmin[cxp] = v;
-                        if (v > cmax[cxp]) cmax[cxp] = v;
-                    }
+            cmin.resize(pw, std::numeric_limits<double>::infinity());
+            cmax.resize(pw, -std::numeric_limits<double>::infinity());
+            std::fill(cmin.begin(), cmin.end(), std::numeric_limits<double>::infinity());
+            std::fill(cmax.begin(), cmax.end(), -std::numeric_limits<double>::infinity());
+            const auto sample = [&](std::size_t i) { return channel_render_value(view, i); };
+            const auto& envelope = channel_envelope(c, view);
+            std::size_t begin = lo;
+            for (int pixel = 0; pixel < pw; ++pixel) {
+                const double right_time = raw_time_from_stitched(displayed_start + xspan * (pixel + 1) / pw);
+                const std::size_t end = pixel + 1 == pw ? hi : static_cast<std::size_t>(
+                    std::lower_bound(t.begin() + static_cast<std::ptrdiff_t>(begin), t.begin() + static_cast<std::ptrdiff_t>(hi), right_time) - t.begin());
+                const auto range = envelope.query(begin, end, sample);
+                if (std::isfinite(range.first) && std::isfinite(range.second)) {
+                    cmin[pixel] = range.first;
+                    cmax[pixel] = range.second;
                 }
+                begin = end;
             }
             int prev_x = -1, prev_y = 0;
             for (int cxp = 0; cxp < pw; ++cxp) {
-                if (cmax[cxp] < -1e29f) continue;
+                if (!std::isfinite(cmax[cxp])) continue;
                 const int x = p.left + cxp;
                 const int yhi = mapy(cmax[cxp]);
                 const int ylo = mapy(cmin[cxp]);
@@ -964,13 +960,21 @@ void draw_time(HDC dc, const RECT& p) {
     }
     draw_legend(dc, p);
 
-    g.vx0 = g.win_start; g.vx1 = g.win_end; g.vy0 = ymin; g.vy1 = ymax;
+    g.vx0 = displayed_start; g.vx1 = displayed_end; g.vy0 = ymin; g.vy1 = ymax;
     g.vrect = p; g.vvalid = true;
 }
 
 void draw_freq(HDC dc, const RECT& p) {
     if (!ensure_current_spectrum() || g.spec.freqs.size() < 2) {
         draw_axes(dc, p, 0, 1, 0, 1, g_str->plot_xlabel_freq);
+        RECT message_rect = p;
+        InflateRect(&message_rect, -24, -24);
+        const std::wstring message = g.spec_pending
+            ? (g_str == &kEn ? L"Calculating spectrum…" : L"Вычисление спектра…")
+            : (!g.spec.error.empty() ? to_w(g.spec.error) : (g_str == &kEn ? L"No spectrum available." : L"Спектр недоступен."));
+        SetTextColor(dc, g_theme->text_primary);
+        SetBkMode(dc, TRANSPARENT);
+        DrawTextW(dc, message.c_str(), -1, &message_rect, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
         return;
     }
     const auto& f = g.spec.freqs;
@@ -1006,7 +1010,7 @@ void draw_freq(HDC dc, const RECT& p) {
     HRGN clip = CreateRectRgn(p.left + 1, p.top + 1, p.right, p.bottom);
     SelectClipRgn(dc, clip);
 
-    static std::vector<float> cmin, cmax;
+    static std::vector<double> cmin, cmax;
     for (std::size_t j = 0; j < g.spec.amp.size(); ++j) {
         const int ci = (j < g.spec_channel_indices.size()) ? g.spec_channel_indices[j] : -1;
         if (ci < 0 || !g.visible[ci]) continue;
@@ -1046,34 +1050,25 @@ void draw_freq(HDC dc, const RECT& p) {
                 }
             }
         } else {
-            cmin.resize(pw, 1e30f);
-            cmax.resize(pw, -1e30f);
-            std::fill(cmin.begin(), cmin.end(), 1e30f);
-            std::fill(cmax.begin(), cmax.end(), -1e30f);
-            const std::size_t dense_stride = light_mode_render_stride(visible_bins, static_cast<std::size_t>(pw) * 128);
-            for (std::size_t k = klo; k < khi; k += dense_stride) {
-                const float v = static_cast<float>(a[k]);
+            cmin.resize(pw, std::numeric_limits<double>::infinity());
+            cmax.resize(pw, -std::numeric_limits<double>::infinity());
+            std::fill(cmin.begin(), cmin.end(), std::numeric_limits<double>::infinity());
+            std::fill(cmax.begin(), cmax.end(), -std::numeric_limits<double>::infinity());
+            for (std::size_t k = klo; k < khi; ++k) {
+                const double v = a[k];
+                if (!std::isfinite(v)) continue;
                 int cxp = mapx(f[k]) - p.left;
                 if (cxp < 0 || cxp >= pw) continue;
                 if (v < cmin[cxp]) cmin[cxp] = v;
                 if (v > cmax[cxp]) cmax[cxp] = v;
             }
-            if (dense_stride > 1 && khi > klo) {
-                const std::size_t last = khi - 1;
-                const float v = static_cast<float>(a[last]);
-                int cxp = mapx(f[last]) - p.left;
-                if (cxp >= 0 && cxp < pw) {
-                    if (v < cmin[cxp]) cmin[cxp] = v;
-                    if (v > cmax[cxp]) cmax[cxp] = v;
-                }
-            }
             int prev_x = -1;
             int prev_y = 0;
             for (int cxp = 0; cxp < pw; ++cxp) {
-                if (cmax[cxp] < -1e29f) continue;
+                if (!std::isfinite(cmax[cxp])) continue;
                 const int x = p.left + cxp;
                 const int yhi = mapy(cmax[cxp]);
-                const int ylo = mapy(std::max(0.0f, cmin[cxp]));
+                const int ylo = mapy(std::max(0.0, cmin[cxp]));
                 MoveToEx(dc, x, ylo, nullptr);
                 LineTo(dc, x, yhi - 1);
                 if (prev_x >= 0 && x - prev_x <= 2) {

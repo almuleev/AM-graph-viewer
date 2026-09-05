@@ -3,69 +3,144 @@
 #include <algorithm>
 #include <cmath>
 #include <complex>
+#include <cstdlib>
+#include <limits>
+#include <stdexcept>
 
 #include "fft.hpp"
 
 namespace lvm {
 namespace {
 
-// numpy-style median of a non-empty vector (mutates by sorting a copy).
-double median(std::vector<double> v) {
-    std::sort(v.begin(), v.end());
+// Median of a non-empty vector, without sorting all samples or copying it.
+double median(std::vector<double>& v) {
     const std::size_t mid = v.size() / 2;
-    return (v.size() % 2 == 0) ? 0.5 * (v[mid - 1] + v[mid]) : v[mid];
-}
-
-// Uniform decimation: take every k-th index so the sampling stays evenly
-// spaced (keeps the frequency axis correct, unlike linspace skipping).
-std::vector<std::size_t> decimated_indices(std::size_t rows, int max_samples) {
-    std::vector<std::size_t> idx;
-    std::size_t step = 1;
-    if (max_samples > 0 && rows > static_cast<std::size_t>(max_samples)) {
-        step = (rows + static_cast<std::size_t>(max_samples) - 1) /
-               static_cast<std::size_t>(max_samples);
-    }
-    for (std::size_t i = 0; i < rows; i += step) idx.push_back(i);
-    return idx;
+    std::nth_element(v.begin(), v.begin() + mid, v.end());
+    return v.size() % 2 ? v[mid] : 0.5 * v[mid] + 0.5 * *std::max_element(v.begin(), v.begin() + mid);
 }
 
 }  // namespace
 
-Spectrum compute_spectrum(const Dataset& ds, int max_samples) {
+Spectrum compute_spectrum(const Dataset& ds, int max_samples, const std::atomic<bool>* cancel) {
+    const auto check_cancel = [&] { if (cancel && cancel->load(std::memory_order_relaxed)) throw std::runtime_error("Operation cancelled."); };
+    check_cancel();
     Spectrum spec;
     const std::size_t rows = ds.rows();
+    if (ds.names.size() != ds.channels.size() ||
+        std::any_of(ds.channels.begin(), ds.channels.end(), [rows](const auto& c) { return c.size() != rows; })) {
+        spec.error = "Inconsistent dataset dimensions.";
+        return spec;
+    }
+    if (ds.frequency_axis) {
+        if (rows < 2) { spec.error = "A stored spectrum needs at least two frequency bins."; return spec; }
+        for (std::size_t i = 0; i < rows; ++i) {
+            if ((i & 0xFFFF) == 0) check_cancel();
+            if (!std::isfinite(ds.time[i]) || ds.time[i] < 0 || (i && ds.time[i] <= ds.time[i - 1])) {
+                spec.error = "Invalid frequency axis."; return spec;
+            }
+        }
+        spec.freqs = ds.time;
+        spec.nyquist = ds.time.back(); // Upper display bound; original sample rate may be unknown.
+        spec.imported = true;
+        for (std::size_t c = 0; c < ds.channels.size(); ++c) {
+            for (std::size_t i = 0; i < rows; ++i) {
+                if ((i & 0xFFFF) == 0) check_cancel();
+                if (!std::isfinite(ds.channels[c][i]) || ds.channels[c][i] < 0) {
+                    spec.error = "Spectrum amplitudes must be finite and non-negative."; return spec;
+                }
+            }
+            spec.names.push_back(ds.names[c]); spec.source_channels.push_back(c);
+            spec.amp.push_back(ds.channels[c]);
+        }
+        bool sampling_section = false;
+        for (const auto& comment : ds.export_comments) {
+            if (!comment.empty() && comment.front() == '[') { sampling_section = comment == "[fft_sampling]"; continue; }
+            if (!sampling_section) continue;
+            const auto equals = comment.find('=');
+            if (equals == std::string::npos) continue;
+            const auto key = comment.substr(0, equals), value = comment.substr(equals + 1);
+            char* tail = nullptr;
+            const double number = std::strtod(value.c_str(), &tail);
+            if (tail == value.c_str() || *tail || !std::isfinite(number)) continue;
+            if (key == "source_start") spec.source_start = number;
+            else if (key == "source_end") spec.source_end = number;
+            else if (key == "sample_dt" && number > 0) spec.sample_dt = number;
+            else if (key == "sample_count" && number >= 0 && number <= std::numeric_limits<int>::max()) spec.n = static_cast<int>(number);
+            else if (key == "resampled") spec.resampled = number == 1;
+            else if (key == "gaps_ignored") spec.gaps_ignored = number == 1;
+        }
+        spec.ok = !spec.amp.empty();
+        if (!spec.ok) spec.error = "No spectrum channels available.";
+        return spec;
+    }
     if (rows < 4) {
         spec.error = "Not enough samples for FFT (need at least 4).";
         return spec;
     }
 
-    // Choose sample indices, optionally decimating to the cap.
-    const std::vector<std::size_t> idx = decimated_indices(rows, max_samples);
-    const int n = static_cast<int>(idx.size());
-    if (n < 4) {
+    if (max_samples > 0 && max_samples < 4) {
         spec.error = "FFT sample cap leaves fewer than 4 samples.";
         return spec;
     }
 
-    // Sample spacing from the median positive time step.
+    // Validate the axis and estimate its typical spacing. Small clock jitter and
+    // rounded timestamps are common in real measurements, not a reason to fail.
     std::vector<double> positive_dt;
-    positive_dt.reserve(idx.size());
-    for (std::size_t i = 1; i < idx.size(); ++i) {
-        const double d = ds.time[idx[i]] - ds.time[idx[i - 1]];
-        if (d > 0.0) positive_dt.push_back(d);
+    positive_dt.reserve(rows - 1);
+    if (!std::isfinite(ds.time.front())) { spec.error = "Invalid time axis."; return spec; }
+    for (std::size_t i = 1; i < rows; ++i) {
+        if ((i & 0xFFFF) == 0) check_cancel();
+        const double d = ds.time[i] - ds.time[i - 1];
+        if (!std::isfinite(ds.time[i]) || !std::isfinite(d) || d <= 0.0) {
+            spec.error = "FFT requires a finite, strictly increasing time axis.";
+            return spec;
+        }
+        positive_dt.push_back(d);
     }
-    if (positive_dt.empty()) {
-        spec.error = "Time axis is not increasing; cannot derive sample rate.";
+    const double typical_dt = median(positive_dt);
+    check_cancel();
+    const std::size_t begin = 0;
+    const std::size_t end = max_samples > 0
+        ? std::min(rows, static_cast<std::size_t>(max_samples)) : rows;
+    if (end < 4) {
+        spec.error = "FFT sample cap leaves fewer than 4 samples.";
         return spec;
     }
-    spec.sample_dt = median(positive_dt);
-    if (spec.sample_dt <= 0.0) {
-        spec.error = "Non-positive sample spacing.";
+    if (end > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        spec.error = "FFT is too large; select a smaller time window.";
         return spec;
     }
 
+    const int n = static_cast<int>(end);
     spec.n = n;
+    spec.source_start = ds.time[begin];
+    spec.source_end = ds.time[end - 1];
+    // Build the time axis used by FFT. A timestamp jump denotes unavailable
+    // time, not unavailable values, so it is compressed to a normal step.
+    // This retains every sample before and after every gap.
+    std::vector<long double> offsets(static_cast<std::size_t>(n), 0.0L);
+    const double gap_limit = typical_dt * 4.0;
+    for (int i = 1; i < n; ++i) {
+        if ((i & 0xFFFF) == 0) check_cancel();
+        double step = ds.time[static_cast<std::size_t>(i)] - ds.time[static_cast<std::size_t>(i - 1)];
+        if (step > gap_limit) { step = typical_dt; spec.gaps_ignored = true; }
+        offsets[static_cast<std::size_t>(i)] = offsets[static_cast<std::size_t>(i - 1)] + step;
+    }
+    const long double grid_step = offsets.back() / (n - 1);
+    spec.sample_dt = static_cast<double>(grid_step);
     spec.nyquist = 0.5 / spec.sample_dt;
+    if (!std::isfinite(spec.sample_dt) || spec.sample_dt <= 0 || !std::isfinite(spec.nyquist) || spec.nyquist <= 0) {
+        spec.error = "Invalid sample spacing.";
+        return spec;
+    }
+    const double rounding = 2 * std::numeric_limits<double>::epsilon() *
+        std::max(std::fabs(spec.source_start), std::fabs(spec.source_end));
+    const double tolerance = std::max(rounding, spec.sample_dt * 1e-6);
+    for (int i = 1; i < n - 1; ++i) {
+        if ((i & 0xFFFF) == 0) check_cancel();
+        const long double offset = offsets[static_cast<std::size_t>(i)];
+        if (std::fabs(offset - i * grid_step) > tolerance) { spec.resampled = true; break; }
+    }
     const int half = n / 2;  // rfft returns N/2 + 1 bins
     spec.freqs.resize(half + 1);
     for (int k = 0; k <= half; ++k) {
@@ -73,39 +148,59 @@ Spectrum compute_spectrum(const Dataset& ds, int max_samples) {
     }
 
     for (std::size_t c = 0; c < ds.channels.size(); ++c) {
+        check_cancel();
         const auto& col = ds.channels[c];
 
         // Replace NaNs with the channel mean (needs >= 4 finite samples).
-        double sum = 0.0;
+        long double sum = 0.0;
         int finite = 0;
-        for (std::size_t i = 0; i < idx.size(); ++i) {
-            const double v = col[idx[i]];
-            if (!std::isnan(v)) { sum += v; ++finite; }
+        for (std::size_t i = begin; i < end; ++i) {
+            if ((i & 0xFFFF) == 0) check_cancel();
+            const double v = col[i];
+            if (std::isinf(v)) { spec.error = "Channel contains infinite values."; return spec; }
+            if (std::isfinite(v)) { sum += v; ++finite; }
         }
         if (finite < 4) continue;
         const double fill = sum / static_cast<double>(finite);
 
-        std::vector<std::complex<double>> sig(idx.size());
-        double total = 0.0;
-        for (std::size_t i = 0; i < idx.size(); ++i) {
-            const double v = col[idx[i]];
-            const double clean = std::isnan(v) ? fill : v;
+        const auto value_at = [&](std::size_t i) { return std::isnan(col[i]) ? fill : col[i]; };
+        std::vector<std::complex<double>> sig(n);
+        long double total = 0.0;
+        std::size_t right = begin + 1;
+        for (int i = 0; i < n; ++i) {
+            if ((i & 0xFFFF) == 0) check_cancel();
+            double clean = value_at(begin + i);
+            if (spec.resampled && i > 0 && i < n - 1) {
+                // Work with offsets, so a large absolute timestamp does not
+                // discard precision while constructing the uniform grid.
+                const long double target = i * grid_step;
+                while (right < end - 1 && offsets[right] < target) {
+                    ++right;
+                    if ((right & 0xFFFF) == 0) check_cancel();
+                }
+                const long double left_offset = offsets[right - 1];
+                const long double interval = offsets[right] - offsets[right - 1];
+                const long double weight = std::clamp((target - left_offset) / interval, 0.0L, 1.0L);
+                clean = static_cast<double>((1 - weight) * value_at(right - 1) + weight * value_at(right));
+            }
             sig[i] = std::complex<double>(clean, 0.0);
             total += clean;
         }
-        const double mean = total / static_cast<double>(idx.size());
+        const double mean = total / static_cast<double>(n);
         for (auto& s : sig) s -= mean;  // remove DC
 
-        const std::vector<std::complex<double>> spectrum = dft(sig);
+        const std::vector<std::complex<double>> spectrum = dft(sig, cancel);
         std::vector<double> amp(half + 1);
         const double interior_scale = 2.0 / static_cast<double>(n);
         const double edge_scale = 1.0 / static_cast<double>(n);
         for (int k = 0; k <= half; ++k) {
             const bool is_edge_bin = (k == 0) || (n % 2 == 0 && k == half);
             amp[k] = (is_edge_bin ? edge_scale : interior_scale) * std::abs(spectrum[k]);
+            if (!std::isfinite(amp[k])) { spec.error = "FFT overflow; reduce signal magnitude."; return spec; }
         }
 
         spec.names.push_back(ds.names[c]);
+        spec.source_channels.push_back(c);
         spec.amp.push_back(std::move(amp));
     }
 
@@ -118,6 +213,7 @@ std::vector<Peak> find_peaks(const std::vector<double>& freqs,
                              const std::vector<double>& amp, int count) {
     std::vector<Peak> peaks;
     if (amp.size() < 2 || freqs.size() != amp.size()) return peaks;
+    if (std::any_of(amp.begin(), amp.end(), [](double v) { return !std::isfinite(v); })) return peaks;
 
     // Interior local maxima, skipping DC (k = 0).
     for (std::size_t k = 1; k + 1 < amp.size(); ++k) {
@@ -125,13 +221,14 @@ std::vector<Peak> find_peaks(const std::vector<double>& freqs,
             peaks.push_back({freqs[k], amp[k]});
         }
     }
+    if (amp.back() > 0.0 && amp.back() > amp[amp.size() - 2]) peaks.push_back({freqs.back(), amp.back()});
     // Fallback: no interior maxima -> take the single strongest non-DC bin.
     if (peaks.empty()) {
         std::size_t best = 1;
         for (std::size_t k = 1; k < amp.size(); ++k) {
             if (amp[k] > amp[best]) best = k;
         }
-        peaks.push_back({freqs[best], amp[best]});
+        if (amp[best] > 0.0) peaks.push_back({freqs[best], amp[best]});
     }
 
     std::sort(peaks.begin(), peaks.end(),

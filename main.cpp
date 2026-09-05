@@ -3,6 +3,8 @@
 // Reads .lvm / tab-separated .txt / comma-separated .csv files, reports structure and per-channel
 // statistics, prints data rows, computes an FFT spectrum, and exports CSV.
 #include "analysis.hpp"
+#include "data_io.hpp"
+#include "version.hpp"
 #include "lvm_parser.hpp"
 
 #include <cmath>
@@ -15,10 +17,17 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 
-const char* kVersion = "1.1.0";
+const char* kVersion = APP_VERSION;
 const int kDefaultFftSamples = 0;  // 0 = use all samples (correct frequency axis)
 const int kDefaultPeaks = 5;
 
@@ -44,7 +53,7 @@ void print_usage(const char* prog) {
         "Parsing / spectrum options:\n"
         "  -m, --monotonic     Rebuild a monotonic timeline (for sectioned files)\n"
         "      --keep-dup-time Keep channels that duplicate the time axis\n"
-        "      --fft-samples N  Decimate to at most N samples for FFT (0 = use all)\n"
+        "      --fft-samples N  Use up to N selected samples; timestamp gaps are ignored (0 = all)\n"
         "  -v, --verbose       Verbose parser output\n"
         "  -h, --help          Show this help\n"
         "\n"
@@ -55,7 +64,7 @@ void print_usage(const char* prog) {
 std::string fmt(double v) {
     if (std::isnan(v)) return "";
     char buf[32];
-    std::snprintf(buf, sizeof(buf), "%.15g", v);
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
     return buf;
 }
 
@@ -107,6 +116,8 @@ bool apply_selection(const lvm::Dataset& in, double start, double end,
 
     out = lvm::Dataset{};
     out.stats = in.stats;
+    out.frequency_axis = in.frequency_axis;
+    out.export_comments = in.export_comments;
     out.ok = true;
     for (std::size_t c : chans) out.names.push_back(in.names[c]);
     out.channels.resize(chans.size());
@@ -150,7 +161,7 @@ void print_stats(const lvm::Dataset& ds) {
 void print_head(const lvm::Dataset& ds, long long n) {
     const long long rows = std::min<long long>(n, static_cast<long long>(ds.rows()));
     std::cout << "\nFirst " << rows << " rows\n";
-    std::cout << "Time";
+    std::cout << (ds.frequency_axis ? "Frequency" : "Time");
     for (std::size_t c = 0; c < ds.channels.size(); ++c) std::cout << "\t" << ds.names[c];
     std::cout << "\n";
     for (long long r = 0; r < rows; ++r) {
@@ -163,13 +174,9 @@ void print_head(const lvm::Dataset& ds, long long n) {
 }
 
 bool export_csv(const lvm::Dataset& ds, const std::string& path) {
-    std::ofstream out(path, std::ios::binary);
-    if (!out) {
-        std::cerr << "CSV export failed: cannot open " << path << "\n";
-        return false;
-    }
-    out << "Time";
-    for (std::size_t c = 0; c < ds.channels.size(); ++c) out << "," << ds.names[c];
+    return lvm::atomic_write_file(std::filesystem::u8path(path), [&](std::ofstream& out) {
+    out << (ds.frequency_axis ? "Frequency" : "Time");
+    for (std::size_t c = 0; c < ds.channels.size(); ++c) out << "," << lvm::csv_field(ds.names[c]);
     out << "\n";
     for (std::size_t r = 0; r < ds.rows(); ++r) {
         out << fmt(ds.time[r]);
@@ -179,11 +186,19 @@ bool export_csv(const lvm::Dataset& ds, const std::string& path) {
         out << "\n";
     }
     return true;
+    });
 }
 
 void print_peaks(const lvm::Spectrum& spec, int peak_count) {
-    std::cout << "\nFFT spectrum (N=" << spec.n << ", dt=" << fmt(spec.sample_dt)
-              << " s, Nyquist=" << fmt(spec.nyquist) << " Hz)\n";
+    if (spec.imported) {
+        std::cout << "\nStored spectrum (" << spec.freqs.size() << " bins, " << fmt(spec.freqs.front())
+                  << ".." << fmt(spec.freqs.back()) << " Hz)\n";
+    } else {
+        std::cout << "\nFFT spectrum (N=" << spec.n << ", dt=" << fmt(spec.sample_dt)
+                  << " s, Nyquist=" << fmt(spec.nyquist) << " Hz)\n";
+    }
+    if (spec.gaps_ignored) std::cout << "  Timestamp gaps ignored; all selected samples used.\n";
+    if (spec.resampled) std::cout << "  Uneven timestamps resampled by linear interpolation.\n";
     for (std::size_t c = 0; c < spec.names.size(); ++c) {
         const auto peaks = lvm::find_peaks(spec.freqs, spec.amp[c], peak_count);
         std::cout << "  " << spec.names[c] << ":";
@@ -195,13 +210,9 @@ void print_peaks(const lvm::Spectrum& spec, int peak_count) {
 }
 
 bool export_fft_csv(const lvm::Spectrum& spec, const std::string& path) {
-    std::ofstream out(path, std::ios::binary);
-    if (!out) {
-        std::cerr << "FFT CSV export failed: cannot open " << path << "\n";
-        return false;
-    }
+    return lvm::atomic_write_file(std::filesystem::u8path(path), [&](std::ofstream& out) {
     out << "Frequency";
-    for (const auto& name : spec.names) out << "," << name;
+    for (const auto& name : spec.names) out << "," << lvm::csv_field(name);
     out << "\n";
     for (std::size_t k = 0; k < spec.freqs.size(); ++k) {
         out << fmt(spec.freqs[k]);
@@ -209,6 +220,7 @@ bool export_fft_csv(const lvm::Spectrum& spec, const std::string& path) {
         out << "\n";
     }
     return true;
+    });
 }
 
 bool parse_int_arg(const std::string& text, int min_value, int& out) {
@@ -259,6 +271,29 @@ bool parse_channel_list(const std::string& text, std::vector<int>& out) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    // The CRT's narrow argv uses the active ANSI code page and can already have
+    // lost characters. Decode Windows' original UTF-16 command line instead.
+    int wide_argc = 0;
+    wchar_t** wide_argv = CommandLineToArgvW(GetCommandLineW(), &wide_argc);
+    if (!wide_argv) { std::cerr << "Cannot read command line.\n"; return 1; }
+    std::vector<std::string> utf8_args;
+    utf8_args.reserve(wide_argc);
+    for (int i = 0; i < wide_argc; ++i) {
+        const int length = static_cast<int>(wcslen(wide_argv[i]));
+        const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], length, nullptr, 0, nullptr, nullptr);
+        if (length && !size) { LocalFree(wide_argv); std::cerr << "Invalid Unicode argument.\n"; return 2; }
+        std::string value(size, '\0');
+        if (size) WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], length, value.data(), size, nullptr, nullptr);
+        utf8_args.push_back(std::move(value));
+    }
+    LocalFree(wide_argv);
+    std::vector<char*> utf8_argv;
+    for (auto& value : utf8_args) utf8_argv.push_back(value.data());
+    utf8_argv.push_back(nullptr);
+    argc = wide_argc; argv = utf8_argv.data();
+    SetConsoleOutputCP(CP_UTF8);
+#endif
     std::string file;
     std::string parse_error;
     bool want_info = false, want_stats = false, want_monotonic = false;
@@ -343,14 +378,13 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    lvm::Dataset ds = lvm::read_lvm_file(file);
+    lvm::Dataset ds = lvm::read_lvm_file(std::filesystem::u8path(file));
     if (!ds.ok) {
         std::cerr << "Error: " << ds.error << "\n";
         return 1;
     }
 
-    // Keep a copy of raw time for duplicate-channel detection before any rewrite.
-    const std::vector<double> raw_time = ds.time;
+    const std::vector<double>& raw_time = ds.raw_time.empty() ? ds.time : ds.raw_time;
     if (!keep_dup_time) {
         const auto dropped = lvm::drop_duplicate_time_channels(ds, raw_time);
         if (!dropped.empty() && verbose) {
@@ -359,7 +393,7 @@ int main(int argc, char** argv) {
             std::cout << "\n";
         }
     }
-    if (want_monotonic) lvm::make_monotonic(ds.time);
+    if (want_monotonic && !ds.frequency_axis) lvm::make_monotonic(ds.time);
 
     // Apply time-range / channel selection.
     std::vector<int> channel_pos;

@@ -5,7 +5,7 @@ cd /d "%~dp0"
 title AM Graph Viewer
 
 set "EXE="
-for /f "delims=" %%F in ('dir /b /a-d "%~dp0AMGraphViewer-v*-win-x64.exe" 2^>nul') do set "EXE=%~dp0%%F"
+for /f "delims=" %%F in ('dir /b /a-d /o:d "%~dp0AMGraphViewer-*-win-x64.exe" 2^>nul') do set "EXE=%~dp0%%F"
 
 if exist "%EXE%" (
   start "" "%EXE%"

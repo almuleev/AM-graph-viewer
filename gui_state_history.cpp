@@ -49,6 +49,9 @@ struct UndoAction {
 };
 std::vector<UndoAction> g_undo;
 std::vector<UndoAction> g_redo;
+std::optional<SettingsSnapshot> g_filter_slider_before;
+constexpr std::size_t kUndoActionLimit = 128;
+constexpr std::size_t kUndoByteLimit = 64 * 1024 * 1024;
 WNDPROC g_channel_edit_proc = nullptr;
 void refresh_side_panel_controls();
 void apply_side_panel_visibility();
@@ -247,6 +250,10 @@ const wchar_t* side_pt_num_text() {
 
 const wchar_t* side_pt_x_text() {
     return L"X";
+}
+
+const wchar_t* stitch_gaps_toggle_text() {
+    return (g_str == &kEn) ? L"Stitch time gaps in the graph" : L"Склеивать пропуски времени на графике";
 }
 
 const wchar_t* side_pt_y_text() {
@@ -521,9 +528,48 @@ std::wstring measure_points_status_text() {
     return buf;
 }
 
-void push_undo(const UndoAction& a) {
-    g_undo.push_back(a);
+std::size_t history_dynamic_bytes(const std::wstring& value) { return value.capacity() * sizeof(wchar_t); }
+template<class T> std::size_t history_dynamic_bytes(const T&) { return 0; }
+std::size_t history_dynamic_bytes(const PointGroup& group);
+std::size_t history_dynamic_bytes(const App::Marker& marker);
+template<class T> std::size_t history_dynamic_bytes(const std::vector<T>& values) {
+    std::size_t bytes = values.capacity() * sizeof(T);
+    for (const auto& value : values) bytes += history_dynamic_bytes(value);
+    return bytes;
+}
+std::size_t history_dynamic_bytes(const PointGroup& group) {
+    return history_dynamic_bytes(group.name) + history_dynamic_bytes(group.points);
+}
+std::size_t history_dynamic_bytes(const App::Marker& marker) { return history_dynamic_bytes(marker.label); }
+std::size_t history_dynamic_bytes(const SettingsSnapshot& snapshot) {
+    return history_dynamic_bytes(snapshot.visible) + history_dynamic_bytes(snapshot.channel_labels) +
+        history_dynamic_bytes(snapshot.channel_colors) + history_dynamic_bytes(snapshot.global_formula) +
+        history_dynamic_bytes(snapshot.channel_formulas) + history_dynamic_bytes(snapshot.point_groups) +
+        history_dynamic_bytes(snapshot.guides) + history_dynamic_bytes(snapshot.markers);
+}
+std::size_t history_action_bytes(const UndoAction& action) {
+    return sizeof(action) + history_dynamic_bytes(action.point_group_state) + history_dynamic_bytes(action.marker) +
+        history_dynamic_bytes(action.saved_point_groups) + history_dynamic_bytes(action.saved_lines) +
+        history_dynamic_bytes(action.saved_markers) + history_dynamic_bytes(action.before_settings) +
+        history_dynamic_bytes(action.after_settings);
+}
+std::size_t history_stack_bytes(const std::vector<UndoAction>& stack) {
+    std::size_t bytes = 0;
+    for (const auto& action : stack) bytes += history_action_bytes(action);
+    return bytes;
+}
+void push_undo(UndoAction a) {
     g_redo.clear(); // new action clears redo stack
+    const std::size_t incoming = history_action_bytes(a);
+    // An oversized action is a history boundary: never allow an older snapshot
+    // to undo across an operation whose inverse could not be retained.
+    if (incoming > kUndoByteLimit) { g_undo.clear(); return; }
+    std::size_t bytes = history_stack_bytes(g_undo);
+    while (!g_undo.empty() && (g_undo.size() >= kUndoActionLimit || bytes + incoming > kUndoByteLimit)) {
+        bytes -= history_action_bytes(g_undo.front());
+        g_undo.erase(g_undo.begin());
+    }
+    g_undo.push_back(std::move(a));
 }
 
 SettingsSnapshot capture_settings_snapshot() {
@@ -670,6 +716,7 @@ void recompute_transforms_from_state() {
 }
 
 void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
+    g_filter_slider_before.reset();
     if (g.channel_edit) finish_channel_rename(false);
     g.visible = snapshot.visible;
     g.channel_labels = snapshot.channel_labels;
@@ -712,19 +759,19 @@ void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
 }
 
 bool record_settings_change(const SettingsSnapshot& before) {
-    const SettingsSnapshot after = capture_settings_snapshot();
+    SettingsSnapshot after = capture_settings_snapshot();
     if (!settings_snapshot_differs(before, after)) return false;
     UndoAction action;
     action.type = UndoAction::SETTINGS_CHANGE;
     action.before_settings = before;
-    action.after_settings = after;
-    push_undo(action);
+    action.after_settings = std::move(after);
+    push_undo(std::move(action));
     return true;
 }
 
 void pop_undo() {
     if (g_undo.empty()) return;
-    UndoAction a = g_undo.back();
+    UndoAction a = std::move(g_undo.back());
     g_undo.pop_back();
     switch (a.type) {
         case UndoAction::ADD_POINT:
@@ -792,7 +839,7 @@ void pop_undo() {
 }
 void pop_redo() {
     if (g_redo.empty()) return;
-    UndoAction a = g_redo.back();
+    UndoAction a = std::move(g_redo.back());
     g_redo.pop_back();
     switch (a.type) {
         case UndoAction::ADD_POINT:

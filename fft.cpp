@@ -1,19 +1,25 @@
 #include "fft.hpp"
 
 #include <cmath>
+#include <stdexcept>
 
 namespace lvm {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
+void check_cancel(const std::atomic<bool>* cancel) {
+    if (cancel && cancel->load(std::memory_order_relaxed)) throw std::runtime_error("Operation cancelled.");
+}
 }
 
-void fft_radix2(std::vector<std::complex<double>>& a, bool inverse) {
+void fft_radix2(std::vector<std::complex<double>>& a, bool inverse, const std::atomic<bool>* cancel) {
     const std::size_t n = a.size();
     if (n <= 1) return;
+    if ((n & (n - 1)) != 0) throw std::invalid_argument("Radix-2 FFT requires a power-of-two size.");
 
     // Bit-reversal permutation.
     for (std::size_t i = 1, j = 0; i < n; ++i) {
+        if ((i & 0xFFFF) == 0) check_cancel(cancel);
         std::size_t bit = n >> 1;
         for (; j & bit; bit >>= 1) j ^= bit;
         j ^= bit;
@@ -21,11 +27,13 @@ void fft_radix2(std::vector<std::complex<double>>& a, bool inverse) {
     }
 
     for (std::size_t len = 2; len <= n; len <<= 1) {
+        check_cancel(cancel);
         const double ang = 2.0 * kPi / static_cast<double>(len) * (inverse ? 1.0 : -1.0);
         const std::complex<double> wlen(std::cos(ang), std::sin(ang));
         for (std::size_t i = 0; i < n; i += len) {
             std::complex<double> w(1.0, 0.0);
             for (std::size_t k = 0; k < len / 2; ++k) {
+                if ((k & 0xFFFF) == 0) check_cancel(cancel);
                 const std::complex<double> u = a[i + k];
                 const std::complex<double> v = a[i + k + len / 2] * w;
                 a[i + k] = u + v;
@@ -40,14 +48,14 @@ void fft_radix2(std::vector<std::complex<double>>& a, bool inverse) {
     }
 }
 
-std::vector<std::complex<double>> dft(const std::vector<std::complex<double>>& in) {
+std::vector<std::complex<double>> dft(const std::vector<std::complex<double>>& in, const std::atomic<bool>* cancel) {
     const std::size_t n = in.size();
     if (n == 0) return {};
 
     // Power-of-two fast path.
     if ((n & (n - 1)) == 0) {
         std::vector<std::complex<double>> a = in;
-        fft_radix2(a, false);
+        fft_radix2(a, false, cancel);
         return a;
     }
 
@@ -57,6 +65,7 @@ std::vector<std::complex<double>> dft(const std::vector<std::complex<double>>& i
 
     std::vector<std::complex<double>> chirp(n);
     for (std::size_t k = 0; k < n; ++k) {
+        if ((k & 0xFFFF) == 0) check_cancel(cancel);
         // angle = -pi * k^2 / n, reduced mod 2n to keep precision for large k.
         const unsigned long long sq = (static_cast<unsigned long long>(k) * k) % (2ULL * n);
         const double ang = -kPi * static_cast<double>(sq) / static_cast<double>(n);
@@ -71,10 +80,10 @@ std::vector<std::complex<double>> dft(const std::vector<std::complex<double>>& i
         if (k != 0) b[m - k] = std::conj(chirp[k]);
     }
 
-    fft_radix2(a, false);
-    fft_radix2(b, false);
+    fft_radix2(a, false, cancel);
+    fft_radix2(b, false, cancel);
     for (std::size_t i = 0; i < m; ++i) a[i] *= b[i];
-    fft_radix2(a, true);
+    fft_radix2(a, true, cancel);
 
     std::vector<std::complex<double>> out(n);
     for (std::size_t k = 0; k < n; ++k) out[k] = a[k] * chirp[k];

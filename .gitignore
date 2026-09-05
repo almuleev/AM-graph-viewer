@@ -8,6 +8,8 @@ lvm_viewer_gui
 lvm_viewer_gui.exe
 tests/run_tests
 tests/run_tests.exe
+tests/gui_regression.exe
+dist/
 
 # Python
 __pycache__/

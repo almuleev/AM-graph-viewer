@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -42,6 +43,9 @@ struct ScanIndex {
     double range_end = 0.0;
     std::vector<std::string> column_labels;
     std::vector<ScanIndexCheckpoint> checkpoints;
+    std::vector<std::string> export_comments;
+    std::uintmax_t file_size = 0;
+    std::filesystem::file_time_type modified{};
 };
 
 struct LoadOptions {
@@ -61,6 +65,7 @@ struct Dataset {
     std::vector<std::string> export_comments;  // optional `# ...` metadata from exported files
     ParseStats stats;
     bool partial = false;                      // true when loading stopped early by options
+    bool frequency_axis = false;               // first column contains stored spectrum frequencies
     bool ok = false;
     std::string error;
 
@@ -69,18 +74,19 @@ struct Dataset {
 };
 
 // Read and parse a file. Returns ok=false with `error` set on failure.
-Dataset read_lvm_file(const std::string& path);
-Dataset read_lvm_file(const std::string& path, const LoadOptions& options);
-bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
+Dataset read_lvm_file(const std::filesystem::path& path);
+Dataset read_lvm_file(const std::filesystem::path& path, const LoadOptions& options);
+bool scan_time_bounds(const std::filesystem::path& path, double& out_start, double& out_end, std::string& error,
                       const std::atomic<bool>* cancel_flag = nullptr, ScanIndex* out_index = nullptr);
 
 // Rebuild a monotonically increasing timeline (mirrors the Python "prepare"
 // step that flattens Multi_Headings sections which reset local time).
-void make_monotonic(std::vector<double>& time);
+void make_monotonic(std::vector<double>& time, const std::atomic<bool>* cancel_flag = nullptr);
 
 // Drop channels that merely duplicate the time/X axis. Uses the supplied raw
 // time as the reference. Returns the names of dropped channels.
 std::vector<std::string> drop_duplicate_time_channels(Dataset& ds,
-                                                       const std::vector<double>& raw_time);
+                                                       const std::vector<double>& raw_time,
+                                                       const std::atomic<bool>* cancel_flag = nullptr);
 
 }  // namespace lvm

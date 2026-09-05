@@ -1,4 +1,5 @@
 #include "lvm_parser.hpp"
+#include "data_io.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +9,7 @@
 #include <limits>
 #include <sstream>
 #include <unordered_set>
+#include <stdexcept>
 
 namespace lvm {
 namespace {
@@ -35,7 +37,8 @@ bool starts_with(const std::string& s, const char* prefix) {
     return s.rfind(prefix, 0) == 0;
 }
 
-bool has_csv_extension(const std::string& path) {
+bool has_csv_extension(const std::filesystem::path& input) {
+    const std::string path = input.u8string();
     const std::size_t dot = path.find_last_of('.');
     if (dot == std::string::npos) return false;
     if (path.size() - dot != 4) return false;
@@ -59,6 +62,10 @@ std::string second_cell(const std::string& line) {
 
 void split_cells_into(const std::string& line, char delimiter, bool normalize_decimal_commas,
                       std::vector<std::string>& cells) {
+    if (delimiter == ',') {
+        if (!split_csv_record(line, cells)) cells.clear();
+        return;
+    }
     cells.clear();
     std::string field;
     field.reserve(std::min<std::size_t>(line.size(), 128));
@@ -109,12 +116,13 @@ bool is_metadata_line(const std::string& line) {
 double parse_cell(const std::string& cell, bool& is_numeric) {
     is_numeric = false;
     if (cell.empty()) return std::nan("");
-    const char* begin = cell.c_str();
+    const std::string trimmed = strip(cell);
+    const char* begin = trimmed.c_str();
     char* end = nullptr;
     const double value = std::strtod(begin, &end);
     if (end == begin || *end != '\0') return std::nan("");
     is_numeric = true;
-    return value;
+    return std::isfinite(value) ? value : std::nan("");
 }
 
 struct RowSummary {
@@ -125,6 +133,17 @@ struct RowSummary {
 
 RowSummary summarize_numeric_row(const std::string& line, char delimiter, bool normalize_decimal_commas) {
     RowSummary summary;
+    if (delimiter == ',') {
+        std::vector<std::string> cells;
+        if (!split_csv_record(line, cells)) return summary;
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            bool numeric = false;
+            const double value = parse_cell(cells[i], numeric);
+            if (i == 0) { summary.first_numeric = numeric; summary.first_value = value; }
+            if (numeric) ++summary.numeric_count;
+        }
+        return summary;
+    }
     std::string field;
     field.reserve(std::min<std::size_t>(line.size(), 128));
     bool first_field = true;
@@ -326,15 +345,53 @@ void activate_section_time(const PendingSectionTime& pending,
     active.x0 = pending.x0;
 }
 
+// Causal normalization shared by full preparation, range scans and indexed reads.
+double advance_time(double source, bool& initialized, double& previous_source,
+                    double& previous_time, double& offset, double& step) {
+    if (!std::isfinite(source)) return std::nan("");
+    double adjusted = source + offset;
+    if (initialized) {
+        const double diff = source - previous_source;
+        if (std::isfinite(diff) && diff > 0.0) step = diff;
+        if (adjusted <= previous_time) {
+            adjusted = previous_time + step;
+            if (adjusted <= previous_time) adjusted = std::nextafter(previous_time, INFINITY);
+            offset = adjusted - source;
+        }
+    }
+    initialized = true;
+    previous_source = source;
+    previous_time = adjusted;
+    return adjusted;
+}
+
+void check_cancel(const std::atomic<bool>* flag) {
+    if (flag && flag->load(std::memory_order_relaxed)) throw std::runtime_error("Operation cancelled.");
+}
+
 }  // namespace
 
-Dataset read_lvm_file(const std::string& path) {
+Dataset read_lvm_file(const std::filesystem::path& path) {
     return read_lvm_file(path, LoadOptions{});
 }
 
-bool scan_time_bounds(const std::string& path, double& out_start, double& out_end, std::string& error,
+static bool is_frequency_data(const std::vector<std::string>& labels, const std::vector<std::string>& comments) {
+    if (!labels.empty() && strip(labels.front()) == "Frequency") return true;
+    std::string section;
+    for (const auto& comment : comments) {
+        if (!comment.empty() && comment.front() == '[') section = comment;
+        if (section == "[export]" && comment == "plot_mode=frequency") return true;
+    }
+    return false;
+}
+
+bool scan_time_bounds(const std::filesystem::path& path, double& out_start, double& out_end, std::string& error,
                       const std::atomic<bool>* cancel_flag, ScanIndex* out_index) {
     if (out_index) {
+        *out_index = ScanIndex{};
+        std::error_code ec;
+        out_index->file_size = std::filesystem::file_size(path, ec);
+        out_index->modified = std::filesystem::last_write_time(path, ec);
         out_index->range_start = 0.0;
         out_index->range_end = 0.0;
         out_index->column_labels.clear();
@@ -343,7 +400,7 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
 
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        error = "Cannot open file: " + path;
+        error = "Cannot open file: " + path.u8string();
         return false;
     }
 
@@ -372,15 +429,18 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
     std::string raw_line;
     long long line_index = 0;
     while (true) {
-        if (!std::getline(in, raw_line)) break;
+        if (!read_text_record(in, raw_line, csv_mode)) break;
         ++line_index;
         if (cancel_flag && (line_index & 0xFF) == 0 && cancel_flag->load(std::memory_order_relaxed)) {
             error = "Operation cancelled.";
             return false;
         }
-        const std::string line = strip(raw_line);
+        const std::string& line = raw_line;
         if (line.empty()) continue;
-        if (starts_with(line, "#")) continue;
+        if (starts_with(line, "#")) {
+            if (out_index) out_index->export_comments.push_back(strip(line.substr(1)));
+            continue;
+        }
         if (!csv_mode && starts_with(line, "***End_of_Header***")) {
             ++header_count;
             section_metadata_seen = false;
@@ -404,7 +464,7 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
             update_section_metadata(line, pending_section);
             continue;
         }
-        if (csv_mode && column_labels.empty()) {
+        if (column_labels.empty()) {
             const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
             if (row.numeric_count == 0) {
                 split_cells_into(line, delimiter, normalize_decimal_commas, cells);
@@ -416,28 +476,16 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
         }
 
         const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
-        if (row.numeric_count < 2 || !row.first_numeric || std::isnan(row.first_value)) continue;
+        if (row.numeric_count < 2 || !row.first_numeric || !std::isfinite(row.first_value)) continue;
 
         const double raw_time = row.first_value;
         double adjusted_time = raw_time;
         if (active_section.valid) {
             adjusted_time = active_section.offset_seconds + (raw_time - active_section.x0);
-        } else if (have_time) {
-            const double diff = raw_time - prev_raw_time;
-            if (diff > 0.0) fallback_step = diff;
-            adjusted_time = raw_time + time_offset;
-            if (adjusted_time <= prev_adjusted_time) {
-                time_offset = prev_adjusted_time + fallback_step - raw_time;
-                adjusted_time = raw_time + time_offset;
-            }
-        } else {
-            first_time = raw_time;
         }
-
-        if (!have_time) first_time = adjusted_time;
-        have_time = true;
-        prev_raw_time = raw_time;
-        prev_adjusted_time = adjusted_time;
+        const bool first = !have_time;
+        adjusted_time = advance_time(adjusted_time, have_time, prev_raw_time, prev_adjusted_time, time_offset, fallback_step);
+        if (first) first_time = adjusted_time;
         last_time = adjusted_time;
 
         ++numeric_row_index;
@@ -447,6 +495,8 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
                                   have_section_anchor, section_anchor_seconds, active_section);
     }
 
+    if (in.bad()) { error = "Error reading file or incomplete CSV record."; return false; }
+    if (cancel_flag && cancel_flag->load(std::memory_order_relaxed)) { error = "Operation cancelled."; return false; }
     if (!have_time) {
         error = "No numeric data found. Expected time + numeric channel columns in a .lvm, tab-separated .txt, or .csv file.";
         return false;
@@ -469,12 +519,12 @@ bool scan_time_bounds(const std::string& path, double& out_start, double& out_en
     return true;
 }
 
-Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
+Dataset read_lvm_file(const std::filesystem::path& path, const LoadOptions& options) {
     Dataset ds;
 
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        ds.error = "Cannot open file: " + path;
+        ds.error = "Cannot open file: " + path.u8string();
         return ds;
     }
 
@@ -513,10 +563,15 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
     std::vector<std::string> column_labels;
 
     const ScanIndexCheckpoint* resume_checkpoint = nullptr;
-    if (options.use_time_window && options.scan_index && !options.scan_index->checkpoints.empty()) {
+    std::error_code index_error;
+    const bool index_current = options.scan_index &&
+        options.scan_index->file_size == std::filesystem::file_size(path, index_error) && !index_error &&
+        options.scan_index->modified == std::filesystem::last_write_time(path, index_error) && !index_error;
+    if (options.use_time_window && index_current && !options.scan_index->checkpoints.empty()) {
         resume_checkpoint = choose_resume_checkpoint(*options.scan_index, options.time_start);
         if (resume_checkpoint) {
             column_labels = options.scan_index->column_labels;
+            ds.export_comments = options.scan_index->export_comments;
             restore_scan_checkpoint_state(*resume_checkpoint, have_time_state, prev_raw_time, prev_adjusted_time,
                                           time_offset, fallback_step, have_section_anchor, section_anchor_seconds,
                                           active_section);
@@ -539,13 +594,13 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
         }
     }
 
-    for (; std::getline(in, raw_line); ++line_index) {
+    for (; read_text_record(in, raw_line, csv_mode); ++line_index) {
         if (options.cancel_flag && (line_index & 0xFF) == 0 &&
             options.cancel_flag->load(std::memory_order_relaxed)) {
             ds.error = "Operation cancelled.";
             return ds;
         }
-        const std::string line = strip(raw_line);
+        const std::string& line = raw_line;
         if (line.empty()) continue;
 
         if (starts_with(line, "#")) {
@@ -581,7 +636,7 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
             continue;
         }
 
-        if (csv_mode && column_labels.empty()) {
+        if (column_labels.empty()) {
             const RowSummary row = summarize_numeric_row(line, delimiter, normalize_decimal_commas);
             if (row.numeric_count == 0) {
                 split_cells_into(line, delimiter, normalize_decimal_commas, cells);
@@ -594,6 +649,7 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
 
         int numeric_count = 0;
         split_cells_into(line, delimiter, normalize_decimal_commas, cells);
+        if (csv_mode && cells.empty()) { ds.error = "Malformed CSV record."; return ds; }
         parsed.clear();
         parsed.reserve(cells.size());
         for (const std::string& cell : cells) {
@@ -606,12 +662,12 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
         const int part_count = static_cast<int>(parsed.size());
         if (numeric_count < 2) continue;
 
+        if (row_count == 0) ds.frequency_axis = is_frequency_data(column_labels, ds.export_comments);
         const double raw_time = parsed.empty() ? std::nan("") : parsed[0];
-        const bool have_raw_time = !std::isnan(raw_time);
-        bool used_header_time = false;
+        const bool have_raw_time = std::isfinite(raw_time);
+        if (!have_raw_time) continue;
         if (have_raw_time && active_section.valid) {
             parsed[0] = active_section.offset_seconds + (raw_time - active_section.x0);
-            used_header_time = true;
         }
 
         bool keep_row = true;
@@ -619,22 +675,8 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
             if (!have_raw_time) continue;
 
             double adjusted_time = parsed[0];
-            if (!used_header_time) {
-                adjusted_time = raw_time;
-                if (have_time_state) {
-                    const double diff = raw_time - prev_raw_time;
-                    if (diff > 0.0) fallback_step = diff;
-                    adjusted_time = raw_time + time_offset;
-                    if (adjusted_time <= prev_adjusted_time) {
-                        time_offset = prev_adjusted_time + fallback_step - raw_time;
-                        adjusted_time = raw_time + time_offset;
-                    }
-                }
-            }
-
-            have_time_state = true;
-            prev_raw_time = raw_time;
-            prev_adjusted_time = adjusted_time;
+            if (!ds.frequency_axis) adjusted_time = advance_time(adjusted_time, have_time_state, prev_raw_time, prev_adjusted_time,
+                                                               time_offset, fallback_step);
 
             if (adjusted_time < options.time_start) {
                 keep_row = false;
@@ -675,6 +717,11 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
         ++row_count;
     }
 
+    if (in.bad()) { ds.error = "Error reading file or incomplete CSV record."; return ds; }
+    if (options.cancel_flag && options.cancel_flag->load(std::memory_order_relaxed)) {
+        ds.error = "Operation cancelled."; return ds;
+    }
+    ds.partial = ds.partial || options.use_time_window;
     ds.stats.header_markers = header_count;
     ds.stats.data_sections = section_hits;
     ds.stats.data_rows = row_count;
@@ -718,6 +765,15 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
         }
     }
     ds.names = std::move(kept_names);
+    ds.frequency_axis = is_frequency_data(column_labels, ds.export_comments);
+    if (ds.frequency_axis) {
+        for (std::size_t i = 0; i < ds.time.size(); ++i) {
+            if (!std::isfinite(ds.time[i]) || ds.time[i] < 0 || (i && ds.time[i] <= ds.time[i - 1])) {
+                ds.error = "Spectrum frequencies must be finite, non-negative and strictly increasing.";
+                return ds;
+            }
+        }
+    }
     ds.ok = !ds.channels.empty();
     if (ds.time.empty() && options.use_time_window) {
         ds.ok = false;
@@ -728,55 +784,39 @@ Dataset read_lvm_file(const std::string& path, const LoadOptions& options) {
     return ds;
 }
 
-void make_monotonic(std::vector<double>& time) {
+void make_monotonic(std::vector<double>& time, const std::atomic<bool>* cancel_flag) {
     if (time.size() <= 1) return;
 
-    std::vector<double> positive_diffs;
-    positive_diffs.reserve(time.size());
-    for (std::size_t i = 1; i < time.size(); ++i) {
-        const double d = time[i] - time[i - 1];
-        if (d > 0.0) positive_diffs.push_back(d);
-    }
     double fallback_step = 1e-6;
-    if (!positive_diffs.empty()) {
-        std::sort(positive_diffs.begin(), positive_diffs.end());
-        const std::size_t mid = positive_diffs.size() / 2;
-        fallback_step = (positive_diffs.size() % 2 == 0)
-                            ? 0.5 * (positive_diffs[mid - 1] + positive_diffs[mid])
-                            : positive_diffs[mid];
-    }
-    if (fallback_step <= 0.0) fallback_step = 1e-6;
-
-    const std::vector<double> raw = time;
     double offset = 0.0;
-    for (std::size_t i = 1; i < time.size(); ++i) {
-        double candidate = raw[i] + offset;
-        if (candidate <= time[i - 1]) {
-            offset = time[i - 1] + fallback_step - raw[i];
-            candidate = raw[i] + offset;
-        }
-        time[i] = candidate;
+    bool initialized = false;
+    double previous_source = 0.0, previous_time = 0.0;
+    for (std::size_t i = 0; i < time.size(); ++i) {
+        if ((i & 0xFFF) == 0) check_cancel(cancel_flag);
+        time[i] = advance_time(time[i], initialized, previous_source, previous_time, offset, fallback_step);
     }
 }
 
 std::vector<std::string> drop_duplicate_time_channels(Dataset& ds,
-                                                      const std::vector<double>& raw_time) {
+                                                      const std::vector<double>& raw_time,
+                                                      const std::atomic<bool>* cancel_flag) {
+    if (ds.frequency_axis) return {};
     const auto allclose = [](double a, double b) {
         const double rtol = 1e-9, atol = 1e-12;
         return std::fabs(a - b) <= atol + rtol * std::fabs(b);
     };
 
     std::vector<std::string> dropped;
-    const std::vector<std::vector<double>> original_channels = ds.channels;
-    const std::vector<std::string> original_names = ds.names;
     std::vector<std::vector<double>> kept_channels;
     std::vector<std::string> kept_names;
 
-    for (std::size_t c = 0; c < original_channels.size(); ++c) {
-        const auto& col = original_channels[c];
+    std::vector<std::size_t> keep;
+    for (std::size_t c = 0; c < ds.channels.size(); ++c) {
+        const auto& col = ds.channels[c];
         bool any_valid = false;
         bool duplicate = true;
         for (std::size_t r = 0; r < col.size() && r < raw_time.size(); ++r) {
+            if ((r & 0xFFF) == 0) check_cancel(cancel_flag);
             if (std::isnan(col[r]) || std::isnan(raw_time[r])) continue;
             any_valid = true;
             if (!allclose(col[r], raw_time[r])) {
@@ -785,11 +825,16 @@ std::vector<std::string> drop_duplicate_time_channels(Dataset& ds,
             }
         }
         if (any_valid && duplicate) {
-            if (c < original_names.size()) dropped.push_back(original_names[c]);
+            if (c < ds.names.size()) dropped.push_back(ds.names[c]);
         } else {
-            if (c < original_names.size()) kept_names.push_back(original_names[c]);
-            kept_channels.push_back(col);
+            keep.push_back(c);
         }
+    }
+
+    if (dropped.empty()) return dropped;
+    for (std::size_t c : keep) {
+        kept_names.push_back(c < ds.names.size() ? std::move(ds.names[c]) : "Channel_" + std::to_string(c + 1));
+        kept_channels.push_back(std::move(ds.channels[c]));
     }
 
     ds.channels = std::move(kept_channels);

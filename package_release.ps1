@@ -7,8 +7,26 @@ $ErrorActionPreference = "Stop"
 
 Set-Location $PSScriptRoot
 
-$version = git describe --tags --abbrev=0 2>$null
-if (-not $version) { $version = "v0.0.0" }
+# Only create a new release directory; never recursively delete a supplied path.
+$releaseRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'dist'))
+$releaseTarget = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $OutputDir))
+if (-not $releaseTarget.StartsWith($releaseRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'OutputDir must be a new directory inside the project dist directory.'
+}
+if (Test-Path -LiteralPath $releaseTarget) {
+    throw 'Output directory already exists. Choose a new OutputDir; existing files will not be removed.'
+}
+$ancestor = Split-Path $releaseTarget -Parent
+while ($ancestor.Length -ge $releaseRoot.Length) {
+    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'Release output cannot pass through a directory link.'
+    }
+    $ancestor = Split-Path $ancestor -Parent
+}
+$OutputDir = $releaseTarget
+
+$version = git -c core.excludesFile=NUL describe --tags --always --dirty 2>$null
+if (-not $version) { $version = "dev" }
 $guiExe = "AMGraphViewer-$version-win-x64.exe"
 $zipName = "AMGraphViewer-$version-win-x64.zip"
 
@@ -30,9 +48,6 @@ foreach ($file in $files) {
     }
 }
 
-if (Test-Path -LiteralPath $OutputDir) {
-    Remove-Item -LiteralPath $OutputDir -Recurse -Force
-}
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 foreach ($file in $files) {
@@ -42,7 +57,7 @@ foreach ($file in $files) {
 if ($Zip) {
     $zipPath = Join-Path (Split-Path $OutputDir -Parent) $zipName
     if (Test-Path -LiteralPath $zipPath) {
-        Remove-Item -LiteralPath $zipPath -Force
+        throw 'Release archive already exists; move it or choose a new parent directory.'
     }
     Compress-Archive -Path (Join-Path $OutputDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
     Write-Host "Created $zipPath"

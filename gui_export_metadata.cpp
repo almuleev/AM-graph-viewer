@@ -1,3 +1,261 @@
+// Export metadata: native viewer implementation.
+#include "gui_export_metadata.hpp"
+#include "gui_dialogs.hpp"
+#include "gui_layout.hpp"
+#include "gui_processing.hpp"
+#include "gui_render.hpp"
+#include "gui_settings.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_state.hpp"
+#include "gui_state_history.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+
+namespace gui {
+
+// ---- PNG export (GDI+) ---------------------------------------------------
+
+int png_encoder_clsid(CLSID* clsid) {
+    UINT num = 0, size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+    auto* info = reinterpret_cast<Gdiplus::ImageCodecInfo*>(malloc(size));
+    if (!info) return -1;
+    Gdiplus::GetImageEncoders(num, size, info);
+    int found = -1;
+    for (UINT i = 0; i < num; ++i)
+        if (wcscmp(info[i].MimeType, L"image/png") == 0) { *clsid = info[i].Clsid; found = static_cast<int>(i); break; }
+    free(info);
+    return found;
+}
+
+bool save_png(const std::wstring& path) {
+    RECT pr = plot_rect();
+    int W = (pr.right - pr.left) + 90;
+    int H = (pr.bottom - pr.top) + 60;
+    if (W < 400) W = 1000;
+    if (H < 240) H = 600;
+
+    HDC screen = GetDC(g.main);
+    HDC mem = CreateCompatibleDC(screen);
+    HBITMAP bmp = CreateCompatibleBitmap(screen, W, H);
+    HGDIOBJ obmp = SelectObject(mem, bmp);
+
+    RECT all = {0, 0, W, H};
+    HBRUSH bg = CreateSolidBrush(g_theme->bg_plot);
+    FillRect(mem, &all, bg);
+    DeleteObject(bg);
+    SelectObject(mem, reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    SetBkMode(mem, TRANSPARENT);
+    RECT inner = {70, 14, W - 20, H - 46};
+    draw_chart(mem, inner);
+
+    SelectObject(mem, obmp);
+
+    bool ok = false;
+    {
+        Gdiplus::Bitmap gb(bmp, nullptr);
+        CLSID clsid;
+        if (png_encoder_clsid(&clsid) >= 0)
+            ok = (gb.Save(path.c_str(), &clsid, nullptr) == Gdiplus::Ok);
+    }
+
+    DeleteObject(bmp);
+    DeleteDC(mem);
+    ReleaseDC(g.main, screen);
+    // draw_chart updated the mapping cache for the off-screen rect; restore it.
+    InvalidateRect(g.main, nullptr, FALSE);
+    return ok;
+}
+
+double export_channel_sample(std::size_t channel_index, std::size_t row_index, bool apply_processing) {
+    if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
+    const auto& column = g.ds.channels[channel_index];
+    if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
+    if (!apply_processing) return column[row_index];
+    return rendered_channel_sample(channel_index, row_index);
+}
+
+std::wstring export_channel_label_text(std::size_t channel_index, bool include_names) {
+    if (!include_names) {
+        return L"Channel_" + std::to_wstring(channel_index + 1);
+    }
+    return channel_display_label(channel_index);
+}
+
+std::vector<std::size_t> export_channel_indices(bool include_hidden_channels) {
+    std::vector<std::size_t> cols;
+    const std::size_t count = g.ds.channel_count();
+    if (include_hidden_channels) {
+        cols.reserve(count);
+        for (std::size_t c = 0; c < count; ++c) cols.push_back(c);
+        return cols;
+    }
+    for (std::size_t c = 0; c < count; ++c) {
+        if (c < g.visible.size() && g.visible[c]) cols.push_back(c);
+    }
+    return cols;
+}
+
+std::vector<int> export_spectrum_channel_indices(const lvm::Spectrum& spec) {
+    std::vector<int> indices;
+    indices.reserve(spec.names.size());
+    for (std::size_t c : spec.source_channels) {
+        indices.push_back(static_cast<int>(c));
+    }
+    return indices;
+}
+
+bool build_export_spectrum(const ExportOptions& opts, lvm::Spectrum& out_spec,
+                           std::vector<int>& out_channel_indices, bool& out_all_channels) {
+    if (!has_data() || !g.freq_mode) return false;
+    out_all_channels = false;
+    const bool have_current_spectrum = ensure_current_spectrum();
+    if (opts.apply_processing_to_data && !opts.include_hidden_channels && have_current_spectrum) {
+        out_spec = g.spec;
+        out_channel_indices = g.spec_channel_indices;
+        return out_spec.ok;
+    }
+
+    double source_start = 0.0;
+    double source_end = 0.0;
+    bool from_selection = false;
+    if (!last_fft_source_window(source_start, source_end, from_selection) &&
+        !current_fft_source_window(source_start, source_end, from_selection)) {
+        return false;
+    }
+
+    std::vector<std::size_t> all_channels;
+    all_channels.reserve(g.ds.channel_count());
+    for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
+        if (opts.include_hidden_channels || (i < g.visible.size() && g.visible[i])) all_channels.push_back(i);
+    }
+
+    lvm::Dataset view;
+    if (all_channels.empty()) return false;
+    build_time_window_dataset(g.ds, source_start, source_end, view, &all_channels, opts.apply_processing_to_data);
+    out_spec = lvm::compute_spectrum(view, 0);
+    for (auto& c : out_spec.source_channels) c = all_channels[c];
+    if (!out_spec.ok) return false;
+    out_channel_indices = export_spectrum_channel_indices(out_spec);
+    out_all_channels = true;
+    return true;
+}
+
+const wchar_t* export_filter_mode_key(int mode) {
+    switch (mode) {
+        case FilterModeLowPass: return L"low_pass";
+        case FilterModeHighPass: return L"high_pass";
+        case FilterModeBandPass: return L"band_pass";
+        case FilterModeBandStop: return L"band_stop";
+    }
+    return L"band_pass";
+}
+
+const wchar_t* export_filter_topology_key(int topology) {
+    switch (topology) {
+        case FilterTopologyButterworth: return L"butterworth";
+        case FilterTopologyBessel: return L"bessel";
+        case FilterTopologyChebyshev: return L"chebyshev";
+        case FilterTopologyLinkwitzRiley: return L"linkwitz_riley";
+    }
+    return L"butterworth";
+}
+
+std::wstring export_color_triplet(COLORREF color) {
+    wchar_t buf[64]{};
+    swprintf(buf, 64, L"%u,%u,%u", static_cast<unsigned int>(GetRValue(color)),
+             static_cast<unsigned int>(GetGValue(color)), static_cast<unsigned int>(GetBValue(color)));
+    return buf;
+}
+
+std::wstring export_point_display_text(const PointDisplay& display) {
+    wchar_t buf[160]{};
+    swprintf(buf, 160, L"number=%d,x=%d,y=%d,dx=%d,dy=%d,inv_dt=%d,dist=%d",
+             display.number ? 1 : 0, display.x ? 1 : 0, display.y ? 1 : 0,
+             display.dx ? 1 : 0, display.dy ? 1 : 0, display.inv_dt ? 1 : 0,
+             display.dist ? 1 : 0);
+    return buf;
+}
+
+void write_export_comment(std::ofstream& out, const std::wstring& text, const char* line_end) {
+    out << "# " << to_utf8(text) << line_end;
+}
+
+void write_export_key_value(std::ofstream& out, const std::wstring& key, const std::wstring& value, const char* line_end) {
+    write_export_comment(out, key + L"=" + value, line_end);
+}
+
+const wchar_t* export_range_mode_key(ExportRangeMode range) {
+    switch (range) {
+        case ExportRangeMode::Selected: return L"selected";
+        case ExportRangeMode::Visible: return L"visible";
+        case ExportRangeMode::Whole: return L"whole";
+    }
+    return L"visible";
+}
+
+const wchar_t* export_processing_mode_key(bool apply_processing) {
+    return apply_processing ? L"applied_to_data" : L"settings_only";
+}
+
+bool export_range_bounds_for_mode(ExportRangeMode range, double& start, double& end, bool& actual_selected) {
+    if (!has_data()) return false;
+    actual_selected = false;
+    if (g.freq_mode) {
+        if (!ensure_current_spectrum()) return false;
+        actual_selected = (range == ExportRangeMode::Selected);
+        if (range == ExportRangeMode::Whole) {
+            start = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.front();
+            end = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.back();
+        } else {
+            start = g.freq_start;
+            end = g.freq_end;
+        }
+        if (!std::isfinite(start) || !std::isfinite(end)) return false;
+        if (end < start) std::swap(start, end);
+        return end > start;
+    }
+
+    switch (range) {
+        case ExportRangeMode::Selected:
+            if (has_fft_window()) {
+                start = g.fft_window_start;
+                end = g.fft_window_end;
+                clamp_time_window(start, end);
+                actual_selected = true;
+                return end > start;
+            }
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Visible:
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Whole:
+            start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+            end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+            return end > start;
+    }
+    return false;
+}
+
+std::wstring export_metadata_text(const std::wstring& value) {
+    const std::string utf8 = to_utf8(value);
+    const wchar_t* hex = L"0123456789ABCDEF";
+    std::wstring encoded;
+    for (unsigned char ch : utf8) {
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == ' ' || ch == '_' || ch == '-' || ch == '.') encoded += ch;
+        else { encoded += L'%'; encoded += hex[ch >> 4]; encoded += hex[ch & 15]; }
+    }
+    return encoded;
+}
+
 void write_export_metadata(std::ofstream& out,
                            const ExportOptions& opts,
                            bool csv,
@@ -563,10 +821,6 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
     sync_channel_controls_from_state();
 }
 
-std::wstring lvm_current_date_text(const SYSTEMTIME& st);
-std::wstring lvm_current_time_text(const SYSTEMTIME& st);
-double lvm_export_nominal_delta_x();
-
 bool write_tabular_export(std::ofstream& out, const ExportOptions& opts) {
     if (!has_data()) return false;
 
@@ -921,3 +1175,4 @@ double lvm_export_nominal_delta_x() {
     return 1e-6;
 }
 
+} // namespace gui

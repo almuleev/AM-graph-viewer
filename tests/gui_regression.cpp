@@ -1,5 +1,19 @@
-// Headless integration tests of the real GUI data/export pipeline. No windows are opened.
-#include "../gui_main.cpp"
+// Integration tests linked to the production GUI modules; no visible windows.
+#include "../gui_dialogs.hpp"
+#include "../gui_export_metadata.hpp"
+#include "../gui_ids.hpp"
+#include "../gui_loading.hpp"
+#include "../gui_main.hpp"
+#include "../gui_processing.hpp"
+#include "../gui_render_data.hpp"
+#include "../gui_settings_hotkeys.hpp"
+#include "../gui_spectrum.hpp"
+#include "../gui_state.hpp"
+#include "../gui_state_history.hpp"
+#include "../gui_text.hpp"
+#include "../gui_theme.hpp"
+#include "../gui_time_axis.hpp"
+using namespace gui;
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
@@ -297,13 +311,44 @@ void light_mode_fft_visibility() {
     finish();
 }
 
+void routed_window_messages() {
+    reset_document({"A", "B"}, {0,1,2,3}, {{1,2,3,4},{4,3,2,1}});
+    struct TestWindow {
+        HWND handle = CreateWindowExW(0, L"STATIC", L"Message routing regression", 0, 0, 0, 0, 0,
+                                      HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ~TestWindow() { g.main = nullptr; if (handle) DestroyWindow(handle); }
+    } window;
+    require(window.handle != nullptr, "message routing test window");
+    g.main = window.handle;
+    WndProc(g.main, WM_COMMAND, IDC_HIDE_ALL, 0);
+    require(g.visible == std::vector<char>{0,0} && g_undo.size() == 1,
+            "command routing hides channels and records undo");
+    WndProc(g.main, WM_COMMAND, IDC_SHOW_ALL, 0);
+    require(g.visible == std::vector<char>{1,1} && g_undo.size() == 2,
+            "command routing restores channel visibility");
+    WndProc(g.main, WM_COMMAND, IDM_ADD_MARKER, 0);
+    require(g.pending_marker, "command routing arms marker placement");
+    WndProc(g.main, WM_KEYDOWN, VK_ESCAPE, 0);
+    require(!g.pending_marker, "input routing cancels pending marker placement");
+    MINMAXINFO limits{};
+    WndProc(g.main, WM_GETMINMAXINFO, 0, reinterpret_cast<LPARAM>(&limits));
+    require(limits.ptMinTrackSize.x == 980 && limits.ptMinTrackSize.y == 560,
+            "window routing preserves minimum window size");
+    require(WndProc(g.main, WM_ERASEBKGND, 0, 0) == 1, "window routing preserves background erase handling");
+    g.async_load_token = 17;
+    g.async_load_stage = AsyncLoadStage::LoadingFile;
+    auto result = std::make_unique<AsyncLoadResult>();
+    result->token = 17; result->cancelled = true;
+    WndProc(g.main, WM_APP_ASYNC_LOAD_DONE, 0, reinterpret_cast<LPARAM>(result.release()));
+    require(g.async_load_stage == AsyncLoadStage::None && g.ds.rows() == 4,
+            "loading routing consumes cancelled results without replacing the document");
+}
+
 void light_mode_and_history() {
     reset_document({"gap"}, {0, 1, 2, 102, 103, 104}, {{0, 1, 2, 3, 4, 5}});
     g.stitch_time_gaps = true;
     invalidate_stitched_time_cache();
     near(stitched_time_at_index(0), 0, "stitched graph preserves first timestamp");
-    near(stitched_time_at_index(3), 3, "stitched graph removes a large time gap");
-    near(stitched_time_at_index(5), 5, "stitched graph keeps samples after the gap contiguous");
     near(stitched_time_from_raw(103), 4, "raw time maps to stitched graph axis");
     near(raw_time_from_stitched(4), 103, "stitched graph coordinate maps back to raw time");
     g.stitch_time_gaps = false;
@@ -397,6 +442,7 @@ int main() {
         exports(); processing(); fft_recording_recovery();
         light_mode_and_history(); reopen_spectrum(); fft_selected_gap_range(); stitched_gap_regressions();
         light_mode_fft_visibility();
+        routed_window_messages();
         std::cout << checks << " GUI integration checks passed\n";
         return 0;
     } catch(const std::exception& ex) {

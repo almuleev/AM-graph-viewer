@@ -15,6 +15,10 @@ APP_SRC  := main.cpp $(LIB_SRC)
 APP_OBJ  := $(APP_SRC:.cpp=.o)
 HDRS     := $(wildcard *.hpp)
 GUI_PARTS := $(wildcard gui_*.cpp)
+GUI_SOURCES := $(GUI_PARTS) $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp
+GUI_OBJECTS := $(patsubst %.cpp,.build/make_gui/%.o,$(GUI_SOURCES))
+GUI_TEST_OBJECT := .build/make_gui/gui_regression.o
+GUI_FLAGS := $(CPPFLAGS) $(CXXFLAGS) -DAPP_VERSION_W=L\"$(VERSION)\" -I.
 GUI_RES  := AM_logo.o
 
 ifeq ($(OS),Windows_NT)
@@ -50,8 +54,22 @@ test: $(TEST_BIN)
 test-gui: tests/gui_regression.exe
 	./tests/gui_regression.exe
 
-tests/gui_regression.exe: tests/gui_regression.cpp $(GUI_PARTS) $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(HDRS)
-	$(CXX) $(CXXFLAGS) -I. -o $@ tests/gui_regression.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
+tests/gui_regression.exe: $(GUI_TEST_OBJECT) $(GUI_OBJECTS)
+	$(CXX) -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
+
+.build/make_gui:
+	mkdir -p $@
+
+.build/make_gui/flags.txt: FORCE | .build/make_gui
+	@printf '%s\n' '$(CXX) $(GUI_FLAGS)' | cmp -s - $@ || printf '%s\n' '$(CXX) $(GUI_FLAGS)' > $@
+
+.build/make_gui/%.o: %.cpp .build/make_gui/flags.txt | .build/make_gui
+	$(CXX) $(GUI_FLAGS) -MMD -MP -c $< -o $@
+
+$(GUI_TEST_OBJECT): tests/gui_regression.cpp .build/make_gui/flags.txt | .build/make_gui
+	$(CXX) $(GUI_FLAGS) -MMD -MP -c $< -o $@
+
+-include $(GUI_OBJECTS:.o=.d) $(GUI_TEST_OBJECT:.o=.d)
 
 $(TEST_BIN): tests/run_tests.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(HDRS)
 	$(CXX) $(CXXFLAGS) -I. -o $@ tests/run_tests.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp gap_details.cpp $(LDFLAGS)
@@ -63,8 +81,8 @@ gui: $(GUI_BIN)
 $(GUI_RES): AM_logo.rc AM_logo.ico
 	$(WINDRES) -O coff -i $< -o $@
 
-$(GUI_BIN): $(GUI_PARTS) gap_details.cpp export_helpers.cpp formula_engine.cpp $(LIB_SRC) $(HDRS) $(GUI_RES)
-	$(CXX) $(CXXFLAGS) -DAPP_VERSION_W=L\"$(VERSION)\" -municode -mwindows -o $@ gui_main.cpp gap_details.cpp $(LIB_SRC) export_helpers.cpp formula_engine.cpp $(GUI_RES) $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
+$(GUI_BIN): $(GUI_OBJECTS) $(GUI_RES)
+	$(CXX) -municode -mwindows -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32
 
 clean:
-	rm -f $(APP_OBJ) $(BIN) $(TEST_BIN) $(GUI_BIN) $(GUI_RES)
+	rm -f $(APP_OBJ) $(BIN) $(TEST_BIN) $(GUI_BIN) $(GUI_RES) $(GUI_OBJECTS) $(GUI_OBJECTS:.o=.d) $(GUI_TEST_OBJECT) $(GUI_TEST_OBJECT:.o=.d) tests/gui_regression.exe

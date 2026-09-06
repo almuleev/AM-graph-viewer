@@ -1,12 +1,23 @@
-// ---- loading overlay and file drop --------------------------------------
+// Loading drop: native viewer implementation.
+#include "gui_loading_drop.hpp"
+#include "gui_dialogs.hpp"
+#include "gui_ids.hpp"
+#include "gui_loading.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_state.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+#include "gui_welcome.hpp"
 
-void request_async_load_cancel();
-bool load_path_interactive(const std::wstring& wpath);
+namespace gui {
 
-static HWND g_loading_wnd = nullptr;
-static HWND g_loading_cancel_btn = nullptr;
-static std::wstring g_loading_text;
-static bool g_loading_cancellable = false;
+HWND g_loading_wnd = nullptr;
+
+HWND g_loading_cancel_btn = nullptr;
+
+std::wstring g_loading_text;
+
+bool g_loading_cancellable = false;
 
 LRESULT CALLBACK LoadingProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -50,7 +61,7 @@ LRESULT CALLBACK LoadingProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-void show_loading(const std::wstring& msg, bool cancellable = false) {
+void show_loading(const std::wstring& msg, bool cancellable) {
     if (g_loading_wnd) { DestroyWindow(g_loading_wnd); g_loading_wnd = nullptr; }
     g_loading_cancel_btn = nullptr;
     HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
@@ -128,8 +139,6 @@ void hide_loading() {
     raise_main_window();
 }
 
-constexpr UINT_PTR kDropForwardSubclassId = 0x4C564D01u;
-
 LRESULT CALLBACK drop_forward_subclass_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
                                             UINT_PTR, DWORD_PTR) {
     if (msg == WM_DROPFILES) {
@@ -172,3 +181,5 @@ void handle_file_drop(HWND hwnd, HDROP hDrop) {
     }
     DragFinish(hDrop);
 }
+
+} // namespace gui

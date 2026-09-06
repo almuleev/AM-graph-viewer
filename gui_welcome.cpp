@@ -1,17 +1,165 @@
-﻿// ---- welcome / start screen ----------------------------------------------
+// Welcome: native viewer implementation.
+#include "gui_welcome.hpp"
+#include "gui_ids.hpp"
+#include "gui_layout.hpp"
+#include "gui_loading.hpp"
+#include "gui_loading_drop.hpp"
+#include "gui_settings.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_state.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+#include "gui_window.hpp"
 
-struct RecentFilesPanelState {
-    HWND wnd = nullptr;
-    std::array<HWND, kMaxRecentFiles> items{};
-    bool visible = false;
-};
+namespace gui {
+
+std::wstring welcome_version_text() {
+    return (g_str == &kEn)
+        ? (std::wstring(L"Build: ") + APP_VERSION_W)
+        : (std::wstring(L"Версия сборки: ") + APP_VERSION_W);
+}
+
+const wchar_t* welcome_actions_title_text() {
+    return (g_str == &kEn) ? L"Start here" : L"Начните здесь";
+}
+
+const wchar_t* welcome_open_button_text() {
+    return (g_str == &kEn) ? L"Open file…" : L"Открыть файл…";
+}
+
+const wchar_t* welcome_actions_hint_text() {
+    return (g_str == &kEn)
+        ? L"Open a file or pick a recent one."
+        : L"Откройте файл или выберите недавний.";
+}
+
+const wchar_t* welcome_author_credit_text() {
+    return (g_str == &kEn)
+        ? L"Application developed by Alexander Muleev  |  al.muleev@gmail.com"
+        : L"Приложение разработал Александр Мулеев  |  al.muleev@gmail.com";
+}
+
+int rect_width(const RECT& r) {
+    return r.right - r.left;
+}
+
+int rect_height(const RECT& r) {
+    return r.bottom - r.top;
+}
+
+WelcomeLayout compute_welcome_layout(HWND hwnd) {
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    WelcomeLayout layout{};
+    const int client_w = max(0, static_cast<int>(rc.right - rc.left));
+    const int client_h = max(0, static_cast<int>(rc.bottom - rc.top));
+    const int outer = (client_w >= 1200) ? 36 : ((client_w >= 900) ? 28 : 20);
+    const int gap = (client_w >= 900) ? 24 : 16;
+    const int content_w = max(320, min(client_w - outer * 2, 1180));
+    const int content_h = max(260, client_h - outer * 2);
+    const int x0 = max(0, (client_w - content_w) / 2);
+    const int y0 = max(0, (client_h - content_h) / 2);
+
+    layout.bounds = { x0, y0, x0 + content_w, y0 + content_h };
+    layout.stacked = (content_w < 760);
+
+    if (layout.stacked) {
+        int hero_h = std::clamp(content_h * 48 / 100, 220, 340);
+        const int min_action_h = 320;
+        hero_h = min(hero_h, max(180, content_h - gap - min_action_h));
+        layout.hero = { x0, y0, x0 + content_w, y0 + hero_h };
+        layout.action = { x0, layout.hero.bottom + gap, x0 + content_w, y0 + content_h };
+    } else {
+        const int action_w = std::clamp(content_w / 3, 320, 380);
+        layout.hero = { x0, y0, x0 + content_w - action_w - gap, y0 + content_h };
+        layout.action = { layout.hero.right + gap, y0, x0 + content_w, y0 + content_h };
+    }
+
+    layout.compact = rect_height(layout.action) < 560 || rect_width(layout.action) < 340;
+
+    return layout;
+}
+
+void layout_welcome_controls(HWND hwnd) {
+    WelcomeLayout layout = compute_welcome_layout(hwnd);
+    auto place = [&](int id, int x, int y, int w, int h, bool visible = true) {
+        HWND ctl = GetDlgItem(hwnd, id);
+        if (ctl) {
+            MoveWindow(ctl, x, y, max(1, w), max(1, h), TRUE);
+            ShowWindow(ctl, visible ? SW_SHOWNA : SW_HIDE);
+        }
+    };
+
+    const int hero_pad = layout.compact ? 20 : (layout.stacked ? 22 : 30);
+    const int hx = layout.hero.left + hero_pad;
+    int hy = layout.hero.top + hero_pad;
+    const int hw = max(180, rect_width(layout.hero) - hero_pad * 2);
+    const int title_h = layout.compact ? 40 : (layout.stacked ? 46 : 52);
+    const int version_h = layout.compact ? 18 : 20;
+    place(IDW_TITLE, hx, hy, hw, title_h);
+    hy += title_h + (layout.compact ? 6 : 8);
+    place(IDW_VERSION, hx, hy, hw, version_h);
+    hy += version_h + (layout.compact ? 4 : 6);
+
+    const int action_button_h = layout.compact ? 34 : 38;
+    const int button_gap = layout.compact ? 8 : (layout.stacked ? 10 : 12);
+    const int section_hint_h = layout.compact ? 20 : 22;
+    place(IDW_ACTIONS_TITLE, hx, hy, hw, 22);
+    hy += 24;
+    place(IDW_ACTIONS_HINT, hx, hy, hw, section_hint_h);
+    hy += section_hint_h + (layout.compact ? 10 : 14);
+
+    const int action_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
+    const int ax = layout.hero.left + action_pad;
+    const int aw = max(180, rect_width(layout.hero) - action_pad * 2);
+    const int settings_col_gap = layout.compact ? 8 : 12;
+    const int segment_button_h = layout.compact ? 26 : 30;
+    if (aw < 360) {
+        int ay = hy;
+        place(IDC_OPEN, ax, ay, aw, action_button_h + 2);
+        ay += action_button_h + 2 + button_gap;
+        place(IDW_RECENT_FILES, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+        place(IDC_PTSETTINGS, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+        place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
+        ay += action_button_h + button_gap;
+        place(IDW_START, ax, ay, aw, action_button_h + 2);
+    } else {
+        int col_w = max(140, (aw - settings_col_gap) / 2);
+        int left_x = ax;
+        int right_x = ax + col_w + settings_col_gap;
+        int grid_y = hy;
+        place(IDC_OPEN, left_x, grid_y, col_w, action_button_h + 2);
+        place(IDC_PTSETTINGS, right_x, grid_y, col_w, action_button_h);
+        grid_y += action_button_h + button_gap;
+        place(IDW_RECENT_FILES, left_x, grid_y, col_w, action_button_h);
+        place(IDM_HOTKEYS, right_x, grid_y, col_w, action_button_h);
+        grid_y += action_button_h + button_gap;
+        place(IDW_START, ax, grid_y, aw, action_button_h + 2);
+    }
+
+    const int settings_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
+    const int sx = layout.action.left + settings_pad;
+    int sy = layout.action.top + settings_pad;
+    const int sw = max(180, rect_width(layout.action) - settings_pad * 2);
+    place(IDW_LANG_LABEL, sx, sy, sw, 20);
+    sy += layout.compact ? 22 : 24;
+    place(IDM_LANG_RU, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 8 : 12);
+    place(IDM_LANG_EN, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 10 : 14);
+    place(IDW_THEME_LABEL, sx, sy, sw, 20);
+    sy += layout.compact ? 22 : 24;
+    place(IDW_THEME_LIGHT, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 8 : 12);
+    place(IDW_THEME_DARK, sx, sy, sw, segment_button_h);
+    sy += segment_button_h + (layout.compact ? 10 : 14);
+    place(IDW_LIGHT_MODE, sx, sy, sw, segment_button_h);
+}
 
 RecentFilesPanelState g_recent_files_panel;
-constexpr int kRecentPanelItemBase = 6400;
-constexpr int kRecentPanelPad = 14;
-constexpr int kRecentPanelItemHeight = 46;
-constexpr int kRecentPanelItemGap = 8;
-constexpr int kRecentPanelHeaderHeight = 22;
 
 std::wstring recent_file_panel_item_text(const std::wstring& path) {
     const wchar_t* base = wcsrchr(path.c_str(), L'\\');
@@ -178,8 +326,6 @@ void hide_welcome_recent_files_panel() {
         RedrawWindow(g.welcome_wnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
     }
 }
-
-void register_recent_files_panel_class(HWND owner);
 
 void show_welcome_recent_files_panel(HWND owner) {
     if (!g_recent_files_panel.visible) return;
@@ -606,3 +752,4 @@ void raise_main_window() {
     SetActiveWindow(g.main);
 }
 
+} // namespace gui

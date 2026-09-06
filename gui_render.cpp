@@ -1,3 +1,32 @@
+// Render: native viewer implementation.
+#include "gui_render.hpp"
+#include "gui_ids.hpp"
+#include "gui_layout.hpp"
+#include "gui_processing.hpp"
+#include "gui_render_data.hpp"
+#include "gui_settings.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_state.hpp"
+#include "gui_state_history.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+#include "gui_time_axis.hpp"
+
+namespace gui {
+
+std::vector<LegendItem> g_legend_items;
+
+RECT g_legend_box = {0,0,0,0};
+
+void invalidate_plot() {
+    RECT pr = plot_rect();
+    RECT rc; GetClientRect(g.main, &rc);
+    pr.bottom = rc.bottom; // include status bar
+    InvalidateRect(g.main, &pr, FALSE);
+}
+
 // ---- drawing -------------------------------------------------------------
 
 void draw_text(HDC dc, int x, int y, const wchar_t* s, UINT align) {
@@ -474,11 +503,6 @@ void draw_catmull_rom(HDC dc, const std::vector<POINT>& pts) {
         }
     }
 }
-
-struct TimeStepEstimate {
-    double step = 0.0;
-    std::size_t count = 0;
-};
 
 TimeStepEstimate estimate_time_step(const std::vector<double>& time, std::size_t lo, std::size_t hi, std::size_t max_diffs) {
     if (hi <= lo + 1 || max_diffs == 0) return {};
@@ -1304,3 +1328,4 @@ void on_paint(HDC hdc) {
     }
 }
 
+} // namespace gui

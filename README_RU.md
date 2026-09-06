@@ -75,8 +75,9 @@ FFT принимает неравномерные и округлённые ме
 - CSV/TXT со столбцом `Frequency` открывается как готовый спектр. Для него доступны частотный просмотр и экспорт; временной сигнал из такого файла не восстанавливается.
 - Windows CLI принимает Unicode-пути. `build_cli.ps1` и `build_gui.ps1` используют версию текущего checkout с отметкой `dirty` при изменениях. `Start GUI.bat` выбирает самый свежий exe.
 - Регрессионные проверки: `make test` и, на Windows, `make test-gui`. Workflow CI собирает CLI/ядро на Linux и GUI/CLI на Windows.
+- GUI собирается из отдельных модулей с кэшированием объектных файлов. Без Make GUI-тесты запускаются командой `powershell -ExecutionPolicy Bypass -File .\build_gui.ps1 -Test`. [Карта архитектуры](docs/ARCHITECTURE.md).
 
-Состояние исправлений и оставшиеся задачи: [статус аудита](docs/IMPLEMENTATION_STATUS_2026-09-05_RU.md).
+История опубликованных изменений: [CHANGELOG.md](CHANGELOG.md).
 
 ## Скриншоты интерфейса
 
@@ -132,14 +133,15 @@ make test
 
 | Путь | Назначение |
 |---|---|
-| `gui_main.cpp` | Нативный GUI |
+| `gui_main.cpp` | Запуск GUI, цикл и маршрутизация сообщений |
+| `gui_*.cpp/.hpp` | Самостоятельно компилируемые модули GUI |
 | `main.cpp` | CLI-вход |
 | `lvm_parser.cpp/.hpp` | Парсер `.lvm` / `.txt` |
 | `analysis.cpp/.hpp` | Аналитические helper-функции |
 | `fft.cpp/.hpp` | FFT-ядро |
 | `tests/run_tests.cpp` | Регрессионные тесты |
 | `docs/assets/` | Визуалы для GitHub |
-| `docs/PROJECT_CONTEXT.md` | Расширенный технический контекст |
+| `AGENTS.md`, `docs/ARCHITECTURE.md` | Правила работы Codex и карта текущей архитектуры |
 
 ## Связанные файлы
 

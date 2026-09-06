@@ -1,11 +1,103 @@
-﻿struct HotkeysDialogState {
-    HWND wnd = nullptr;
-    HWND list = nullptr;
-};
+// Settings hotkeys: native viewer implementation.
+#include "gui_settings_hotkeys.hpp"
+#include "gui_dialogs.hpp"
+#include "gui_ids.hpp"
+#include "gui_loading_drop.hpp"
+#include "gui_playback.hpp"
+#include "gui_processing.hpp"
+#include "gui_render_data.hpp"
+#include "gui_settings.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_state.hpp"
+#include "gui_state_history.hpp"
+#include "gui_status.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+#include "gui_welcome.hpp"
+#include "gui_window.hpp"
+
+namespace gui {
+
+const HotkeyBinding* find_hotkey_binding(int command) {
+    for (const auto& hk : g.hotkeys)
+        if (hk.command == command) return &hk;
+    return nullptr;
+}
+
+std::vector<HotkeyBinding> default_hotkeys() {
+    return {
+        {IDC_OPEN, FVIRTKEY | FCONTROL, 'O'},
+        {IDC_SAVEPNG, FVIRTKEY | FCONTROL, 'S'},
+        {IDC_SAVECSV, FVIRTKEY | FCONTROL | FSHIFT, 'S'},
+        {IDM_UNDO, FVIRTKEY | FCONTROL, 'Z'},
+        {IDM_REDO, FVIRTKEY | FCONTROL | FSHIFT, 'Z'},
+        {IDM_MODE_TIME, FVIRTKEY, 'T'},
+        {IDM_MODE_FREQ, FVIRTKEY, 'F'},
+        {IDC_MEASURE, FVIRTKEY, 'P'},
+        {IDM_ADD_MARKER, FVIRTKEY, 'M'},
+        {IDM_ADD_VLINE, FVIRTKEY, 'V'},
+        {IDM_ADD_HLINE, FVIRTKEY, 'H'},
+        {IDC_AUTOY, FVIRTKEY, 'A'},
+        {IDM_VISMOOTH, FVIRTKEY, 'C'},
+        {IDM_VPAN, FVIRTKEY, 'Y'},
+        {IDM_THEME, FVIRTKEY, 'D'},
+        {IDC_PLAY, FVIRTKEY, VK_SPACE},
+        {IDC_ZOOMIN, FVIRTKEY, VK_OEM_PLUS},
+        {IDC_ZOOMOUT, FVIRTKEY, VK_OEM_MINUS},
+        {IDC_PANLEFT, FVIRTKEY, VK_LEFT},
+        {IDC_PANRIGHT, FVIRTKEY, VK_RIGHT},
+        {IDC_RESET, FVIRTKEY, VK_HOME},
+        {IDC_GOTO_START, FVIRTKEY | FCONTROL, VK_HOME},
+        {IDC_GOTO_END, FVIRTKEY | FCONTROL, VK_END},
+        {IDM_CLEAR_POINTS, FVIRTKEY, VK_DELETE},
+        {IDM_HOTKEYS, FVIRTKEY, VK_F1},
+    };
+}
+
+void ensure_hotkeys_initialized() {
+    if (g.hotkeys.empty()) g.hotkeys = default_hotkeys();
+}
+
+std::wstring key_name(WORD key) {
+    switch (key) {
+        case 0: return g_str == &kEn ? L"None" : L"Нет";
+        case VK_TAB: return L"Tab";
+        case VK_BACK: return L"Backspace";
+        case VK_RETURN: return L"Enter";
+        case VK_INSERT: return L"Insert";
+        case VK_PRIOR: return L"Page Up";
+        case VK_NEXT: return L"Page Down";
+        case VK_SPACE: return g_str == &kEn ? L"Space" : L"Пробел";
+        case VK_LEFT: return g_str == &kEn ? L"Left" : L"Влево";
+        case VK_RIGHT: return g_str == &kEn ? L"Right" : L"Вправо";
+        case VK_UP: return g_str == &kEn ? L"Up" : L"Вверх";
+        case VK_DOWN: return g_str == &kEn ? L"Down" : L"Вниз";
+        case VK_HOME: return L"Home";
+        case VK_END: return L"End";
+        case VK_DELETE: return L"Delete";
+        case VK_ESCAPE: return L"Esc";
+        case VK_PAUSE: return L"Pause";
+        case VK_CAPITAL: return L"Caps Lock";
+        case VK_NUMLOCK: return L"Num Lock";
+        case VK_SCROLL: return L"Scroll Lock";
+        case VK_SNAPSHOT: return L"Print Screen";
+        case VK_APPS: return L"Menu";
+        case VK_OEM_PLUS: return L"+";
+        case VK_OEM_MINUS: return L"-";
+        default:
+            if (key >= VK_F13 && key <= VK_F24) return L"F" + std::to_wstring(key - VK_F1 + 1);
+            if (key >= 'A' && key <= 'Z') return std::wstring(1, static_cast<wchar_t>(key));
+            if (key >= '0' && key <= '9') return std::wstring(1, static_cast<wchar_t>(key));
+            if (key >= VK_F1 && key <= VK_F12) return L"F" + std::to_wstring(key - VK_F1 + 1);
+            wchar_t buf[16]{};
+            swprintf(buf, 16, L"VK_%04X", static_cast<unsigned int>(key & 0xFFFFu));
+            return buf;
+    }
+}
 
 HotkeysDialogState g_hotkeys_dialog;
-void populate_hotkey_list(HWND hwnd);
-void rebuild_menu_bar();
+
 // Hotkey, settings, and dialog helpers extracted from gui_main.cpp.
 std::wstring hotkey_text(BYTE fvirt, WORD key) {
     if (key == 0) return g_str == &kEn ? L"Not assigned" : L"Не назначено";
@@ -84,161 +176,6 @@ std::vector<int> hotkey_command_order() {
 
 std::wstring hotkey_list_item_text(int command) {
     return command_name(command) + L"  [" + hotkey_display_text_for_command(command) + L"]";
-}
-
-std::wstring welcome_version_text() {
-    return (g_str == &kEn)
-        ? (std::wstring(L"Build: ") + APP_VERSION_W)
-        : (std::wstring(L"Версия сборки: ") + APP_VERSION_W);
-}
-
-const wchar_t* welcome_actions_title_text() {
-    return (g_str == &kEn) ? L"Start here" : L"Начните здесь";
-}
-
-const wchar_t* welcome_open_button_text() {
-    return (g_str == &kEn) ? L"Open file…" : L"Открыть файл…";
-}
-
-const wchar_t* welcome_actions_hint_text() {
-    return (g_str == &kEn)
-        ? L"Open a file or pick a recent one."
-        : L"Откройте файл или выберите недавний.";
-}
-
-
-const wchar_t* welcome_author_credit_text() {
-    return (g_str == &kEn)
-        ? L"Application developed by Alexander Muleev  |  al.muleev@gmail.com"
-        : L"Приложение разработал Александр Мулеев  |  al.muleev@gmail.com";
-}
-
-
-struct WelcomeLayout {
-    RECT bounds{};
-    RECT hero{};
-    RECT action{};
-    bool stacked = false;
-    bool compact = false;
-};
-
-int rect_width(const RECT& r) {
-    return r.right - r.left;
-}
-
-int rect_height(const RECT& r) {
-    return r.bottom - r.top;
-}
-
-WelcomeLayout compute_welcome_layout(HWND hwnd) {
-    RECT rc;
-    GetClientRect(hwnd, &rc);
-    WelcomeLayout layout{};
-    const int client_w = max(0, static_cast<int>(rc.right - rc.left));
-    const int client_h = max(0, static_cast<int>(rc.bottom - rc.top));
-    const int outer = (client_w >= 1200) ? 36 : ((client_w >= 900) ? 28 : 20);
-    const int gap = (client_w >= 900) ? 24 : 16;
-    const int content_w = max(320, min(client_w - outer * 2, 1180));
-    const int content_h = max(260, client_h - outer * 2);
-    const int x0 = max(0, (client_w - content_w) / 2);
-    const int y0 = max(0, (client_h - content_h) / 2);
-
-    layout.bounds = { x0, y0, x0 + content_w, y0 + content_h };
-    layout.stacked = (content_w < 760);
-
-    if (layout.stacked) {
-        int hero_h = std::clamp(content_h * 48 / 100, 220, 340);
-        const int min_action_h = 320;
-        hero_h = min(hero_h, max(180, content_h - gap - min_action_h));
-        layout.hero = { x0, y0, x0 + content_w, y0 + hero_h };
-        layout.action = { x0, layout.hero.bottom + gap, x0 + content_w, y0 + content_h };
-    } else {
-        const int action_w = std::clamp(content_w / 3, 320, 380);
-        layout.hero = { x0, y0, x0 + content_w - action_w - gap, y0 + content_h };
-        layout.action = { layout.hero.right + gap, y0, x0 + content_w, y0 + content_h };
-    }
-
-    layout.compact = rect_height(layout.action) < 560 || rect_width(layout.action) < 340;
-
-    return layout;
-}
-
-void layout_welcome_controls(HWND hwnd) {
-    WelcomeLayout layout = compute_welcome_layout(hwnd);
-    auto place = [&](int id, int x, int y, int w, int h, bool visible = true) {
-        HWND ctl = GetDlgItem(hwnd, id);
-        if (ctl) {
-            MoveWindow(ctl, x, y, max(1, w), max(1, h), TRUE);
-            ShowWindow(ctl, visible ? SW_SHOWNA : SW_HIDE);
-        }
-    };
-
-    const int hero_pad = layout.compact ? 20 : (layout.stacked ? 22 : 30);
-    const int hx = layout.hero.left + hero_pad;
-    int hy = layout.hero.top + hero_pad;
-    const int hw = max(180, rect_width(layout.hero) - hero_pad * 2);
-    const int title_h = layout.compact ? 40 : (layout.stacked ? 46 : 52);
-    const int version_h = layout.compact ? 18 : 20;
-    place(IDW_TITLE, hx, hy, hw, title_h);
-    hy += title_h + (layout.compact ? 6 : 8);
-    place(IDW_VERSION, hx, hy, hw, version_h);
-    hy += version_h + (layout.compact ? 4 : 6);
-
-    const int action_button_h = layout.compact ? 34 : 38;
-    const int button_gap = layout.compact ? 8 : (layout.stacked ? 10 : 12);
-    const int section_hint_h = layout.compact ? 20 : 22;
-    place(IDW_ACTIONS_TITLE, hx, hy, hw, 22);
-    hy += 24;
-    place(IDW_ACTIONS_HINT, hx, hy, hw, section_hint_h);
-    hy += section_hint_h + (layout.compact ? 10 : 14);
-
-    const int action_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
-    const int ax = layout.hero.left + action_pad;
-    const int aw = max(180, rect_width(layout.hero) - action_pad * 2);
-    const int settings_col_gap = layout.compact ? 8 : 12;
-    const int segment_button_h = layout.compact ? 26 : 30;
-    if (aw < 360) {
-        int ay = hy;
-        place(IDC_OPEN, ax, ay, aw, action_button_h + 2);
-        ay += action_button_h + 2 + button_gap;
-        place(IDW_RECENT_FILES, ax, ay, aw, action_button_h);
-        ay += action_button_h + button_gap;
-        place(IDC_PTSETTINGS, ax, ay, aw, action_button_h);
-        ay += action_button_h + button_gap;
-        place(IDM_HOTKEYS, ax, ay, aw, action_button_h);
-        ay += action_button_h + button_gap;
-        place(IDW_START, ax, ay, aw, action_button_h + 2);
-    } else {
-        int col_w = max(140, (aw - settings_col_gap) / 2);
-        int left_x = ax;
-        int right_x = ax + col_w + settings_col_gap;
-        int grid_y = hy;
-        place(IDC_OPEN, left_x, grid_y, col_w, action_button_h + 2);
-        place(IDC_PTSETTINGS, right_x, grid_y, col_w, action_button_h);
-        grid_y += action_button_h + button_gap;
-        place(IDW_RECENT_FILES, left_x, grid_y, col_w, action_button_h);
-        place(IDM_HOTKEYS, right_x, grid_y, col_w, action_button_h);
-        grid_y += action_button_h + button_gap;
-        place(IDW_START, ax, grid_y, aw, action_button_h + 2);
-    }
-
-    const int settings_pad = layout.compact ? 16 : (layout.stacked ? 20 : 24);
-    const int sx = layout.action.left + settings_pad;
-    int sy = layout.action.top + settings_pad;
-    const int sw = max(180, rect_width(layout.action) - settings_pad * 2);
-    place(IDW_LANG_LABEL, sx, sy, sw, 20);
-    sy += layout.compact ? 22 : 24;
-    place(IDM_LANG_RU, sx, sy, sw, segment_button_h);
-    sy += segment_button_h + (layout.compact ? 8 : 12);
-    place(IDM_LANG_EN, sx, sy, sw, segment_button_h);
-    sy += segment_button_h + (layout.compact ? 10 : 14);
-    place(IDW_THEME_LABEL, sx, sy, sw, 20);
-    sy += layout.compact ? 22 : 24;
-    place(IDW_THEME_LIGHT, sx, sy, sw, segment_button_h);
-    sy += segment_button_h + (layout.compact ? 8 : 12);
-    place(IDW_THEME_DARK, sx, sy, sw, segment_button_h);
-    sy += segment_button_h + (layout.compact ? 10 : 14);
-    place(IDW_LIGHT_MODE, sx, sy, sw, segment_button_h);
 }
 
 void append_hotkey_line(std::wstring& out, int command) {
@@ -1074,7 +1011,7 @@ void toggle_checked_state(HWND hwnd) {
 void draw_themed_check_control(HDC dc, const RECT& r, const wchar_t* txt,
                                bool checked, bool pressed, bool enabled,
                                bool radio, bool compact,
-                               COLORREF surface_bg = CLR_INVALID) {
+                               COLORREF surface_bg) {
     const COLORREF base_bg = (surface_bg == CLR_INVALID) ? g_theme->bg_panel : surface_bg;
     HBRUSH bg = CreateSolidBrush(base_bg);
     FillRect(dc, &r, bg);
@@ -2005,3 +1942,67 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
+void open_settings() {
+    if (!g.settings_wnd) {
+        HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
+            g.settings_wnd = CreateWindowExW(
+            WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 536,
+            g.main, nullptr, inst, nullptr);
+        if (!g.settings_wnd) return;
+        RECT mr, sr;
+        GetWindowRect(g.main, &mr);
+        GetWindowRect(g.settings_wnd, &sr);
+        const int sw = sr.right - sr.left, sh = sr.bottom - sr.top;
+        SetWindowPos(g.settings_wnd, nullptr,
+                     mr.left + ((mr.right - mr.left) - sw) / 2,
+                     mr.top + ((mr.bottom - mr.top) - sh) / 2,
+                     0, 0, SWP_NOSIZE | SWP_NOZORDER);
+    }
+    refresh_settings_controls();
+    ShowWindow(g.settings_wnd, SW_SHOW);
+    SetForegroundWindow(g.settings_wnd);
+}
+
+HACCEL make_accelerators() {
+    ensure_hotkeys_initialized();
+    std::vector<ACCEL> acc;
+    acc.reserve(g.hotkeys.size());
+    for (const auto& hk : g.hotkeys) {
+        if (hk.key == 0) continue;
+        ACCEL a = {};
+        a.fVirt = hk.fvirt;
+        a.key = hk.key;
+        a.cmd = static_cast<WORD>(hk.command);
+        acc.push_back(a);
+    }
+    if (acc.empty()) return nullptr;
+    return CreateAcceleratorTableW(acc.data(), static_cast<int>(acc.size()));
+}
+
+void rebuild_accelerators() {
+    HACCEL fresh = make_accelerators();
+    if (g.accel) DestroyAcceleratorTable(g.accel);
+    g.accel = fresh;
+}
+
+bool should_bypass_accelerators() {
+    HWND focus = GetFocus();
+    if (!focus) return false;
+    if (g.channel_edit && (focus == g.channel_edit || IsChild(g.channel_edit, focus) != FALSE)) return true;
+    if (g.settings_wnd && (focus == g.settings_wnd || IsChild(g.settings_wnd, focus) != FALSE)) return true;
+    wchar_t cls[64]{};
+    for (HWND h = focus; h; h = GetParent(h)) {
+        GetClassNameW(h, cls, 64);
+        if (lstrcmpiW(cls, L"EDIT") == 0 ||
+            lstrcmpiW(cls, L"COMBOBOX") == 0 ||
+            lstrcmpiW(cls, L"ComboBoxEx32") == 0 ||
+            wcsstr(cls, L"RICHEDIT") == cls) {
+            return true;
+        }
+        if (h == g.main) break;
+    }
+    return false;
+}
+
+} // namespace gui

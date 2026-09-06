@@ -1,293 +1,23 @@
-﻿// ---- undo / redo system ------------------------------------------------
-struct SettingsSnapshot {
-    std::vector<char> visible;
-    std::vector<std::wstring> channel_labels;
-    std::vector<COLORREF> channel_colors;
-    std::wstring global_formula;
-    std::vector<std::wstring> channel_formulas;
-    bool snap_to_data = true;
-    COLORREF marker_color = RGB(0, 120, 215);
-    std::vector<PointGroup> point_groups;
-    int active_point_group = -1;
-    int time_active_point_group = -1;
-    int freq_active_point_group = -1;
-    std::vector<GuideLine> guides;
-    std::vector<App::Marker> markers;
-    int active_marker = -1;
-    int pending_line = 0;
-    bool pending_marker = false;
-    bool measure_mode = false;
-    bool auto_y = true;
-    double y_lock_min = -1.0;
-    double y_lock_max = 1.0;
-    bool auto_y_amp = true;
-    double y_amp_max = 1.0;
-    bool noise_threshold_enabled = false;
-    double noise_threshold_min = -std::numeric_limits<double>::infinity();
-    double noise_threshold_max = std::numeric_limits<double>::infinity();
-    int noise_threshold_mode = FilterModeBandPass;
-    int noise_threshold_topology = FilterTopologyButterworth;
-};
+// State history: native viewer implementation.
+#include "gui_state_history.hpp"
+#include "gui_processing.hpp"
+#include "gui_render_data.hpp"
+#include "gui_settings.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_state.hpp"
+#include "gui_status.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
 
-struct UndoAction {
-    enum Type { NONE, ADD_POINT, ADD_LINE, ADD_MARKER, CLEAR_POINTS, CLEAR_LINES, CLEAR_MARKERS, SETTINGS_CHANGE } type = NONE;
-    std::pair<double, double> point;
-    int point_group_index = -1;
-    bool point_group_created = false;
-    PointGroupMode cleared_mode = PointGroupMode::Time;
-    PointGroup point_group_state;
-    GuideLine line;
-    App::Marker marker;
-    std::vector<PointGroup> saved_point_groups;
-    int saved_active_point_group = -1;
-    int saved_time_active_point_group = -1;
-    int saved_freq_active_point_group = -1;
-    std::vector<GuideLine> saved_lines;
-    std::vector<App::Marker> saved_markers;
-    SettingsSnapshot before_settings;
-    SettingsSnapshot after_settings;
-};
+namespace gui {
+
 std::vector<UndoAction> g_undo;
+
 std::vector<UndoAction> g_redo;
+
 std::optional<SettingsSnapshot> g_filter_slider_before;
-constexpr std::size_t kUndoActionLimit = 128;
-constexpr std::size_t kUndoByteLimit = 64 * 1024 * 1024;
-WNDPROC g_channel_edit_proc = nullptr;
-void refresh_side_panel_controls();
-void apply_side_panel_visibility();
-void set_side_panel_tab(int tab);
-int side_panel_width();
-void layout();
-void update_side_panel_scrollbar(int viewport_top, int content_height);
-bool side_panel_hit_test(const POINT& pt);
-void scroll_side_panel(int delta);
-std::wstring format_edit_number(double value);
-std::wstring format_optional_edit_number(double value);
-COLORREF mix_color(COLORREF a, COLORREF b, int weight_b);
-void ensure_channel_formula_vectors();
-void invalidate_formula_runtime();
-void invalidate_formula_runtime_channel(std::size_t channel_index);
-void invalidate_transformed_channel_cache();
-void invalidate_filtered_channel_cache();
-double current_filter_sample_step();
-double current_filter_nyquist();
-double clamp_filter_cutoff(double hz, double nyquist);
-double filter_slider_to_frequency(int pos, double nyquist);
-int frequency_to_filter_slider(double hz, double nyquist);
-std::wstring filter_frequency_text(double hz);
-double transformed_channel_sample(std::size_t channel_index, std::size_t row_index);
-double rendered_channel_sample(std::size_t channel_index, std::size_t row_index);
-void ensure_filtered_channel_cache(std::size_t channel_index);
-void ensure_transformed_channel_cache(std::size_t channel_index);
-void load_channel_formulas_from_ini();
-void finish_channel_rename(bool apply);
-void set_status();
-void sync_menu();
-void compute_spectrum_from_current_source();
-bool ensure_current_spectrum();
-double visible_spectrum_ymax();
-SettingsSnapshot capture_settings_snapshot();
-void ensure_channel_formula_storage();
-bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot& b);
-void apply_settings_snapshot(const SettingsSnapshot& snapshot);
-bool record_settings_change(const SettingsSnapshot& before);
-void toggle_checked_state(HWND hwnd);
-std::wstring channel_display_label(std::size_t ci);
-std::wstring normalize_axis_label_text(const std::wstring& text, const wchar_t* fallback);
-int hit_test_gap_marker(int x, int y);
-void hide_gap_details_card();
-void show_gap_details_card(double duration, long long estimated_missing_samples);
-void draw_gap_details_card(HDC dc, const RECT& plot);
-void apply_export_metadata_from_comments(const std::vector<std::string>& comments);
-
-const wchar_t* gap_markers_toggle_text() {
-    return (g_str == &kEn) ? L"Show gap markers" : L"Показывать разрывы";
-}
-
-const wchar_t* filter_toggle_text() {
-    return (g_str == &kEn) ? L"Signal filter" : L"Фильтр сигнала";
-}
-
-const wchar_t* filter_low_cutoff_text() {
-    return (g_str == &kEn) ? L"Low cutoff:" : L"Нижняя граница:";
-}
-
-const wchar_t* filter_high_cutoff_text() {
-    return (g_str == &kEn) ? L"High cutoff:" : L"Верхняя граница:";
-}
-
-const wchar_t* filter_section_title_text() {
-    return (g_str == &kEn) ? L"Filter" : L"Фильтр";
-}
-
-const wchar_t* filter_mode_label_text() {
-    return (g_str == &kEn) ? L"Mode:" : L"Режим:";
-}
-
-const wchar_t* filter_topology_label_text() {
-    return (g_str == &kEn) ? L"Topology:" : L"Топология:";
-}
-
-const wchar_t* filter_mode_lowpass_text() {
-    return (g_str == &kEn) ? L"Low-pass" : L"НЧ";
-}
-
-const wchar_t* filter_mode_highpass_text() {
-    return (g_str == &kEn) ? L"High-pass" : L"ВЧ";
-}
-
-const wchar_t* filter_mode_bandpass_text() {
-    return (g_str == &kEn) ? L"Band-pass" : L"Полосовой";
-}
-
-const wchar_t* filter_mode_bandstop_text() {
-    return (g_str == &kEn) ? L"Band-stop" : L"Режекторный";
-}
-
-const wchar_t* filter_topology_butterworth_text() {
-    return (g_str == &kEn) ? L"Butterworth" : L"Баттерворт";
-}
-
-const wchar_t* filter_topology_bessel_text() {
-    return (g_str == &kEn) ? L"Bessel" : L"Бессель";
-}
-
-const wchar_t* filter_topology_chebyshev_text() {
-    return (g_str == &kEn) ? L"Chebyshev" : L"Чебышёв";
-}
-
-const wchar_t* filter_topology_linkwitz_text() {
-    return (g_str == &kEn) ? L"Linkwitz-Riley" : L"Линквиц-Райли";
-}
-
-const wchar_t* side_global_formula_label_text() {
-    return (g_str == &kEn) ? L"Global coefficient for all charts:" : L"Общий коэффициент для всех графиков:";
-}
-
-const wchar_t* side_global_formula_apply_text() {
-    return (g_str == &kEn) ? L"Apply to all charts" : L"Применить ко всем графикам";
-}
-
-const wchar_t* side_channel_formula_label_text() {
-    return (g_str == &kEn) ? L"Coefficient for the selected channel:" : L"Коэффициент выбранного канала:";
-}
-
-const wchar_t* point_group_list_title() {
-    return g_str == &kEn ? L"Point groups" : L"Группы точек";
-}
-
-const wchar_t* point_current_color_button_text() {
-    return g_str == &kEn ? L"Colour for new points…" : L"Цвет новых точек…";
-}
-
-const wchar_t* point_selected_group_color_button_text() {
-    return g_str == &kEn ? L"Selected group colour…" : L"Цвет выбранной группы…";
-}
-
-const wchar_t* point_group_visible_text() {
-    return g_str == &kEn ? L"Show selected group" : L"Показывать выбранную группу";
-}
-
-const wchar_t* point_group_new_button_text() {
-    return g_str == &kEn ? L"Start new group" : L"Новая группа";
-}
-
-const wchar_t* point_group_empty_text() {
-    return g_str == &kEn ? L"No point groups yet" : L"Групп точек пока нет";
-}
-
-const wchar_t* side_panel_button_text() {
-    return (g_str == &kEn) ? L"Panel" : L"Панель";
-}
-
-const wchar_t* side_tab_channels_text() {
-    return (g_str == &kEn) ? L"Channels" : L"Каналы";
-}
-
-const wchar_t* side_tab_points_text() {
-    return (g_str == &kEn) ? L"Points" : L"Точки";
-}
-
-const wchar_t* side_tab_filter_text() {
-    return (g_str == &kEn) ? L"Filter" : L"Фильтр";
-}
-
-const wchar_t* side_channel_color_button_text() {
-    return (g_str == &kEn) ? L"Channel colour…" : L"Цвет канала…";
-}
-
-const wchar_t* side_channel_hint_text() {
-    return filter_section_title_text();
-}
-
-const wchar_t* side_formula_apply_selected_text() {
-    return (g_str == &kEn) ? L"Apply to selected" : L"К выбранному";
-}
-
-const wchar_t* side_formula_apply_visible_text() {
-    return (g_str == &kEn) ? L"Apply to visible" : L"К видимым";
-}
-
-const wchar_t* side_formula_reset_selected_text() {
-    return (g_str == &kEn) ? L"Reset selected" : L"Сбросить канал";
-}
-
-const wchar_t* side_formula_reset_all_text() {
-    return (g_str == &kEn) ? L"Reset all channels" : L"Сбросить все каналы";
-}
-
-const wchar_t* side_point_group_delete_text() {
-    return (g_str == &kEn) ? L"Delete group" : L"Удалить группу";
-}
-
-const wchar_t* side_point_group_rename_text() {
-    return (g_str == &kEn) ? L"Rename" : L"Переименовать";
-}
-
-const wchar_t* side_pt_num_text() {
-    return (g_str == &kEn) ? L"Point #" : L"Номер";
-}
-
-const wchar_t* side_pt_x_text() {
-    return L"X";
-}
-
-const wchar_t* stitch_gaps_toggle_text() {
-    return (g_str == &kEn) ? L"Stitch time gaps in the graph" : L"Склеивать пропуски времени на графике";
-}
-
-const wchar_t* side_pt_y_text() {
-    return L"Y";
-}
-
-const wchar_t* side_pt_dx_text() {
-    return L"Δx";
-}
-
-const wchar_t* side_pt_dy_text() {
-    return L"Δy";
-}
-
-const wchar_t* side_pt_invdt_text() {
-    return L"1/Δt";
-}
-
-const wchar_t* side_pt_dist_text() {
-    return L"d";
-}
-
-const wchar_t* side_pt_snap_text() {
-    return (g_str == &kEn) ? L"Snap" : L"Привязка";
-}
-
-const wchar_t* axis_x_label_text() {
-    return (g_str == &kEn) ? L"X label:" : L"Буква X:";
-}
-
-const wchar_t* axis_y_label_text() {
-    return (g_str == &kEn) ? L"Y label:" : L"Буква Y:";
-}
-
 
 PointGroupMode current_point_group_mode() {
     return g.freq_mode ? PointGroupMode::Frequency : PointGroupMode::Time;
@@ -462,7 +192,7 @@ int create_point_group(COLORREF color) {
     return g.active_point_group;
 }
 
-int ensure_point_group_for_measurement(bool force_new_group, bool* created_group = nullptr) {
+int ensure_point_group_for_measurement(bool force_new_group, bool* created_group) {
     bool created = false;
     normalize_active_point_group();
     PointGroup* group = active_point_group();
@@ -529,35 +259,41 @@ std::wstring measure_points_status_text() {
 }
 
 std::size_t history_dynamic_bytes(const std::wstring& value) { return value.capacity() * sizeof(wchar_t); }
+
 template<class T> std::size_t history_dynamic_bytes(const T&) { return 0; }
-std::size_t history_dynamic_bytes(const PointGroup& group);
-std::size_t history_dynamic_bytes(const App::Marker& marker);
+
 template<class T> std::size_t history_dynamic_bytes(const std::vector<T>& values) {
     std::size_t bytes = values.capacity() * sizeof(T);
     for (const auto& value : values) bytes += history_dynamic_bytes(value);
     return bytes;
 }
+
 std::size_t history_dynamic_bytes(const PointGroup& group) {
     return history_dynamic_bytes(group.name) + history_dynamic_bytes(group.points);
 }
+
 std::size_t history_dynamic_bytes(const App::Marker& marker) { return history_dynamic_bytes(marker.label); }
+
 std::size_t history_dynamic_bytes(const SettingsSnapshot& snapshot) {
     return history_dynamic_bytes(snapshot.visible) + history_dynamic_bytes(snapshot.channel_labels) +
         history_dynamic_bytes(snapshot.channel_colors) + history_dynamic_bytes(snapshot.global_formula) +
         history_dynamic_bytes(snapshot.channel_formulas) + history_dynamic_bytes(snapshot.point_groups) +
         history_dynamic_bytes(snapshot.guides) + history_dynamic_bytes(snapshot.markers);
 }
+
 std::size_t history_action_bytes(const UndoAction& action) {
     return sizeof(action) + history_dynamic_bytes(action.point_group_state) + history_dynamic_bytes(action.marker) +
         history_dynamic_bytes(action.saved_point_groups) + history_dynamic_bytes(action.saved_lines) +
         history_dynamic_bytes(action.saved_markers) + history_dynamic_bytes(action.before_settings) +
         history_dynamic_bytes(action.after_settings);
 }
+
 std::size_t history_stack_bytes(const std::vector<UndoAction>& stack) {
     std::size_t bytes = 0;
     for (const auto& action : stack) bytes += history_action_bytes(action);
     return bytes;
 }
+
 void push_undo(UndoAction a) {
     g_redo.clear(); // new action clears redo stack
     const std::size_t incoming = history_action_bytes(a);
@@ -837,6 +573,7 @@ void pop_undo() {
     sync_point_display_from_active_group();
     refresh_side_panel_controls();
 }
+
 void pop_redo() {
     if (g_redo.empty()) return;
     UndoAction a = std::move(g_redo.back());
@@ -891,3 +628,4 @@ void pop_redo() {
     refresh_side_panel_controls();
 }
 
+} // namespace gui

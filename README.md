@@ -98,7 +98,8 @@ make test
 
 | Path | Purpose |
 |---|---|
-| `gui_main.cpp` | Win32 desktop viewer |
+| `gui_main.cpp` | Win32 entry point and message routing |
+| `gui_*.cpp/.hpp` | Separately compiled GUI modules; [architecture](docs/ARCHITECTURE.md) |
 | `export_helpers.cpp/.hpp` | Export prompt and tabular export helpers |
 | `formula_engine.cpp/.hpp` | Formula parsing and evaluation helpers |
 | `main.cpp` | CLI entry point |
@@ -111,7 +112,7 @@ make test
 | `tests/run_tests.cpp` | Regression tests |
 | `lvm_files_for_tests/` | Bundled sample input files |
 | `docs/assets/` | GitHub visuals and preview images |
-| `docs/PROJECT_CONTEXT.md` | Extended development context |
+| `AGENTS.md`, `docs/ARCHITECTURE.md` | Agent working rules and current architecture map |
 
 ## Documentation
 

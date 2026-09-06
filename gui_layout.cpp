@@ -1,3 +1,11 @@
+// Layout: native viewer implementation.
+#include "gui_layout.hpp"
+#include "gui_ids.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_state.hpp"
+
+namespace gui {
+
 void layout() {
     RECT rc;
     GetClientRect(g.main, &rc);
@@ -203,5 +211,4 @@ RECT plot_rect() {
     return p;
 }
 
-// ---- view (pan / zoom) ---------------------------------------------------
-
+} // namespace gui

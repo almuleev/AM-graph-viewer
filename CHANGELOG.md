@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.12.6
+
+- Добавлены короткие правила `AGENTS.md` и карта `docs/ARCHITECTURE.md` для адресного поиска по проекту. Удалён устаревший `PROJECT_CONTEXT.md`; исторические отчёты перенесены в локальный архив, исключённый из Git. Обновлены ссылки в README.
+- Убраны повторные и малоценные условия тестов; сохранены полные сравнения FFT для 10 и 10 000 разрывов, проверки Light Mode, экспорта и истории. Усилена проверка успешности двух расчётов FFT. Пройдены 197 проверок ядра и 141 проверка GUI.
+- Added concise agent rules and an architecture map, removed redundant test assertions, and excluded local historical reports from version control. Core and GUI regression suites retain gap, caching, export, and history coverage.
+
+- GUI переведён на самостоятельные модули `.cpp/.hpp`: убраны включения реализаций, вынесены FFT, временная ось, загрузка, боковая панель, настройки и обработчики сообщений. `gui_main.cpp` сокращён с 4869 до 138 строк.
+- GUI и интеграционные тесты линкуются с одинаковыми объектными файлами. Добавлены инкрементальная сборка и запуск GUI-тестов через `build_gui.ps1 -Test`; обновлён Makefile. Проверены маршрутизация команд, клавиш и завершение отменённой загрузки.
+- GUI implementations now compile as separate modules with explicit headers. The application and integration tests share object files; incremental builds and PowerShell GUI test execution are supported.
 
 - Light Mode больше не пересчитывает FFT при скрытии и повторном показе каналов из текущего расчёта, в том числе во время фонового задания. Новый расчёт требуется при включении канала вне текущего кэша или изменении данных, участка и обработки. Добавлены проверки настоящего асинхронного пути GUI через невидимое служебное окно.
 

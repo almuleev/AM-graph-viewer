@@ -73,6 +73,7 @@ handled separately by filling with the channel mean, without shifting channels.
 - CSV/TXT files with a `Frequency` column open directly as stored spectra, without another FFT. They contain no time-domain signal.
 - Windows CLI supports Unicode paths. `build_cli.ps1` and `build_gui.ps1` label builds with the checkout version and dirty state; `Start GUI.bat` selects the newest executable.
 - Run `make test` and, on Windows, `make test-gui`. CI builds the CLI/core on Linux and GUI/CLI on Windows.
+- GUI modules compile separately with cached object files. Without Make, run GUI tests using `powershell -ExecutionPolicy Bypass -File .\build_gui.ps1 -Test`. See the [architecture map (Russian)](docs/ARCHITECTURE.md).
 
 ## Interface Screenshots
 
@@ -128,14 +129,15 @@ make test
 
 | Path | Purpose |
 |---|---|
-| `gui_main.cpp` | Native GUI implementation |
+| `gui_main.cpp` | GUI entry point, message loop and routing |
+| `gui_*.cpp/.hpp` | Separately compiled GUI modules |
 | `main.cpp` | CLI implementation |
 | `lvm_parser.cpp/.hpp` | `.lvm` / `.txt` parser |
 | `analysis.cpp/.hpp` | Analysis helpers |
 | `fft.cpp/.hpp` | FFT engine |
 | `tests/run_tests.cpp` | Regression tests |
 | `docs/assets/` | Repository visuals |
-| `docs/PROJECT_CONTEXT.md` | Extended implementation context |
+| `AGENTS.md`, `docs/ARCHITECTURE.md` | Agent working rules and current architecture map |
 
 ## Related Files
 

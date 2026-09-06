@@ -1,123 +1,23 @@
-struct NumericPromptState {
-    HWND wnd = nullptr;
-    HWND edit = nullptr;
-    bool done = false;
-    bool accepted = false;
-    bool positive_only = true;
-    double value = 1.0;
-    std::wstring title;
-    std::wstring label;
-    std::wstring apply_text;
-    std::wstring cancel_text;
-    std::wstring invalid_text;
-};
+// Dialogs: native viewer implementation.
+#include "gui_dialogs.hpp"
+#include "gui_ids.hpp"
+#include "gui_processing.hpp"
+#include "gui_render_data.hpp"
+#include "gui_settings.hpp"
+#include "gui_settings_hotkeys.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_state.hpp"
+#include "gui_text.hpp"
+#include "gui_theme.hpp"
+
+namespace gui {
 
 NumericPromptState g_numeric_prompt;
 
-struct RangePromptState {
-    HWND wnd = nullptr;
-    HWND start_edit = nullptr;
-    HWND end_edit = nullptr;
-    bool done = false;
-    bool accepted = false;
-    double start_value = 0.0;
-    double end_value = 0.0;
-    double min_value = 0.0;
-    double max_value = 0.0;
-    std::wstring title;
-    std::wstring info_label;
-    std::wstring start_label;
-    std::wstring end_label;
-    std::wstring apply_text;
-    std::wstring cancel_text;
-    std::wstring invalid_start_text;
-    std::wstring invalid_end_text;
-};
-
 RangePromptState g_range_prompt;
 
-struct InfoPromptState {
-    HWND wnd = nullptr;
-    HWND ok_button = nullptr;
-    bool done = false;
-    bool error = false;
-    std::wstring title;
-    std::wstring message;
-    std::wstring ok_text;
-};
-
 InfoPromptState g_info_prompt;
-
-enum class ExportFileFormat {
-    Txt = 0,
-    Csv = 1,
-    Lvm = 2,
-};
-
-struct ExportPromptState {
-    HWND wnd = nullptr;
-    HWND format_combo = nullptr;
-    HWND range_combo = nullptr;
-    HWND processing_apply_radio = nullptr;
-    HWND processing_settings_radio = nullptr;
-    HWND include_channel_names_check = nullptr;
-    HWND include_hidden_channels_check = nullptr;
-    HWND include_points_check = nullptr;
-    HWND include_markers_check = nullptr;
-    HWND include_guides_check = nullptr;
-    HWND include_formulas_check = nullptr;
-    HWND include_filter_check = nullptr;
-    HWND include_graph_settings_check = nullptr;
-    bool done = false;
-    bool accepted = false;
-    ExportFileFormat selected_format = ExportFileFormat::Csv;
-    ExportRangeMode selected_range = ExportRangeMode::Visible;
-    bool apply_processing_to_data = true;
-    bool include_channel_names = true;
-    bool include_hidden_channels = false;
-    bool include_points = true;
-    bool include_markers = true;
-    bool include_guides = true;
-    bool include_formulas = true;
-    bool include_filter_settings = true;
-    bool include_graph_settings = true;
-    std::wstring title;
-    std::wstring intro;
-    std::wstring format_label_text;
-    std::wstring range_label_text;
-    std::wstring format_txt_text;
-    std::wstring format_csv_text;
-    std::wstring format_lvm_text;
-    std::wstring range_selected_text;
-    std::wstring range_visible_text;
-    std::wstring range_whole_text;
-    std::wstring processing_apply_text;
-    std::wstring processing_settings_text;
-    std::wstring channel_names_text;
-    std::wstring hidden_channels_text;
-    std::wstring points_text;
-    std::wstring markers_text;
-    std::wstring guides_text;
-    std::wstring formulas_text;
-    std::wstring filter_text;
-    std::wstring graph_settings_text;
-    std::wstring continue_text;
-    std::wstring cancel_text;
-};
-
-struct ExportOptions {
-    ExportFileFormat format = ExportFileFormat::Csv;
-    ExportRangeMode selected_range = ExportRangeMode::Visible;
-    bool apply_processing_to_data = true;
-    bool include_channel_names = true;
-    bool include_hidden_channels = false;
-    bool include_points = true;
-    bool include_markers = true;
-    bool include_guides = true;
-    bool include_formulas = true;
-    bool include_filter_settings = true;
-    bool include_graph_settings = true;
-};
 
 ExportPromptState g_export_prompt;
 
@@ -138,9 +38,6 @@ void draw_prompt_surface(HWND hwnd, HDC dc) {
     InflateRect(&card, -2, -2);
     fill_rounded_rect(dc, card, g_theme->bg_panel, g_theme->separator, 12);
 }
-
-void measure_settings_combo_item(MEASUREITEMSTRUCT* mis);
-void draw_settings_combo_item(const DRAWITEMSTRUCT* dis);
 
 LRESULT CALLBACK InfoPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
@@ -1328,3 +1225,5 @@ bool prompt_custom_play_speed(double& out_speed) {
         true,
         out_speed);
 }
+
+} // namespace gui

@@ -1,11 +1,13 @@
 // Welcome: native viewer implementation.
 #include "gui_welcome.hpp"
+#include "gui_settings_window.hpp"
+#include "gui_controls.hpp"
+#include "gui_hotkeys.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_loading.hpp"
 #include "gui_loading_drop.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_state.hpp"
 #include "gui_text.hpp"
@@ -750,6 +752,10 @@ void raise_main_window() {
     SetWindowPos(g.main, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     SetForegroundWindow(g.main);
     SetActiveWindow(g.main);
+}
+
+void show_about() {
+    show_welcome(GetModuleHandleW(nullptr));
 }
 
 } // namespace gui

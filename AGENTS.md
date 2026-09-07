@@ -12,16 +12,38 @@
   командами из ARCHITECTURE.md (Windows PowerShell `powershell.exe` или GNU Make).
   Не обходи ограничения задачи только на чтение. При невозможности сборки
   сообщи конкретную причину и выполненные проверки.
-- При изменении границ модулей кратко обновляй карту архитектуры.
+- После любых изменений обновляй `AGENTS.md` и `docs/ARCHITECTURE.md`,
+  поддерживая актуальность правил работы и карты модулей.
 
 ## Быстрая карта
 
 - CLI: `main.cpp`; GUI: `gui_main`, `gui_window`, `gui_commands`, `gui_input`.
 - Данные: `lvm_parser`, `data_io`; загрузка GUI: `gui_loading`, `gui_loading_drop`.
 - FFT: `analysis`, `fft`, `sampling.hpp`, `spectrum_worker`, `gui_spectrum`.
+- FRF / АЧХ: `frf_analysis` (численное ядро без GUI, среднее опор до H1,
+  отдельный результат каждого отклика), `frf_worker` (пакет массивов),
+  `gui_frf` (множественный выбор/задания/кэш), `gui_frf_render` (КД,
+  кривые/легенда/мышь). КД равен `abs(H)` — отношению амплитуды отклика к
+  средней амплитуде опор, без перевода в dB.
+- Общий участок и снимки каналов FFT/FRF: `gui_analysis_source`.
+  Режим задаётся `AnalysisMode::Time/FFT/FRF`; FRF не использует амплитуды `Spectrum`.
+  В экспортерах и функциях осей проверяй нужный режим явно: «не FFT» уже не
+  означает временной сигнал.
 - Обработка: `filter_engine`, `formula_engine`, `gui_processing`.
 - График: `gui_render`, `gui_render_data`, `gui_time_axis`, `minmax_index.hpp`.
-- Экспорт: `gui_export_metadata`, `export_helpers`; настройки: `gui_settings`,
-  `gui_settings_hotkeys`; состояние/история: `gui_state`, `gui_state_history`.
+- Экспорт файлов: `gui_export`, `export_helpers`; запись и импорт метаданных:
+  `gui_export_metadata` (загрузка не зависит от диалогов сохранения).
+- Настройки: `gui_settings` (INI), `gui_settings_window` (окно),
+  `gui_settings_hotkeys` (редактор сочетаний); `gui_hotkeys` — привязки,
+  акселераторы и справка; `gui_menu` — создание, состояние и отрисовка меню.
+- Общие кнопки/переключатели: `gui_controls`; тема: `gui_theme`;
+  карточка разрывов: `gui_gap_details`; состояние/история: `gui_state`, `gui_state_history`.
 - Тесты: `tests/run_tests.cpp`, `tests/gui_regression.cpp`; история: `CHANGELOG.md`.
+- При изменениях FRF проверяй общий участок всех каналов, арифметическое среднее
+  Reference до Welch/H1, комплексный transfer, coherence, маску слабого входа,
+  совместимость одиночной пары и отмену заданий. Reference и Response не пересекаются.
+  Gaps игнорируются с предупреждением независимо от экранной склейки: без вставки
+  или интерполяции samples; Welch-сегменты могут пересекать границы LVM sections.
+  NaN/Inf отклоняются; ошибка одного Response не скрывает корректные остальные.
+  Проверяй частотную шкалу, несколько кривых, легенду, CSV и PNG.
 - `docs/archive/` — необязательный локальный архив; не добавляй его в Git.

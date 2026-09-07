@@ -4,12 +4,16 @@
 // temporary .lvm/.txt file, parses it, and checks the result. Exit code is
 // non-zero if any check fails, so it works as a `make test` gate.
 #include <cmath>
+#include <random>
 #include <cstdio>
 #include <fstream>
 #include <string>
 #include <vector>
 
 #include "analysis.hpp"
+#include "frf_analysis.hpp"
+#include "frf_worker.hpp"
+#include <chrono>
 #include "export_helpers.hpp"
 #include "gap_details.hpp"
 #include "formula_engine.hpp"
@@ -636,9 +640,244 @@ void test_minmax_and_spectrum_import() {
     check(lvm::tsv_header_field("A\tB\nC\rD") == "A B C D", "TXT header cannot introduce extra columns or rows");
 }
 
+void test_frf_multi() {
+    const double pi=std::acos(-1.0);
+    lvm::FrfBatchInput batch;
+    batch.references.resize(2); batch.responses.resize(3);
+    std::vector<double> average;
+    for (int i=0;i<4096;++i) {
+        const double angle=2*pi*13*i/256, x=std::sin(angle);
+        batch.time.push_back(i/1024.0);
+        batch.references[0].push_back(x); batch.references[1].push_back(3*x);
+        average.push_back(2*x);
+        batch.responses[0].push_back(6*x);
+        batch.responses[1].push_back(-2*x);
+        batch.responses[2].push_back(10*std::sin(angle+.4));
+    }
+    lvm::FrfOptions options; options.segment_length=256;
+    const auto r=lvm::analyze_frf_batch(batch,options);
+    check(r.ok && r.responses.size()==3,"multi-reference produces one FRF per response");
+    check_near(lvm::frf_dynamic_coefficient(r.responses[0],13),3,1e-9,"sample mean of x and 3x gives reference 2x before H1");
+    check_near(std::abs(r.responses[1].transfer[13]+1.0),0,1e-9,"second response retains signed complex gain");
+    check_near(std::abs(r.responses[2].transfer[13]-std::polar(5.0,.4)),0,1e-9,"third response preserves its own gain and phase");
+    for (std::size_t i=0;i<3;++i) {
+        const auto expected=lvm::analyze_frf({batch.time,average,batch.responses[i]},options);
+        double max_error=0;
+        for (std::size_t k=0;k<expected.transfer.size();++k) if (expected.valid[k]) max_error=std::max(max_error,std::abs(expected.transfer[k]-r.responses[i].transfer[k]));
+        check(max_error<1e-10 && expected.valid==r.responses[i].valid,"batch agrees with independent pair using pre-averaged reference");
+        check(r.responses[i].sample_dt==r.common().sample_dt && r.responses[i].segment_length==256 &&
+              r.responses[i].averages==31 && r.responses[i].overlap_samples==128,"all responses share Fs, L, K and overlap");
+        check_near(r.responses[i].coherence[13],1,1e-10,"coherence belongs to each response against averaged reference");
+    }
+    lvm::FrfBatchInput single{batch.time,{batch.references[0]},{batch.responses[0]}};
+    const auto pair=lvm::analyze_frf({single.time,single.references[0],single.responses[0]},options);
+    const auto one=lvm::analyze_frf_batch(single,options);
+    check(one.ok && one.responses.size()==1 && one.common().transfer==pair.transfer && one.common().valid==pair.valid,
+          "one reference and response match the original pair exactly");
+    single.references=batch.references;
+    check(lvm::analyze_frf_batch(single,options).common().transfer==r.responses[0].transfer,"one response still uses the arithmetic reference mean");
+    auto reversed=batch; std::reverse(reversed.references.begin(),reversed.references.end());
+    check(lvm::analyze_frf_batch(reversed,options).common().transfer==r.common().transfer,"reference order does not change the mean");
+    auto gaps=batch; for(std::size_t i=2048;i<gaps.time.size();++i) gaps.time[i]+=100;
+    auto joined=lvm::analyze_frf_batch(gaps,options);
+    check(joined.ok && joined.common().gaps_ignored && joined.responses[2].transfer==r.responses[2].transfer,"multi-channel FRF retains gaps-ignored invariance");
+    auto bad=batch; bad.references[0][100]=std::nan("");
+    check(lvm::analyze_frf_batch(bad,options).error==lvm::FrfError::MissingValues,"invalid reference rejects the whole batch");
+    bad=batch; bad.references[1].pop_back();
+    check(lvm::analyze_frf_batch(bad,options).error==lvm::FrfError::InvalidChannels,"reference lengths must match the shared selection");
+    bad=batch; bad.responses[0][100]=std::nan(""); bad.responses[2].pop_back();
+    const auto partial=lvm::analyze_frf_batch(bad,options);
+    check(partial.ok && !partial.responses[0].ok && partial.responses[1].ok && !partial.responses[2].ok &&
+          partial.responses[1].transfer==r.responses[1].transfer,"invalid responses do not discard valid curves");
+    bad=batch; bad.references.clear();
+    check(lvm::analyze_frf_batch(bad,options).error==lvm::FrfError::InvalidChannels,"empty reference list rejected");
+    bad=batch; bad.responses.clear();
+    check(lvm::analyze_frf_batch(bad,options).error==lvm::FrfError::InvalidChannels,"empty response list rejected");
+    bad=batch; for(std::size_t i=0;i<bad.time.size();++i) bad.references[1][i]=-bad.references[0][i];
+    check(lvm::analyze_frf_batch(bad,options).error==lvm::FrfError::WeakReference,"opposite references cancel instead of producing RMS average");
+    std::atomic<bool> cancel{true}; bool cancelled=false;
+    try { lvm::analyze_frf_batch(batch,options,&cancel); } catch(const std::exception&) { cancelled=true; }
+    check(cancelled,"multi-reference averaging honours cancellation");
+    lvm::FrfWorker worker;
+    worker.submit(batch,options,40); worker.submit(single,options,41);
+    std::optional<lvm::FrfWorker::Result> result;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    while(!result && std::chrono::steady_clock::now()<deadline) {
+        result=worker.take_result(); if(!result) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    check(result && result->generation==41 && result->frf.ok && result->frf.responses.size()==1,"worker replaces the whole batch atomically");
+}
+
+void test_frf() {
+    const double pi=std::acos(-1.0);
+    const auto make_pair=[&](std::size_t n, double gain=2.0, double phase=0.7) {
+        lvm::FrfInput in;
+        for (std::size_t i=0;i<n;++i) {
+            in.time.push_back(i/1024.0);
+            in.reference.push_back(std::sin(2*pi*13*i/256));
+            in.response.push_back(gain*std::sin(2*pi*13*i/256+phase));
+        }
+        return in;
+    };
+    auto in=make_pair(4096);
+    const auto original=in;
+    lvm::FrfOptions opt; opt.segment_length=256;
+    auto r=lvm::analyze_frf(in,opt);
+    check(r.ok && r.segment_length==256 && r.averages==31 && r.overlap_samples==128,"H1 uses Hann with 50 percent overlap");
+    check(r.valid[13] && !r.valid[100] && !r.valid[0],"H1 masks unexcited input and DC");
+    check_near(r.frequencies[13],52,1e-10,"H1 frequency uses Fs/L");
+    check_near(lvm::frf_dynamic_coefficient(r,13),2,1e-9,"H1 dynamic coefficient preserves gain");
+    check_near(std::arg(r.transfer[13]),.7,1e-9,"H1 preserves known positive phase shift");
+    check_near(std::abs(r.transfer[13]-std::polar(2.0,.7)),0,1e-9,"H1 stores known complex gain");
+    check(r.coherence_valid[13],"coherence is available after averaging");
+    check_near(r.coherence[13],1,1e-10,"coherence of noiseless linear pair is unity");
+    check(in.time==original.time && in.reference==original.reference && in.response==original.response,"FRF leaves source arrays unchanged");
+    auto samples=lvm::prepare_frf_samples(in);
+    auto prepared=lvm::compute_frf(samples,opt);
+    check(prepared.transfer==r.transfer,"numerical H1 accepts prepared arrays without Dataset or indices");
+    check(!samples.gaps_ignored && samples.reference==in.reference && samples.response==in.response,"continuous preparation preserves every sample");
+    auto automatic=lvm::analyze_frf(in);
+    check(automatic.segment_length==1024 && automatic.averages==7,"Auto balances resolution and averaging");
+    in.response=in.reference;
+    check_near(lvm::frf_dynamic_coefficient(lvm::analyze_frf(in,opt),13),1,1e-10,"unity transfer has dynamic coefficient one");
+    in.response.assign(in.time.size(),0);
+    auto zero=lvm::analyze_frf(in,opt);
+    check(zero.ok && lvm::frf_dynamic_coefficient(zero,13)==0,"zero response remains valid with zero dynamic coefficient");
+    check(!zero.coherence_valid[13] && std::isnan(zero.coherence[13]),"zero output has undefined coherence independently of valid H1");
+    in.reference.assign(in.time.size(),3);
+    check(lvm::analyze_frf(in,opt).error==lvm::FrfError::WeakReference,"constant reference rejected");
+
+    for (std::size_t n:{1024u,1001u,5u}) {
+        in=make_pair(n,2,0);
+        lvm::FrfOptions direct; direct.estimator=lvm::FrfEstimator::Direct;
+        auto d=lvm::analyze_frf(in,direct);
+        check(d.ok && d.segment_length==n && d.averages==1 && d.frequencies.size()==n/2+1,"Direct preserves arbitrary FFT lengths");
+        check(!d.coherence_valid[1],"Direct does not report spurious unity coherence");
+        auto excited=std::find(d.valid.begin(),d.valid.end(),1);
+        check(excited!=d.valid.end(),"Direct finds an excited input bin");
+        if (excited!=d.valid.end()) check_near(lvm::frf_dynamic_coefficient(d,excited-d.valid.begin()),2,1e-7,"Direct gain preserved");
+    }
+    in=make_pair(256);
+    auto one=lvm::analyze_frf(in,opt);
+    lvm::FrfOptions direct; direct.estimator=lvm::FrfEstimator::Direct;
+    auto d=lvm::analyze_frf(in,direct);
+    check(one.averages==1 && !one.coherence_valid[13],"one H1 segment has insufficient coherence statistics");
+    check_near(std::abs(one.transfer[13]-d.transfer[13]),0,1e-12,"one-segment H1 agrees with Direct");
+    std::swap(in.reference,in.response);
+    check_near(std::arg(lvm::analyze_frf(in,opt).transfer[13]),-.7,1e-9,"swapping arrays reverses phase convention");
+
+    in=make_pair(1024);
+    const auto continuous=lvm::analyze_frf(in,opt);
+    for (std::size_t i=512;i<1024;++i) in.time[i]+=1000000;
+    samples=lvm::prepare_frf_samples(in);
+    check(samples.gaps_ignored && samples.reference==in.reference && samples.response==in.response,"gaps only set a warning and never insert, remove or interpolate samples");
+    r=lvm::compute_frf(samples,opt);
+    check(r.ok && r.gaps_ignored && r.averages==7 && r.sample_count==1024,"H1 includes Welch windows crossing timestamp gaps");
+    check(r.transfer==continuous.transfer && r.valid==continuous.valid && r.coherence_valid==continuous.coherence_valid &&
+          r.frequencies==continuous.frequencies,"timestamp gaps leave complex H1 and frequency scale unchanged");
+    bool same_coherence=true;
+    for (std::size_t k=0;k<r.coherence.size();++k) if (r.coherence_valid[k] && r.coherence[k]!=continuous.coherence[k]) same_coherence=false;
+    check(same_coherence,"timestamp gaps leave averaged coherence unchanged");
+    check_near(r.sample_dt,1.0/1024,1e-12,"large outage does not change physical sample rate");
+    check_near(std::abs(r.transfer[13]-std::polar(2.0,.7)),0,1e-9,"H1 with ignored gaps preserves known phase and gain");
+    opt.segment_length=768;
+    r=lvm::analyze_frf(in,opt);
+    check(r.ok && r.segment_length==768 && r.averages==1,"L larger than either fragment fits the total selection without reduction");
+    opt.segment_length=1024;
+    check(lvm::analyze_frf(in,opt).ok,"selected samples equal to L produce one complete segment across a gap");
+    opt.segment_length=2048;
+    check(lvm::analyze_frf(in,opt).error==lvm::FrfError::TooShort,"selected samples less than L report TooShort");
+    opt.segment_length=256;
+    for (std::size_t i=1;i+1<in.time.size();++i) in.time[i]+=(i%2 ? .01 : -.01)/1024;
+    for (std::size_t i=0;i<in.time.size();++i) in.response[i]=2*in.reference[i];
+    r=lvm::analyze_frf(in,opt);
+    samples=lvm::prepare_frf_samples(in);
+    check(r.ok && r.gaps_ignored && samples.reference==in.reference && samples.response==in.response,"jitter plus gaps do not alter selected arrays");
+    check_near(lvm::frf_dynamic_coefficient(r,13),2,1e-8,"uniform sample indexing preserves channel ratio");
+    // Model repeated 2000-sample LVM sections at 20 kHz: L=4096 spans sections.
+    in=make_pair(16000);
+    for (std::size_t i=0;i<in.time.size();++i) in.time[i]=i/20000.0;
+    opt.segment_length=4096;
+    const auto no_sections=lvm::analyze_frf(in,opt);
+    for (std::size_t i=0;i<in.time.size();++i) in.time[i]+=(i/2000)*.01;
+    r=lvm::analyze_frf(in,opt);
+    check(r.ok && r.segment_length==4096 && r.averages==6 && r.gaps_ignored,"L=4096 spans 2000-sample sections at 20 kHz");
+    check(r.transfer==no_sections.transfer && r.valid==no_sections.valid,"section timestamp offsets never change complex transfer");
+    check_near(1.0/r.sample_dt,20000,1e-5,"section gaps do not lower Fs");
+    check(lvm::analyze_frf(in).segment_length==lvm::analyze_frf(make_pair(16000)).segment_length,"Auto L depends on sample count, not gaps");
+    opt.segment_length=256;
+
+    in=make_pair(1024);
+    auto bad=in; bad.response.pop_back();
+    check(lvm::analyze_frf(bad).error==lvm::FrfError::InvalidChannels,"mismatched arrays rejected");
+    bad=in; bad.response[100]=std::numeric_limits<double>::quiet_NaN();
+    check(lvm::analyze_frf(bad,opt).error==lvm::FrfError::MissingValues,"NaN rejected even with stitching");
+    bad=in; bad.reference[100]=std::numeric_limits<double>::infinity();
+    check(lvm::analyze_frf(bad).error==lvm::FrfError::MissingValues,"infinite samples rejected");
+    bad=in; bad.time[10]=bad.time[9];
+    check(lvm::analyze_frf(bad).error==lvm::FrfError::InvalidTime,"duplicate time rejected");
+    bad=in; bad.time[10]=std::numeric_limits<double>::infinity();
+    check(lvm::analyze_frf(bad).error==lvm::FrfError::InvalidTime,"nonfinite time rejected");
+    auto invalid=opt; invalid.segment_length=3;
+    check(lvm::analyze_frf(in,invalid).error==lvm::FrfError::InvalidOptions,"odd short segment rejected");
+    invalid=opt; invalid.reference_threshold=0;
+    check(lvm::analyze_frf(in,invalid).error==lvm::FrfError::InvalidOptions,"zero denominator threshold rejected");
+    samples=lvm::prepare_frf_samples(in); samples.sample_dt=0;
+    check(lvm::compute_frf(samples,opt).error==lvm::FrfError::InvalidTime,"prepared core validates uniform cadence");
+    std::atomic<bool> cancel{true}; bool cancelled=false;
+    try { lvm::analyze_frf(in,opt,&cancel); } catch(const std::exception&) { cancelled=true; }
+    check(cancelled,"FRF preparation honours cancellation");
+    cancelled=false;
+    try { lvm::compute_frf(samples,opt,&cancel); } catch(const std::exception&) { cancelled=true; }
+    check(cancelled,"prepared estimator honours cancellation");
+
+    // Reproducible broadband excitation with independent output noise.
+    std::mt19937 random(1731); std::normal_distribution<double> normal;
+    lvm::FrfInput noisy;
+    for (std::size_t i=0;i<65536;++i) {
+        const double x=normal(random);
+        noisy.time.push_back(i/1024.0); noisy.reference.push_back(x); noisy.response.push_back(2*x+normal(random));
+    }
+    opt.segment_length=1024;
+    auto h1=lvm::analyze_frf(noisy,opt);
+    auto raw=lvm::analyze_frf(noisy,direct);
+    double mse_h1=0,mse_direct=0,cmean=0;
+    for(std::size_t k=2;k<500;++k) {
+        mse_h1+=std::norm(h1.transfer[k]-2.0); mse_direct+=std::norm(raw.transfer[k*64]-2.0);
+        cmean+=h1.coherence[k];
+    }
+    cmean/=498;
+    check(h1.ok && h1.averages==127 && mse_h1<mse_direct*.1,"Welch H1 reduces independent output-noise error");
+    check(cmean>.75 && cmean<.85,"coherence matches 4/(4+1) for output noise");
+    for (auto& y:noisy.response) y=normal(random);
+    auto unrelated=lvm::analyze_frf(noisy,opt);
+    double unrelated_mean=0;
+    for(std::size_t k=2;k<500;++k) unrelated_mean+=unrelated.coherence[k]/498;
+    check(unrelated_mean<.05,"unrelated broadband signals have low averaged coherence");
+
+    lvm::FrfWorker worker;
+    worker.submit(noisy,opt,17); worker.submit(in,opt,18);
+    std::optional<lvm::FrfWorker::Result> result;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    while(!result && std::chrono::steady_clock::now()<deadline) {
+        result=worker.take_result();
+        if(!result) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    check(result && result->generation==18 && result->frf.ok,"FRF worker publishes latest array-pair request");
+    worker.submit(noisy,opt,19); worker.cancel();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    check(!worker.take_result(),"cancelled FRF result is not published");
+}
+
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    test_frf_multi();
+    test_frf();
+    if (argc>1 && std::string(argv[1])=="--frf") {
+        std::printf("\n%d FRF checks, %d failure(s)\n",g_checks,g_failures);
+        return g_failures==0 ? 0 : 1;
+    }
     test_data_integrity_regressions();
     test_spectrum_integrity_regressions();
     test_fft_irregular_timestamps();

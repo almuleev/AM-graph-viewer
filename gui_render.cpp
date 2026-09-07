@@ -1,11 +1,15 @@
 // Render: native viewer implementation.
 #include "gui_render.hpp"
+#include "gui_frf_render.hpp"
+#include "gui_analysis_source.hpp"
+#include "gui_hotkeys.hpp"
+#include "gui_gap_details.hpp"
+#include "gui_controls.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_processing.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -208,7 +212,7 @@ void draw_guides(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
@@ -227,13 +231,13 @@ void draw_guides(HDC dc) {
     wchar_t b[48];
     HBRUSH wb = CreateSolidBrush(g_theme->bg_plot);
     for (const auto& gl : g.guides) {
-        if (gl.freq != g.freq_mode) continue;
+        if (gl.freq != (g.mode == AnalysisMode::FFT)) continue;
         if (gl.vertical) {
             SelectObject(dc, vpen);
             const int X = mx(gl.value);
             if (X < p.left || X > p.right) continue;
             MoveToEx(dc, X, p.top, nullptr); LineTo(dc, X, p.bottom);
-            swprintf(b, 48, g.freq_mode ? g_str->fmt_hz : g_str->fmt_sec, gl.value);
+            swprintf(b, 48, (g.mode == AnalysisMode::FFT) ? g_str->fmt_hz : g_str->fmt_sec, gl.value);
             SetTextAlign(dc, TA_LEFT | TA_TOP);
             SIZE ts;
             GetTextExtentPoint32W(dc, b, lstrlenW(b), &ts);
@@ -269,7 +273,7 @@ void draw_markers(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
@@ -288,7 +292,7 @@ void draw_markers(HDC dc) {
     HGDIOBJ prev_pen = SelectObject(dc, bp);
     HGDIOBJ prev_brush = SelectObject(dc, wb);
     for (const auto& m : g.markers) {
-        if (m.freq != g.freq_mode) continue;
+        if (m.freq != (g.mode == AnalysisMode::FFT)) continue;
         const int X = mx(m.x);
         if (X < p.left || X > p.right) continue;
         MoveToEx(dc, X, p.top, nullptr); LineTo(dc, X, p.bottom);
@@ -299,7 +303,7 @@ void draw_markers(HDC dc) {
             txt = m.label.c_str();
             tlen = static_cast<int>(m.label.size());
         } else {
-            swprintf(b, 48, g.freq_mode ? g_str->fmt_hz : g_str->fmt_sec, m.x);
+            swprintf(b, 48, (g.mode == AnalysisMode::FFT) ? g_str->fmt_hz : g_str->fmt_sec, m.x);
             txt = b;
             tlen = lstrlenW(b);
         }
@@ -342,13 +346,13 @@ void draw_measure(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
     };
-    const wchar_t* xunit = g.freq_mode ? g_str->unit_hz : g_str->unit_sec;
+    const wchar_t* xunit = (g.mode == AnalysisMode::FFT) ? g_str->unit_hz : g_str->unit_sec;
 
     HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
     SelectClipRgn(dc, clip);
@@ -423,7 +427,7 @@ void draw_measure(HDC dc) {
                 if (group.display.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
                 if (group.display.inv_dt) {
                     const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
-                    if (g.freq_mode) {
+                    if ((g.mode == AnalysisMode::FFT)) {
                         swprintf(b, 96, g_str == &kEn ? L"1/Δf=%.5g Hz" : L"1/Δf=%.5g Гц", inv);
                     } else {
                         swprintf(b, 96, g_str->fmt_pt_invdt, inv);
@@ -1115,6 +1119,7 @@ void draw_freq(HDC dc, const RECT& p) {
 }
 
 void draw_chart(HDC dc, const RECT& p) {
+    if (g.mode == AnalysisMode::FRF) { draw_frf(dc, p); return; }
     if (!has_data()) {
         g_legend_items.clear();
         g_legend_box = {0, 0, 0, 0};
@@ -1128,7 +1133,7 @@ void draw_chart(HDC dc, const RECT& p) {
         g.vvalid = false;
         return;
     }
-    if (g.freq_mode) {
+    if ((g.mode == AnalysisMode::FFT)) {
         g.visible_gap_markers.clear();
         draw_freq(dc, p);
     } else {

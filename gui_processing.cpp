@@ -1,9 +1,10 @@
 // Processing: native viewer implementation.
 #include "gui_processing.hpp"
+#include "gui_frf.hpp"
+#include "gui_menu.hpp"
 #include "gui_render.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -365,7 +366,8 @@ void on_signal_transform_changed(bool preserve_history) {
     if (g.autoy) SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0);
     invalidate_plot_analysis_cache();
     clear_spectrum_cache_state();
-    if (g.freq_mode) compute_spectrum();
+    if ((g.mode == AnalysisMode::FFT)) compute_spectrum();
+    on_frf_processing_changed();
     sync_menu();
     set_status();
     InvalidateRect(g.main, nullptr, TRUE);
@@ -399,6 +401,34 @@ void apply_filter_slider_change(bool low_cutoff, int position, bool preview) {
     else g.noise_threshold_max = value;
     normalize_filter_bounds();
     commit_filter_settings_change(before);
+}
+
+bool read_formula_edit(HWND edit, std::wstring& formula, std::vector<FormulaToken>& compiled, std::wstring& error) {
+    if (!edit) {
+        error = (g_str == &kEn) ? L"Coefficient field is unavailable." : L"Поле коэффициента недоступно.";
+        return false;
+    }
+    wchar_t buf[512]{};
+    GetWindowTextW(edit, buf, 512);
+    formula = normalize_formula_text(buf);
+    if (formula.empty()) formula = default_channel_formula_text();
+    return compile_formula_rpn(formula, compiled, error, g_str == &kEn);
+}
+
+void assign_formula_to_channel(std::size_t channel_index, const std::wstring& formula, const std::vector<FormulaToken>& compiled) {
+    ensure_channel_formula_vectors();
+    if (channel_index >= g.channel_formulas.size() || channel_index >= g.channel_formula_rpn.size()) return;
+    g.channel_formulas[channel_index] = formula;
+    g.channel_formula_rpn[channel_index] = compiled;
+    invalidate_formula_runtime_channel(channel_index);
+    ensure_channel_formula_vectors();
+}
+
+void assign_global_formula(const std::wstring& formula, const std::vector<FormulaToken>& compiled) {
+    g.global_formula = formula;
+    g.global_formula_rpn = compiled;
+    invalidate_formula_runtime();
+    ensure_channel_formula_vectors();
 }
 
 } // namespace gui

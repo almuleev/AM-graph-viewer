@@ -69,6 +69,7 @@ enum {
     IDM_LANG_EN = 1601,
     IDM_MODE_TIME = 1700,
     IDM_MODE_FREQ,
+    IDM_MODE_FRF,
     IDW_LIGHT_MODE = 1800,
 
     IDC_CHAN_BASE = 2000,

@@ -1,5 +1,7 @@
 // Status: native viewer implementation.
 #include "gui_status.hpp"
+#include "gui_frf.hpp"
+#include "gui_analysis_source.hpp"
 #include "gui_ids.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -12,10 +14,10 @@ namespace gui {
 bool marker_status_detail(std::wstring& text, COLORREF& color) {
     if (g.active_marker < 0 || g.active_marker >= static_cast<int>(g.markers.size())) return false;
     const App::Marker& m = g.markers[static_cast<std::size_t>(g.active_marker)];
-    if (m.freq != g.freq_mode || !m.snapped || m.channel < 0) return false;
+    if (m.freq != (g.mode == AnalysisMode::FFT) || !m.snapped || m.channel < 0) return false;
     color = channel_color(static_cast<std::size_t>(m.channel));
     wchar_t buf[160];
-    if (g.freq_mode) {
+    if ((g.mode == AnalysisMode::FFT)) {
         if (g_str == &kEn) swprintf(buf, 160, L"   |   %ls: f=%.6g Hz, amp=%.6g", m.label.c_str(), m.x, m.y);
         else swprintf(buf, 160, L"   |   %ls: f=%.6g Гц, amp=%.6g", m.label.c_str(), m.x, m.y);
     } else {
@@ -27,13 +29,20 @@ bool marker_status_detail(std::wstring& text, COLORREF& color) {
 }
 
 void set_status() {
+    if (g.mode == AnalysisMode::FRF) {
+        g.status_text = frf_status_text();
+        g.status_detail_text.clear(); g.status_detail_color = g_theme->accent;
+        refresh_frf_controls();
+        if (g.status) SetWindowTextW(g.status, g.status_text.c_str());
+        return;
+    }
     std::wstring s;
     wchar_t buf[512];
     g.status_detail_text.clear();
     g.status_detail_color = g_theme->accent;
     if (!has_data()) {
         s = g_str->msg_nodata;
-    } else if (g.freq_mode) {
+    } else if ((g.mode == AnalysisMode::FFT)) {
         swprintf(buf, 512,
                  g.ds.frequency_axis ? (g_str == &kEn ? L"Stored spectrum: %zu channels, upper frequency %.6g Hz | %.6g..%.6g Hz"
                     : L"Загруженный спектр: %zu каналов, верхняя частота %.6g Гц | %.6g..%.6g Гц") : g_str->st_hz,
@@ -52,7 +61,7 @@ void set_status() {
     if (has_data()) {
         double fft_start, fft_end;
         bool from_selection = false;
-        if (g.freq_mode) {
+        if ((g.mode == AnalysisMode::FFT)) {
             if (!g.ds.frequency_axis && last_fft_source_window(fft_start, fft_end, from_selection)) {
                 s += fft_window_status(fft_start, fft_end, from_selection);
             }
@@ -65,11 +74,11 @@ void set_status() {
     if (has_data()) {
         std::size_t nlines = 0;
         for (const auto& gl : g.guides)
-            if (gl.freq == g.freq_mode) ++nlines;
+            if (gl.freq == (g.mode == AnalysisMode::FFT)) ++nlines;
         if (nlines) { swprintf(buf, 512, g_str->st_lines, nlines); s += buf; }
         std::size_t nmark = 0;
         for (const auto& m : g.markers)
-            if (m.freq == g.freq_mode) ++nmark;
+            if (m.freq == (g.mode == AnalysisMode::FFT)) ++nmark;
         if (nmark) { swprintf(buf, 512, g_str->st_markers, nmark); s += buf; }
     }
     if (g.playing) {
@@ -83,7 +92,7 @@ void set_status() {
         const auto& a = pts[pts.size() - 2];
         const auto& b = pts.back();
         const double dx = b.first - a.first, dy = b.second - a.second;
-        if (g.freq_mode) {
+        if ((g.mode == AnalysisMode::FFT)) {
             swprintf(buf, 512, g_str->msg_delta_f, dx, dy);
         } else {
             const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
@@ -101,5 +110,29 @@ void set_status() {
         InvalidateRect(g.main, &sr, FALSE);
     }
 }
+
+std::wstring toolbar_hover_text(HWND btn) {
+    const bool en = (g_str == &kEn);
+    if (btn == g.open) return g_str->hover_open;
+    if (btn == g.play) return g.playing ? g_str->hover_pause : g_str->hover_play;
+    if (btn == g.measure) return g_str->hover_measure;
+    if (btn == g.reset) return g_str->hover_reset;
+    if (btn == g.autoy) return g_str->hover_autoy;
+    if (btn == g.ptsettings) return en ? L"Open general settings" : L"Открыть общие настройки";
+    if (btn == g.sidepanel_btn) return en ? L"Show or hide the right-side work panel" : L"Показать или скрыть рабочую панель справа";
+    if (btn == g.mode_frf) return en ? L"Input / Output frequency response" : L"Частотная характеристика Input / Output";
+    if (btn == g.mode_time) return en ? L"Switch to Time view" : L"Переключить в режим времени";
+    if (btn == g.mode_freq) return en ? L"Switch to FFT spectrum" : L"Переключить в режим спектра БПФ";
+    if (btn == g.marker_btn) return en ? L"Place a marker on the plot" : L"Поставить маркер на график";
+    if (btn == g.vline_btn) return en ? L"Place a vertical guide line" : L"Поставить вертикальную линию";
+    if (btn == g.hline_btn) return en ? L"Place a horizontal guide line" : L"Поставить горизонтальную линию";
+    if (btn == g.show_all_btn) return en ? L"Show all channels" : L"Показать все каналы";
+    if (btn == g.hide_all_btn) return en ? L"Hide all channels" : L"Скрыть все каналы";
+    if (btn == g.savepng) return g_str->hover_png;
+    if (btn == g.savecsv) return en ? L"Save as" : L"Сохранить как";
+    return L"";
+}
+
+void status_msg(const std::wstring& m) { if (g.status) SetWindowTextW(g.status, m.c_str()); }
 
 } // namespace gui

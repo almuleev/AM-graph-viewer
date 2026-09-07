@@ -1,5 +1,9 @@
 // Theme: native viewer implementation.
 #include "gui_theme.hpp"
+#include "gui_menu.hpp"
+#include "gui_settings_window.hpp"
+#include "gui_state.hpp"
+#include "gui_settings.hpp"
 
 namespace gui {
 
@@ -121,5 +125,39 @@ const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_le
     g_menu_text_storage.push_back(std::move(entry));
     return g_menu_text_storage.back().get();
 }
+
+void refresh_theme_windows() {
+    auto redraw = [](HWND wnd) {
+        if (!wnd || !IsWindow(wnd)) return;
+        RedrawWindow(
+            wnd, nullptr, nullptr,
+            RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    };
+    redraw(g.main);
+    redraw(g.settings_wnd);
+    redraw(g.welcome_wnd);
+    redraw(g.channel_edit);
+    for (HWND h : g.checks) redraw(h);
+    for (HWND h : g.check_labels) redraw(h);
+}
+
+void apply_theme_choice(const Theme* theme) {
+    if (!theme || g_theme == theme) return;
+    g_theme = theme;
+    save_app_settings();
+    update_theme_brushes();
+    if (g.menu) {
+        MENUINFO mi{};
+        mi.cbSize = sizeof(mi);
+        mi.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+        mi.hbrBack = CreateSolidBrush(g_theme->bg_toolbar);
+        SetMenuInfo(g.menu, &mi);
+    }
+    sync_menu();
+    refresh_settings_controls();
+    refresh_theme_windows();
+}
+
+COLORREF g_custom_colors[16] = {0};
 
 } // namespace gui

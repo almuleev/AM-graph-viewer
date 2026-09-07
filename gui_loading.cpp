@@ -1,7 +1,13 @@
 // Loading: native viewer implementation.
 #include "gui_loading.hpp"
-#include "gui_dialogs.hpp"
+#include "gui_menu.hpp"
+#include "gui_frf.hpp"
+#include "gui_analysis_source.hpp"
+#include "gui_gap_details.hpp"
+#include "gui_commands.hpp"
+#include "gui_settings_window.hpp"
 #include "gui_export_metadata.hpp"
+#include "gui_dialogs.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_loading_drop.hpp"
@@ -10,7 +16,6 @@
 #include "gui_render.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -93,6 +98,8 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.guides.clear();
     g.markers.clear();
     g.active_marker = -1;
+    invalidate_frf(true);
+    g.frf.inputs = {0}; g.frf.outputs = {1}; g.frf.apply_processing = false;
     clear_fft_window();
     g.fft_selecting = false;
     g.spec_source_valid = false;
@@ -107,9 +114,9 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.playhead_active = false;
     g.auto_y = true;   // a fresh file starts on auto-fit
     if (hide_channels) g.auto_y_amp = true;
-    if (g.freq_mode) {
+    if (g.mode != AnalysisMode::Time) {
         // New files should open in the time plot by default.
-        set_mode(false);
+        set_mode(AnalysisMode::Time);
     }
     if (g.autoy) { SendMessageW(g.autoy, BM_SETCHECK, BST_CHECKED, 0); InvalidateRect(g.autoy, nullptr, FALSE); }
     if (g.menu) CheckMenuItem(g.menu, IDC_AUTOY, MF_BYCOMMAND | MF_CHECKED);
@@ -129,8 +136,8 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
     g.freq_end = 1.0;
     if (g.ds.frequency_axis) {
         g.noise_threshold_enabled = false;
-        g.freq_mode = false;
-        set_mode(true);
+        g.mode = AnalysisMode::Time;
+        set_mode(AnalysisMode::FFT);
     }
     if (!requested_time_window) {
         g.cached_scan_path = wpath;
@@ -148,6 +155,8 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
 
     rebuild_checks();
     refresh_side_panel_controls();
+    refresh_frf_controls(true);
+    sync_menu();
     refresh_settings_controls();
     layout();
     set_status();

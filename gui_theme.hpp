@@ -60,4 +60,10 @@ bool load_program_logo();
 
 const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup);
 
+void refresh_theme_windows();
+
+void apply_theme_choice(const Theme* theme);
+
+extern COLORREF g_custom_colors[16];
+
 } // namespace gui

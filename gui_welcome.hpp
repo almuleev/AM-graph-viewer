@@ -76,4 +76,6 @@ void show_welcome(HINSTANCE inst);
 
 void raise_main_window();
 
+void show_about();
+
 } // namespace gui

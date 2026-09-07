@@ -1,10 +1,12 @@
 // Dialogs: native viewer implementation.
 #include "gui_dialogs.hpp"
+#include "gui_analysis_source.hpp"
+#include "gui_settings_window.hpp"
+#include "gui_controls.hpp"
 #include "gui_ids.hpp"
 #include "gui_processing.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -823,7 +825,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDOK:
                     sync_export_prompt_state_from_controls();
-                    if (g_export_prompt.selected_format == ExportFileFormat::Lvm && g.freq_mode) {
+                    if (g_export_prompt.selected_format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
                         MessageBoxW(hwnd,
                                     g_str == &kEn ? L"LVM export is available only in Time mode."
                                                    : L"Экспорт LVM доступен только в режиме Время.",
@@ -1183,9 +1185,9 @@ bool prompt_export_options(ExportOptions& out_options) {
 bool prompt_exact_guide_value(bool vertical, double& out_value) {
     double default_value = 0.0;
     if (vertical) {
-        default_value = g.freq_mode ? 0.5 * (g.freq_start + g.freq_end)
+        default_value = (g.mode == AnalysisMode::FFT) ? 0.5 * (g.freq_start + g.freq_end)
                                     : 0.5 * (g.win_start + g.win_end);
-    } else if (g.freq_mode) {
+    } else if ((g.mode == AnalysisMode::FFT)) {
         double ymin = 0.0, ymax = 0.0;
         if (!current_freq_yrange(ymin, ymax)) {
             ymin = 0.0;

@@ -66,4 +66,10 @@ void commit_filter_settings_change(const SettingsSnapshot& before);
 
 void apply_filter_slider_change(bool low_cutoff, int position, bool preview);
 
+bool read_formula_edit(HWND edit, std::wstring& formula, std::vector<FormulaToken>& compiled, std::wstring& error);
+
+void assign_formula_to_channel(std::size_t channel_index, const std::wstring& formula, const std::vector<FormulaToken>& compiled);
+
+void assign_global_formula(const std::wstring& formula, const std::vector<FormulaToken>& compiled);
+
 } // namespace gui

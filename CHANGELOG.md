@@ -1,6 +1,16 @@
 # Changelog
 
-## v0.12.6
+## v0.12.7
+
+- Добавлен режим АЧХ: независимые наборы опор и откликов, H1/Welch и Direct,
+  фоновый расчёт, coherence, логарифмическая частота, экспорт CSV/PNG и
+  поддержка нескольких откликов. По вертикали отображается линейный
+  коэффициент динамичности `КД = abs(H)`, то есть отношение амплитуды отклика
+  к средней амплитуде опор; перевод в dB не используется.
+- Added an FRF mode with separate support/response selection, H1/Welch and
+  Direct estimators, background calculation, coherence, logarithmic frequency,
+  CSV/PNG export, and multiple response curves. The vertical scale is the
+  linear dynamic coefficient `KD = abs(H)`, not dB.
 
 - Добавлены короткие правила `AGENTS.md` и карта `docs/ARCHITECTURE.md` для адресного поиска по проекту. Удалён устаревший `PROJECT_CONTEXT.md`; исторические отчёты перенесены в локальный архив, исключённый из Git. Обновлены ссылки в README.
 - Убраны повторные и малоценные условия тестов; сохранены полные сравнения FFT для 10 и 10 000 разрывов, проверки Light Mode, экспорта и истории. Усилена проверка успешности двух расчётов FFT. Пройдены 197 проверок ядра и 141 проверка GUI.

@@ -1,9 +1,12 @@
 // State history: native viewer implementation.
 #include "gui_state_history.hpp"
+#include "gui_frf.hpp"
+#include "gui_controls.hpp"
+#include "gui_menu.hpp"
+#include "gui_settings_window.hpp"
 #include "gui_processing.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -20,7 +23,7 @@ std::vector<UndoAction> g_redo;
 std::optional<SettingsSnapshot> g_filter_slider_before;
 
 PointGroupMode current_point_group_mode() {
-    return g.freq_mode ? PointGroupMode::Frequency : PointGroupMode::Time;
+    return (g.mode == AnalysisMode::FFT) ? PointGroupMode::Frequency : PointGroupMode::Time;
 }
 
 int& active_point_group_index_for_mode(PointGroupMode mode) {
@@ -447,7 +450,8 @@ void recompute_transforms_from_state() {
     invalidate_plot_analysis_cache();
     invalidate_filtered_channel_cache();
     clear_spectrum_cache_state();
-    if (g.freq_mode && !g.formula_ini_deferred) compute_spectrum();
+    if ((g.mode == AnalysisMode::FFT) && !g.formula_ini_deferred) compute_spectrum();
+    on_frf_processing_changed();
     sync_menu();
 }
 

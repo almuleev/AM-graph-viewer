@@ -1,18 +1,28 @@
 // Integration tests linked to the production GUI modules; no visible windows.
 #include "../gui_dialogs.hpp"
+#include "../gui_analysis_source.hpp"
+#include "../gui_commands.hpp"
+#include "../gui_frf.hpp"
+#include "../gui_frf_render.hpp"
+#include "../gui_navigation.hpp"
+#include "../gui_hotkeys.hpp"
+#include "../gui_window.hpp"
+#include "../gui_layout.hpp"
+#include "../gui_export.hpp"
 #include "../gui_export_metadata.hpp"
 #include "../gui_ids.hpp"
 #include "../gui_loading.hpp"
 #include "../gui_main.hpp"
 #include "../gui_processing.hpp"
+#include "../gui_render.hpp"
 #include "../gui_render_data.hpp"
-#include "../gui_settings_hotkeys.hpp"
 #include "../gui_spectrum.hpp"
 #include "../gui_state.hpp"
 #include "../gui_state_history.hpp"
 #include "../gui_text.hpp"
 #include "../gui_theme.hpp"
 #include "../gui_time_axis.hpp"
+#include "../gui_settings_window.hpp"
 using namespace gui;
 #include <iostream>
 #include <stdexcept>
@@ -34,6 +44,7 @@ const std::filesystem::path test_dir = "tests/_tmp_gui_regression";
 
 void reset_document(const std::vector<std::string>& names, const std::vector<double>& time,
                     const std::vector<std::vector<double>>& channels) {
+    g_frf_worker.cancel();
     g = App{};
     g_undo.clear(); g_redo.clear(); g_filter_slider_before.reset();
     g_str = &kEn;
@@ -109,7 +120,7 @@ void processing() {
     compute_spectrum_for_window(0,.7,false);
     require(g.spec_channel_indices == std::vector<int>{0,1}, "duplicate names retain independent spectrum identities");
     g.global_formula=L"2*x"; rebuild_formula_cache_from_state();
-    compute_spectrum_for_window(0,.7,false); g.freq_mode=true;
+    compute_spectrum_for_window(0,.7,false); g.mode = AnalysisMode::FFT;
     ExportOptions opts; opts.apply_processing_to_data=false; opts.include_hidden_channels=true;
     lvm::Spectrum spec; std::vector<int> ids; bool all=false;
     require(build_export_spectrum(opts,spec,ids,all), "raw spectrum export");
@@ -168,10 +179,10 @@ void fft_recording_recovery() {
     near(g.freq_end, g.spec.nyquist, "background FFT restores full frequency axis");
 
     // Re-entering the same source window must still request a fresh axis fit.
-    set_mode(true);
+    set_mode(AnalysisMode::FFT);
     require(g.spec_valid && g.freq_end > 100, "entering FFT fits the frequency axis");
-    set_mode(false); g.freq_end = 1;
-    set_mode(true);
+    set_mode(AnalysisMode::Time); g.freq_end = 1;
+    set_mode(AnalysisMode::FFT);
     near(g.freq_end, g.spec.nyquist, "re-entering FFT restores full frequency axis");
 
     ExportOptions opts; opts.selected_range = ExportRangeMode::Whole; opts.include_hidden_channels = true;
@@ -212,7 +223,7 @@ void fft_selected_gap_range() {
         const double start = (time[lo - 1] + time[lo]) / 2;
         const double end = (time[hi - 1] + time[hi]) / 2;
         set_fft_window(start, end);
-        set_mode(true);
+        set_mode(AnalysisMode::FFT);
         require(g.spec_valid && g.spec.n == int(hi - lo) && g.spec_source_from_selection, "GUI FFT uses the entire selected range in every display mode");
         near(g.spec.source_start, time[lo], "selected FFT first included timestamp");
         near(g.spec.source_end, time[hi - 1], "selected FFT last included timestamp");
@@ -256,7 +267,7 @@ void light_mode_fft_visibility() {
         for (std::size_t c = 0; c < values.size(); ++c) values[c][i] = std::sin(i * (0.1 + c * 0.2));
     }
     reset_document({"A", "B", "C"}, time, values);
-    g.light_mode = true; g.visible = {1, 1, 0}; g.freq_mode = true;
+    g.light_mode = true; g.visible = {1, 1, 0}; g.mode = AnalysisMode::FFT;
     // A message-only window exercises the production asynchronous branch
     // without showing any UI. Earlier GUI tests used only its synchronous path.
     struct TestWindow {
@@ -406,18 +417,294 @@ void light_mode_and_history() {
     g_undo.clear();
 }
 
+void frf_integration() {
+    std::vector<double> t, x, y;
+    for (int i=0;i<1024;++i) {
+        t.push_back(i/1024.0);
+        x.push_back(std::sin(2*std::acos(-1.0)*16*i/1024));
+        y.push_back((i<512 ? 2 : 4)*x.back());
+    }
+    reset_document({"Input, special", "Output"}, t, {x,y});
+    g.frf.options.estimator=lvm::FrfEstimator::Direct;
+    set_fft_window(t[0],t[511]);
+    g.visible={0,0};
+    set_mode(AnalysisMode::FRF);
+    require(g.mode==AnalysisMode::FRF && g.frf.result.ok, "FRF is a third mode independent of channel visibility");
+    require(g.frf.result.common().sample_count==512 && g.frf.from_selection, "FRF uses one shared selected interval");
+    near(lvm::frf_dynamic_coefficient(g.frf.result.common(),8),2,"selected FRF excludes the different response outside the selection");
+    require(g.frf.result.common().valid[8] && !g.frf.result.common().valid[80], "weak input bins are masked in GUI result");
+    require(set_frf_frequency_range(4,64),"valid FRF frequency limits accepted");
+    near(frf_frequency_at_fraction(.5),16,"log-frequency midpoint is geometric");
+    near(frf_frequency_fraction(16),.5,"frequency-to-pixel inverse matches log mapping");
+    const auto generation=g.frf.generation;
+    const auto transfer=g.frf.result.common().transfer;
+    zoom_at(.5,.5);
+    near(frf_frequency_at_fraction(.5),16,"FRF zoom preserves frequency at cursor");
+    require(g.frf.generation==generation && g.frf.result.common().transfer==transfer,"view zoom does not recalculate FRF");
+    require(!set_frf_frequency_range(0,64) && !set_frf_frequency_range(64,4) && !set_frf_frequency_range(1,1000),
+            "invalid logarithmic ranges rejected");
+    require(set_frf_frequency_range(4,64),"restore test export range");
+    const auto path=test_dir / std::filesystem::u8path(u8"ачх_測定.csv");
+    require(save_frf_csv(path.wstring()),"FRF CSV supports Unicode paths");
+    ExportOptions frf_options; frf_options.format=ExportFileFormat::Csv;
+    require(save_tabular_export((test_dir/"frf_generic.csv").wstring(),frf_options),
+            "generic CSV exporter dispatches to FRF in the third mode");
+    require(!save_lvm_export((test_dir/"invalid_frf.lvm").wstring(),frf_options),
+            "time-domain LVM export is unavailable in FRF");
+    std::ifstream input(path);
+    std::string text((std::istreambuf_iterator<char>(input)),{});
+    require(text.find("data_kind=frf")!=std::string::npos && text.find("window=hann_periodic")!=std::string::npos &&
+            text.find("frequency_hz,dynamic_coefficient,h_real,h_imag,valid")!=std::string::npos,
+            "FRF CSV contains schema, window, complex transfer, and validity");
+    require(text.find("input_name=Input%2C special")!=std::string::npos &&
+            text.find(",,,0")!=std::string::npos,"FRF CSV escapes labels and leaves invalid ratios empty");
+    require(!lvm::read_lvm_file(path).ok,"FRF CSV cannot silently reopen as a time signal");
+    g.frf.pending=true;
+    require(!save_frf_csv(path.wstring()),"pending FRF export rejected");
+    std::ifstream preserved(path);
+    require(std::string((std::istreambuf_iterator<char>(preserved)),{})==text,"failed FRF export preserves existing file");
+    g.frf.pending=false;
+    const double view_start=g.frf.log_start, view_end=g.frf.log_end;
+    set_mode(AnalysisMode::Time);
+    require(g.win_start==t.front() && g.win_end==t.back(),"FRF navigation leaves time view unchanged");
+    set_mode(AnalysisMode::FRF);
+    near(g.frf.log_start,view_start,"FRF view preserved on mode switch");
+    near(g.frf.log_end,view_end,"FRF frequency limits preserved on return");
+    g.pending_marker=false;
+    WndProc(nullptr,WM_COMMAND,IDM_ADD_MARKER,0);
+    require(!g.pending_marker,"FFT/time markers cannot be placed on FRF");
+    clear_fft_window();
+    g.win_start=t[512]; g.win_end=t.back();
+    ensure_current_frf();
+    near(lvm::frf_dynamic_coefficient(g.frf.result.common(),8),4,"FRF visible-range fallback updates both channels");
+    g.frf.apply_processing=true;
+    g.channel_formulas[1]=L"3*x"; rebuild_formula_cache_from_state();
+    on_frf_processing_changed();
+    near(lvm::frf_dynamic_coefficient(g.frf.result.common(),8),12,"FRF can explicitly use channel processing");
+    g.frf.apply_processing=false; invalidate_frf(); ensure_current_frf();
+    near(lvm::frf_dynamic_coefficient(g.frf.result.common(),8),4,"raw FRF ignores display processing");
+    {
+        Gdiplus::GdiplusStartupInput startup;
+        ULONG_PTR token=0;
+        require(Gdiplus::GdiplusStartup(&token,&startup,nullptr)==Gdiplus::Ok,"GDI+ starts for FRF PNG test");
+        struct Window {
+            HWND hwnd=CreateWindowExW(0,L"STATIC",L"FRF rendering test",WS_POPUP|WS_CLIPCHILDREN,
+                0,0,980,500,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+            ~Window() { g.main=nullptr; if(hwnd) DestroyWindow(hwnd); }
+        } window;
+        require(window.hwnd!=nullptr,"hidden FRF rendering window");
+        g.main=window.hwnd;
+        g.ui_font=reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        update_theme_brushes();
+        create_frf_panel(g.main,GetModuleHandleW(nullptr));
+        layout();
+        require(g.frf_panel!=nullptr,"FRF panel is embedded in the existing main window");
+        wchar_t input_text[128]{};
+        GetWindowTextW(GetDlgItem(g.frf_panel,7101),input_text,128);
+        require(std::wstring(input_text).find(L"Input, special")!=std::wstring::npos,
+                "FRF Input button displays the selected channel");
+        wchar_t range_text[80]{};
+        require(GetWindowTextW(GetDlgItem(g.frf_panel,7106),range_text,80)>0,"FRF range edit displays calculated limit");
+        RECT panel; GetClientRect(g.frf_panel,&panel);
+        require(panel.right==kRightPanel && panel.bottom>=398,"FRF controls fit the minimum-size analysis panel");
+        const auto png=test_dir / "frf_plot.png";
+        require(save_png(png.wstring()),"FRF saves graph through the existing PNG exporter");
+        {
+            Gdiplus::Bitmap bitmap(png.c_str());
+            require(bitmap.GetLastStatus()==Gdiplus::Ok && bitmap.GetWidth()>=400 && bitmap.GetHeight()>=240,
+                    "exported FRF PNG is a readable image");
+        }
+        // Render the real controls into an artifact for layout inspection.
+        HDC screen=GetDC(g.main), dc=CreateCompatibleDC(screen);
+        HBITMAP bmp=CreateCompatibleBitmap(screen,panel.right,panel.bottom);
+        HGDIOBJ previous=SelectObject(dc,bmp);
+        FillRect(dc,&panel,g_panel_brush);
+        SendMessageW(g.frf_panel,WM_PRINT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT|PRF_CHILDREN|PRF_ERASEBKGND);
+        SelectObject(dc,previous);
+        {
+            Gdiplus::Bitmap image(bmp,nullptr); CLSID encoder;
+            require(png_encoder_clsid(&encoder)>=0 &&
+                image.Save((test_dir/"frf_panel.png").c_str(),&encoder,nullptr)==Gdiplus::Ok,"FRF control layout artifact");
+        }
+        DeleteObject(bmp); DeleteDC(dc); ReleaseDC(g.main,screen);
+        // A control change schedules a new pair; polling accepts only its generation.
+        require(!set_frf_channels({1},{1}) && g.frf.result.ok,"same-channel choice is rejected without discarding valid results");
+        require(set_frf_channels({1},{0}) && set_frf_channels({0},{1}),"valid pair changes are accepted");
+        require(g.frf.pending,"valid channel change runs FRF in the background");
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+        while(g.frf.pending && std::chrono::steady_clock::now()<deadline) {
+            WndProc(g.main,WM_TIMER,2,0);
+            if(g.frf.pending) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(g.frf.result.ok && !g.frf.pending,"main-window timer accepts the FRF worker result");
+        SetWindowTextW(GetDlgItem(g.frf_panel,7119),L"128");
+        SendMessageW(GetDlgItem(g.frf_panel,7117),CB_SETCURSEL,0,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7117,CBN_SELCHANGE),0);
+        const auto h1_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+        while(g.frf.pending && std::chrono::steady_clock::now()<h1_deadline) {
+            poll_frf_result();
+            if(g.frf.pending) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        require(g.frf.result.ok && g.frf.result.options.estimator==lvm::FrfEstimator::H1 &&
+                g.frf.result.common().segment_length==128 && g.frf.result.common().averages==7 && g.frf.result.common().overlap_samples==64,
+                "panel switches to H1 with explicit L and recalculates actual averaging count");
+        near(g.frf.result.common().coherence[2],1,"GUI H1 exposes coherence from the same FFT averages");
+        near(lvm::frf_dynamic_coefficient(g.frf.result.common(),2),4,"H1 dynamic coefficient preserves known gain");
+        wchar_t details[256]{};
+        GetWindowTextW(GetDlgItem(g.frf_panel,7110),details,256);
+        const std::wstring actual=details;
+        require(actual.find(L"L=128")!=std::wstring::npos && actual.find(L"K=7")!=std::wstring::npos &&
+                actual.find(L"Δf=8")!=std::wstring::npos && actual.find(L"overlap=50%")!=std::wstring::npos,
+                "FRF panel reports actual L, K, delta f and overlap");
+        const auto h1_csv=test_dir/"frf_h1.csv";
+        require(save_frf_csv(h1_csv.wstring()),"H1 CSV saves");
+        std::ifstream h1_file(h1_csv);
+        const std::string h1_text((std::istreambuf_iterator<char>(h1_file)),{});
+        require(h1_text.find("estimator=h1_welch")!=std::string::npos &&
+                h1_text.find("segment_length=128")!=std::string::npos && h1_text.find("averages=7")!=std::string::npos &&
+                h1_text.find("valid,coherence,coherence_valid")!=std::string::npos &&
+                h1_text.find("db_reference_output_per_input=1")!=std::string::npos,"H1 CSV records estimator, actual parameters and coherence");
+        require(save_png((test_dir/"frf_h1.png").wstring()),"H1 graph reuses PNG export");
+        Gdiplus::GdiplusShutdown(token);
+    }
+    g.ds.frequency_axis=true;
+    set_mode(AnalysisMode::FFT);
+    set_mode(AnalysisMode::FRF);
+    require(g.mode==AnalysisMode::FFT,"stored magnitude spectrum cannot enter FRF");
+}
+
+void frf_multi_channels() {
+    std::vector<double> time,x,ref2,y1,y2,y3;
+    for(int i=0;i<2048;++i) {
+        time.push_back(i/1024.0+(i>=1024 ? 10 : 0));
+        x.push_back(std::sin(2*std::acos(-1.0)*16*i/1024));
+        ref2.push_back(3*x.back());
+        y1.push_back((i>=512 && i<1536 ? 6 : 100)*x.back());
+        y2.push_back(-2*x.back()); y3.push_back(10*x.back());
+    }
+    reset_document({"R1","R2","Y, one","Y two","Y three"},time,{x,ref2,y1,y2,y3});
+    set_fft_window(time[512],time[1535]);
+    g.visible={0,0,0,0,0};
+    require(set_frf_channels({0,1},{2,3,4}),"multi Reference and Response selected independently of visibility");
+    g.frf.options.segment_length=256;
+    set_mode(AnalysisMode::FRF);
+    require(g.frf.result.ok && g.frf.result.responses.size()==3 && g.frf.result.common().sample_count==1024,
+            "all responses share the same selected rows");
+    require(g.frf.result.common().gaps_ignored && g.frf.result.common().averages==7,"multi-channel batch preserves gaps ignored and Welch parameters");
+    near(lvm::frf_dynamic_coefficient(g.frf.result.responses[0],4),3,"GUI averages Reference samples before H1");
+    near(lvm::frf_dynamic_coefficient(g.frf.result.responses[1],4),1,"second GUI response has independent gain");
+    near(lvm::frf_dynamic_coefficient(g.frf.result.responses[2],4),5,"third GUI response has independent gain");
+    require(frf_curve_label(0)==L"Y, one / AVG(R1, R2)" && frf_curve_label(2)==L"Y three / AVG(R1, R2)","legend labels identify averaged reference and each response");
+    const auto generation=g.frf.generation;
+    require(!set_frf_channels({0,1},{1,2}) && !set_frf_channels({},{2}) && !set_frf_channels({0,0},{2}) &&
+            !set_frf_channels({0},{9}) && g.frf.generation==generation,"invalid roles, empty lists, duplicates and indices cannot change selection");
+    HMENU refs=create_frf_channel_menu(true), outs=create_frf_channel_menu(false);
+    require((GetMenuState(refs,1,MF_BYCOMMAND)&MF_CHECKED) && (GetMenuState(refs,3,MF_BYCOMMAND)&MF_GRAYED) &&
+            (GetMenuState(outs,1,MF_BYCOMMAND)&MF_GRAYED) && (GetMenuState(outs,3,MF_BYCOMMAND)&MF_CHECKED),
+            "picker checkmarks and disabled opposite roles match selection");
+    DestroyMenu(refs); DestroyMenu(outs);
+    g.frf.apply_processing=true; g.channel_formulas[0]=L"3*x"; rebuild_formula_cache_from_state(); on_frf_processing_changed();
+    near(lvm::frf_dynamic_coefficient(g.frf.result.responses[0],4),2,"each reference is processed before averaging");
+    g.frf.apply_processing=false; invalidate_frf(); ensure_current_frf();
+    require(set_frf_frequency_range(4,64),"multi-FRF has one frequency range");
+    const auto csv_path=test_dir/"frf_multi.csv";
+    require(save_frf_csv(csv_path.wstring()),"multi-FRF CSV export");
+    std::ifstream csv(csv_path); const std::string csv_text((std::istreambuf_iterator<char>(csv)),{});
+    require(csv_text.find("reference_average=arithmetic_samples")!=std::string::npos &&
+            csv_text.find("reference_1_index=1")!=std::string::npos && csv_text.find("response_2_index=4")!=std::string::npos &&
+            csv_text.find("response_index,response_name,frequency_hz")!=std::string::npos &&
+            csv_text.find("2,\"Y, one\",")!=std::string::npos && csv_text.find("4,\"Y three\",")!=std::string::npos,
+            "CSV contains all series and complete reference membership with quoted names");
+    double low,high; frf_y_range(low,high);
+    require(low>=0 && high>5,"Auto Y includes every dynamic-coefficient curve");
+    Gdiplus::GdiplusStartupInput startup; ULONG_PTR token=0;
+    require(Gdiplus::GdiplusStartup(&token,&startup,nullptr)==Gdiplus::Ok,"multi-FRF PNG startup");
+    struct Window {
+        HWND hwnd=CreateWindowExW(0,L"STATIC",L"Multi FRF",WS_POPUP|WS_CLIPCHILDREN,0,0,1100,650,nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+        ~Window() { g.main=nullptr; if(hwnd) DestroyWindow(hwnd); }
+    } window;
+    require(window.hwnd!=nullptr,"multi-FRF hidden rendering window");
+    g.main=window.hwnd; g.ui_font=reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)); update_theme_brushes();
+    create_frf_panel(g.main,GetModuleHandleW(nullptr)); layout();
+    require(save_png((test_dir/"frf_multi.png").wstring()),"all FRF curves export to one PNG");
+    require(g_legend_items.size()==3 && g_legend_items[0].channel==2 && g_legend_items[2].channel==4,
+            "rendered legend contains every response with stable channel identity");
+    require(channel_color(2)!=channel_color(3) && channel_color(3)!=channel_color(4),"responses have distinct colors");
+    Gdiplus::GdiplusShutdown(token);
+    g.main=nullptr;
+    g.ds.channels[2][700]=std::nan(""); invalidate_frf(); ensure_current_frf();
+    require(g.frf.result.ok && !g.frf.result.responses[0].ok && g.frf.result.responses[1].ok,
+            "one failed response does not hide the other GUI curves");
+    require(frf_status_text().find(L"Y, one")!=std::wstring::npos,"partial batch error identifies the failed response");
+    require(save_frf_csv((test_dir/"frf_multi_partial.csv").wstring()),"partial batch exports valid curves and error metadata");
+}
+
+void frf_gap_stitching() {
+    std::vector<double> t, x, y;
+    for (int i=0;i<1024;++i) {
+        t.push_back(i/1024.0 + (i>=512 ? 10 : 0));
+        x.push_back(std::sin(2*std::acos(-1.0)*16*i/1024));
+        y.push_back(2*x.back());
+    }
+    reset_document({"Input","Output"},t,{x,y});
+    set_fft_window(t[256],t[767]);
+    g.frf.options.segment_length=512;
+    set_mode(AnalysisMode::FRF);
+    require(g.frf.result.ok && g.frf.result.common().gaps_ignored && !g.stitch_time_gaps,"FRF ignores gaps even when display stitching is disabled");
+    require(frf_status_text().find(L"Gaps ignored")!=std::wstring::npos,"FRF status warns about ignored gaps");
+    const auto generation=g.frf.generation;
+    const auto transfer=g.frf.result.common().transfer;
+    struct Window {
+        HWND hwnd=CreateWindowExW(0,L"STATIC",L"Settings test",WS_POPUP,0,0,400,400,
+                                  nullptr,nullptr,GetModuleHandleW(nullptr),nullptr);
+        ~Window() { g_frf_worker.cancel(); g.main=nullptr; if(hwnd) DestroyWindow(hwnd); }
+    } window;
+    require(window.hwnd!=nullptr,"hidden settings test window");
+    g.main=window.hwnd;
+    HWND toggle=CreateWindowExW(0,L"BUTTON",L"Stitch",WS_CHILD|BS_OWNERDRAW,0,0,100,25,
+        window.hwnd,reinterpret_cast<HMENU>(IDC_SET_STITCH_GAPS),GetModuleHandleW(nullptr),nullptr);
+    require(toggle!=nullptr,"time stitching settings control");
+    const auto click = [&] {
+        SettingsProc(window.hwnd,WM_COMMAND,MAKEWPARAM(IDC_SET_STITCH_GAPS,BN_CLICKED),
+                     reinterpret_cast<LPARAM>(toggle));
+    };
+    click();
+    require(g.stitch_time_gaps && g.frf.result.ok && g.frf.result.common().gaps_ignored &&
+            g.frf.result.common().sample_count==512,"display stitching toggle preserves the FRF pair");
+    require(g.frf.result.common().segment_length==512 && g.frf.result.common().averages==1,"GUI H1 allows L larger than each 256-sample fragment");
+    near(g.frf.result.common().frequencies[8],16,"FRF with ignored gaps retains physical frequency scale");
+    near(lvm::frf_dynamic_coefficient(g.frf.result.common(),8),2,"FRF gain with ignored gaps");
+    require(g.ds.time==t && g.frf.result.common().source_start==t[256] && g.frf.result.common().source_end==t[767],
+            "GUI stitching preserves raw selection coordinates");
+    const auto path=test_dir/"frf_stitched.csv";
+    require(save_frf_csv(path.wstring()),"stitched FRF exports CSV");
+    std::ifstream csv(path);
+    const std::string text((std::istreambuf_iterator<char>(csv)),{});
+    require(text.find("gap_policy=ignore_gaps_uniform_sample_sequence")!=std::string::npos && text.find("gaps_ignored=1")!=std::string::npos &&
+            text.find("resampled=0")!=std::string::npos,"CSV records ignored gaps without interpolation");
+    click();
+    require(!g.stitch_time_gaps && g.frf.result.ok && !g.frf.pending,"disabling display stitching keeps FRF available");
+    click(); click();
+    require(g.frf.generation==generation && g.frf.result.common().transfer==transfer,"display stitching does not recalculate or change FRF");
+    g.main=nullptr;
+    g.stitch_time_gaps=true;
+    require(ensure_current_frf() && g.frf.generation==generation,"FRF cache is independent of display stitching");
+    g.frf.options.segment_length=1024;
+    require(!ensure_current_frf() && g.frf.result.error==lvm::FrfError::TooShort,"GUI reports insufficient selected samples for L");
+}
+
 void reopen_spectrum() {
     const auto path = test_dir / "recovered_fft.csv";
     const auto original = lvm::read_lvm_file(path);
     require(original.ok && original.frequency_axis, "Frequency column identifies an exported spectrum");
     reopen(path, true);
-    set_mode(true);
+    set_mode(AnalysisMode::FFT);
     require(g.spec_valid && g.spec.imported && g.spec.freqs == original.time && g.spec.amp == original.channels,
             "opening spectrum preserves all bins and amplitudes without a second FFT");
     near(g.spec.source_start, 0, "reopened spectrum preserves source interval");
     require(g.spec.resampled && g.spec.gaps_ignored, "reopened spectrum preserves sampling provenance");
-    set_mode(false);
-    require(g.freq_mode && current_filter_nyquist() == 0, "stored spectrum cannot enter time mode or use a time-domain filter");
+    set_mode(AnalysisMode::Time);
+    require((g.mode == AnalysisMode::FFT) && current_filter_nyquist() == 0, "stored spectrum cannot enter time mode or use a time-domain filter");
     ExportOptions opts; opts.include_hidden_channels = true; opts.selected_range = ExportRangeMode::Whole;
     const auto second_path = test_dir / "spectrum_second_roundtrip.csv";
     require(save_tabular_export(second_path.wstring(), opts), "stored spectrum exports again");
@@ -425,10 +712,10 @@ void reopen_spectrum() {
     require(second.ok && second.frequency_axis && second.time == original.time && second.channels == original.channels,
             "repeated spectrum export preserves exact numeric values");
     reset_document({"signal"},{0,.1,.2,.3,.4,.5,.6,.7},{{1,0,-1,0,1,0,-1,0}});
-    g.global_formula = L"3*x"; rebuild_formula_cache_from_state(); set_mode(true);
+    g.global_formula = L"3*x"; rebuild_formula_cache_from_state(); set_mode(AnalysisMode::FFT);
     opts.apply_processing_to_data = false;
     require(save_tabular_export(second_path.wstring(), opts), "raw spectrum export stores processing recipe");
-    reopen(second_path); set_mode(true);
+    reopen(second_path); set_mode(AnalysisMode::FFT);
     require(g.spec_valid && g.spec.imported, "raw spectrum reopens directly");
     const auto peaks = lvm::find_peaks(g.spec.freqs, g.spec.amp[0], 1);
     require(!peaks.empty(), "reopened raw spectrum retains peak");
@@ -443,6 +730,9 @@ int main() {
         light_mode_and_history(); reopen_spectrum(); fft_selected_gap_range(); stitched_gap_regressions();
         light_mode_fft_visibility();
         routed_window_messages();
+        frf_integration();
+        frf_multi_channels();
+        frf_gap_stitching();
         std::cout << checks << " GUI integration checks passed\n";
         return 0;
     } catch(const std::exception& ex) {

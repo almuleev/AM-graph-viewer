@@ -1,8 +1,10 @@
 // Navigation: native viewer implementation.
 #include "gui_navigation.hpp"
+#include "gui_frf.hpp"
+#include "gui_frf_render.hpp"
+#include "gui_menu.hpp"
 #include "gui_render.hpp"
 #include "gui_render_data.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
 #include "gui_status.hpp"
@@ -20,7 +22,15 @@ void clamp_range(double& lo, double& hi, double minb, double maxb, double minw) 
 }
 
 bool active_axis(double*& lo, double*& hi, double& minb, double& maxb, double& minw) {
-    if (g.freq_mode) {
+    if (g.mode == AnalysisMode::FRF) {
+        if (!g.frf.result.ok || g.frf.pending) return false;
+        lo = &g.frf.log_start; hi = &g.frf.log_end;
+        minb = std::log10(g.frf.result.common().frequencies[1]);
+        maxb = std::log10(g.frf.result.common().frequencies.back());
+        minw = std::min(1e-6, (maxb-minb)*.01);
+        return true;
+    }
+    if ((g.mode == AnalysisMode::FFT)) {
         if (!ensure_current_spectrum() || g.spec.freqs.size() < 2) return false;
         lo = &g.freq_start; hi = &g.freq_end;
         minb = 0.0; maxb = g.spec.nyquist;
@@ -54,6 +64,13 @@ void zoom_at(double center_frac, double factor) {
 }
 
 void zoom_y_at(double center_frac, double factor) {
+    if (g.mode == AnalysisMode::FRF) {
+        double lo, hi; frf_y_range(lo, hi);
+        const double c = lo + (hi-lo)*center_frac;
+        const double width = std::clamp((hi-lo)*factor, 1e-6, 1e6);
+        g.frf.y_min = c-width*center_frac; g.frf.y_max = g.frf.y_min+width;
+        g.frf.auto_y = false; set_status(); invalidate_plot(); return;
+    }
     if (!has_data()) return;
     double ymin, ymax;
     current_time_yrange(ymin, ymax);
@@ -110,7 +127,8 @@ bool prepare_plot_drag(int mx, int my) {
     g.drag_y = my;
     g.drag_lo = *lo;
     g.drag_hi = *hi;
-    if (g.freq_mode) {
+    if (g.mode == AnalysisMode::FRF) { frf_y_range(g.drag_y_lo, g.drag_y_hi); return true; }
+    if ((g.mode == AnalysisMode::FFT)) {
         if (g.auto_y_amp) {
             double ymax = visible_spectrum_ymax();
             if (ymax <= 0) ymax = 1.0;
@@ -131,7 +149,13 @@ bool prepare_plot_drag(int mx, int my) {
 }
 
 void pan_y_by(double frac) {
-    if (g.freq_mode) {
+    if (g.mode == AnalysisMode::FRF) {
+        double lo, hi; frf_y_range(lo, hi);
+        const double shift = (hi-lo)*frac;
+        g.frf.y_min = lo+shift; g.frf.y_max = hi+shift; g.frf.auto_y = false;
+        set_status(); invalidate_plot(); return;
+    }
+    if ((g.mode == AnalysisMode::FFT)) {
         double ymax = visible_spectrum_ymax();
         if (ymax <= 0) ymax = 1.0;
         double ytop = ymax * 1.08;
@@ -186,6 +210,7 @@ void goto_end() {
 }
 
 void reset_view() {
+    if (g.mode == AnalysisMode::FRF) { reset_frf_view(); return; }
     g.win_start = g.data_t0;
     g.win_end = g.data_t1;
     g.freq_start = 0.0;

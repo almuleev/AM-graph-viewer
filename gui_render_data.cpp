@@ -107,7 +107,7 @@ bool current_time_yrange(double& ymin, double& ymax) {
 
 // Auto-fit amplitude range over the currently visible FFT window (with 5% pad).
 bool current_freq_yrange(double& ymin, double& ymax) {
-    if (!g.freq_mode) return false;
+    if (g.mode != AnalysisMode::FFT) return false;
     if (!ensure_current_spectrum() || g.spec.freqs.size() < 2) return false;
     ymin = 0.0;
     ymax = 0.0;

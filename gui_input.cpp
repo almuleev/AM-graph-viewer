@@ -1,5 +1,10 @@
 // Input: native viewer implementation.
 #include "gui_input.hpp"
+#include "gui_frf_render.hpp"
+#include "gui_analysis_source.hpp"
+#include "gui_gap_details.hpp"
+#include "gui_controls.hpp"
+#include "gui_menu.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_loading.hpp"
@@ -7,7 +12,6 @@
 #include "gui_processing.hpp"
 #include "gui_render.hpp"
 #include "gui_render_data.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -22,7 +26,7 @@ void add_guide_line(bool vertical, double value) {
     GuideLine gl;
     gl.vertical = vertical;
     gl.value = value;
-    gl.freq = g.freq_mode;
+    gl.freq = (g.mode == AnalysisMode::FFT);
     g.guides.push_back(gl);
     UndoAction ua;
     ua.type = UndoAction::ADD_LINE;
@@ -41,7 +45,7 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
     const RECT& p = g.vrect;
     if (p.right <= p.left || p.bottom <= p.top) return false;
     dx = g.vx0 + static_cast<double>(px - p.left) / (p.right - p.left) * (g.vx1 - g.vx0);
-    if (!g.freq_mode && g.stitch_time_gaps) dx = raw_time_from_stitched(dx);
+    if ((g.mode == AnalysisMode::Time) && g.stitch_time_gaps) dx = raw_time_from_stitched(dx);
     dy = g.vy0 + static_cast<double>(p.bottom - py) / (p.bottom - p.top) * (g.vy1 - g.vy0);
     return true;
 }
@@ -58,7 +62,7 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel) {
     if (pw <= 0 || ph <= 0) return false;
 
     auto to_px = [&](double x) -> double {
-        const double displayed_x = g.freq_mode ? x : stitched_time_from_raw(x);
+        const double displayed_x = (g.mode == AnalysisMode::FFT) ? x : stitched_time_from_raw(x);
         return static_cast<double>(p.left) + (displayed_x - g.vx0) / (g.vx1 - g.vx0) * pw;
     };
     auto to_py = [&](double y) -> double {
@@ -72,7 +76,7 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel) {
     double best_y = dy;
     int best_ci = -1;
 
-    if (g.freq_mode) {
+    if ((g.mode == AnalysisMode::FFT)) {
         if (!ensure_current_spectrum() || g.spec.freqs.empty() || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
         const auto& f = g.spec.freqs;
         std::size_t lo = static_cast<std::size_t>(std::lower_bound(f.begin(), f.end(), g.vx0) - f.begin());
@@ -151,7 +155,7 @@ int hit_test_marker(int px, int py) {
     if (px < p.left || px > p.right || py < p.top || py > p.bottom) return -1;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return -1;
     auto mx = [&](double dx) {
-        const double displayed_x = g.freq_mode ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
@@ -161,7 +165,7 @@ int hit_test_marker(int px, int py) {
     int best_score = 999999;
     for (std::size_t i = 0; i < g.markers.size(); ++i) {
         const App::Marker& m = g.markers[i];
-        if (m.freq != g.freq_mode) continue;
+        if (m.freq != (g.mode == AnalysisMode::FFT)) continue;
         const int dxp = std::abs(px - mx(m.x));
         if (dxp > 6) continue;
         int score = dxp * 10;
@@ -178,6 +182,7 @@ int hit_test_marker(int px, int py) {
 }
 
 LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (g.mode == AnalysisMode::FRF) return handle_frf_input(hwnd, msg, wp, lp);
     switch (msg) {
         case WM_CANCELMODE:
             g_filter_slider_before.reset();
@@ -191,7 +196,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 RECT p = plot_rect();
                 bool in_plot = (pt.x >= p.left && pt.x <= p.right && pt.y >= p.top && pt.y <= p.bottom);
                 const bool selecting_fft_here =
-                    !g.freq_mode && in_plot &&
+                    (g.mode == AnalysisMode::Time) && in_plot &&
                     (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
                     !g.measure_mode && !g.pending_line && !g.pending_marker;
                 if (g.dragging || g.fft_selecting || g.measure_mode || g.pending_line || g.pending_marker || selecting_fft_here) {
@@ -229,7 +234,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (ctrl) {
-                if (g.freq_mode) {
+                if ((g.mode == AnalysisMode::FFT)) {
                     if (in_plot) {
                         double frac = static_cast<double>(p.bottom - pt.y) / (p.bottom - p.top);
                         zoom_y_amp_at(frac, up ? 0.85 : 1.0 / 0.85);
@@ -302,7 +307,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
             }
 
-            if (!g.freq_mode && g.show_gap_markers) {
+            if ((g.mode == AnalysisMode::Time) && g.show_gap_markers) {
                 const int gap_index = hit_test_gap_marker(mx, my);
                 if (gap_index >= 0) {
                     g.gap_click_pending = false;
@@ -345,7 +350,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
             if (mx < p.left || mx > p.right || my < p.top || my > p.bottom) return 0;
             const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-            if (!g.freq_mode && shift && !g.pending_line && !g.pending_marker && !g.measure_mode) {
+            if ((g.mode == AnalysisMode::Time) && shift && !g.pending_line && !g.pending_marker && !g.measure_mode) {
                 const int pw = p.right - p.left;
                 if (pw > 0) {
                     const int clamped_x = std::clamp(mx, static_cast<int>(p.left), static_cast<int>(p.right));
@@ -374,7 +379,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (px_to_data(mx, my, dx, dy)) {
                     GuideLine gl;
                     gl.vertical = (g.pending_line == 1);
-                    gl.freq = g.freq_mode;
+                    gl.freq = (g.mode == AnalysisMode::FFT);
                     if (gl.vertical && g.snap_to_data) { double sx = dx, sy = dy; snap_to_nearest(sx, sy); dx = sx; }
                     gl.value = gl.vertical ? dx : dy;
                     g.guides.push_back(gl);
@@ -396,7 +401,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     if (g.snap_to_data) snapped = snap_to_nearest_target(dx, dy, &snapped_channel);
                     mk.x = dx;
                     mk.y = dy;
-                    mk.freq = g.freq_mode;
+                    mk.freq = (g.mode == AnalysisMode::FFT);
                     mk.snapped = snapped;
                     mk.channel = snapped ? snapped_channel : -1;
                     wchar_t buf[16];
@@ -515,7 +520,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 const int ph = p.bottom - p.top;
                 if (ph > 0) {
                     const double dy = static_cast<double>(GET_Y_LPARAM(lp) - g.drag_y) / ph * (g.drag_y_hi - g.drag_y_lo);
-                    if (g.freq_mode) {
+                    if ((g.mode == AnalysisMode::FFT)) {
                         double new_ytop = g.drag_y_hi + dy;
                         if (new_ytop < 1e-12) new_ytop = 1e-12;
                         g.y_amp_max = new_ytop;
@@ -550,7 +555,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 g.gap_click_pending = false;
                 g.gap_click_index = -1;
                 if (GetCapture() == hwnd) ReleaseCapture();
-                if (!g.freq_mode && g.show_gap_markers) {
+                if ((g.mode == AnalysisMode::Time) && g.show_gap_markers) {
                     const int released_gap_index = hit_test_gap_marker(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
                     if (released_gap_index >= 0 && released_gap_index == pending_gap_index) {
                         const auto& gap = g.visible_gap_markers[static_cast<std::size_t>(released_gap_index)];

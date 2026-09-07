@@ -662,7 +662,14 @@ Dataset read_lvm_file(const std::filesystem::path& path, const LoadOptions& opti
         const int part_count = static_cast<int>(parsed.size());
         if (numeric_count < 2) continue;
 
-        if (row_count == 0) ds.frequency_axis = is_frequency_data(column_labels, ds.export_comments);
+        if (row_count == 0) {
+            if (std::find(ds.export_comments.begin(), ds.export_comments.end(), "data_kind=frf") != ds.export_comments.end()) {
+                ds.ok = false;
+                ds.error = "This file contains an exported FRF, not time-domain samples. Open the original recording to calculate FRF.";
+                return ds;
+            }
+            ds.frequency_axis = is_frequency_data(column_labels, ds.export_comments);
+        }
         const double raw_time = parsed.empty() ? std::nan("") : parsed[0];
         const bool have_raw_time = std::isfinite(raw_time);
         if (!have_raw_time) continue;

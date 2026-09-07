@@ -1,9 +1,9 @@
 // Loading drop: native viewer implementation.
 #include "gui_loading_drop.hpp"
+#include "gui_controls.hpp"
 #include "gui_dialogs.hpp"
 #include "gui_ids.hpp"
 #include "gui_loading.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_state.hpp"
 #include "gui_text.hpp"
 #include "gui_theme.hpp"

@@ -1,5 +1,6 @@
 // Layout: native viewer implementation.
 #include "gui_layout.hpp"
+#include "gui_frf.hpp"
 #include "gui_ids.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_state.hpp"
@@ -35,6 +36,7 @@ void layout() {
     sep();
     place(g.mode_time, text_button_width(g.mode_time, 72, 28), 8);
     place(g.mode_freq, text_button_width(g.mode_freq, 82, 28), 8);
+    place(g.mode_frf, text_button_width(g.mode_frf, 90, 28), 8);
     place(g.play, text_button_width(g.play, 88, 30), 8);
     sep();
     place(g.reset, text_button_width(g.reset, 76, 28), 8);
@@ -69,9 +71,9 @@ void layout() {
     if (g.side_tab_filter) MoveWindow(g.side_tab_filter, panel_x + (tab_w + tab_gap) * 2, kTopBar + 8, tab_w, 28, FALSE);
     apply_side_panel_visibility();
 
-    const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible();
-    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible();
-    const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible();
+    const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible() && g.mode != AnalysisMode::FRF;
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible() && g.mode != AnalysisMode::FRF;
+    const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible() && g.mode != AnalysisMode::FRF;
     const int channels_content_top = channels_viewport_top;
     const int points_content_top = points_viewport_top;
     const int filter_viewport_top = points_viewport_top;
@@ -195,6 +197,7 @@ void layout() {
                                 g.side_panel_tab == 0 ? g.side_content_height_channels :
                                 (g.side_panel_tab == 1 ? g.side_content_height_points : g.side_content_height_filter));
 
+    layout_frf_panel();
     MoveWindow(g.status, 8, ch - kBottomBar + 4, cw - 16, 20, FALSE);
 }
 

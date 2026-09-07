@@ -1,8 +1,10 @@
 // Settings: native viewer implementation.
 #include "gui_settings.hpp"
+#include "gui_hotkeys.hpp"
+#include "gui_controls.hpp"
+#include "gui_settings_window.hpp"
 #include "gui_ids.hpp"
 #include "gui_processing.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_state.hpp"
 #include "gui_state_history.hpp"

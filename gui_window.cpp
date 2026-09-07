@@ -1,5 +1,9 @@
 // Window: native viewer implementation.
 #include "gui_window.hpp"
+#include "gui_frf.hpp"
+#include "gui_menu.hpp"
+#include "gui_settings_window.hpp"
+#include "gui_controls.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_loading.hpp"
@@ -7,7 +11,6 @@
 #include "gui_playback.hpp"
 #include "gui_render.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
@@ -30,6 +33,8 @@ void rebuild_ui() {
     SetWindowTextW(g.savecsv, g_str->btn_csv);
     SetWindowTextW(g.mode_time, g_str->st_time);
     SetWindowTextW(g.mode_freq, g_str->st_hz);
+    SetWindowTextW(g.mode_frf, g_str == &kEn ? L"FRF" : L"FRF / АЧХ");
+    refresh_frf_controls(true);
     SetWindowTextW(g.play, g.playing ? g_str->btn_pause : g_str->btn_play);
     SetWindowTextW(g.measure, g_str->btn_measure);
     SetWindowTextW(g.marker_btn, g_str == &kEn ? L"Marker" : L"Маркер");
@@ -119,6 +124,8 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.savecsv = mk(g_str->btn_csv, IDC_SAVECSV, 0, false);
             g.mode_time = mk(g_str->st_time, IDM_MODE_TIME, 0);
             g.mode_freq = mk(g_str->st_hz, IDM_MODE_FREQ, 0);
+            g.mode_frf = mk(g_str == &kEn ? L"FRF" : L"FRF / АЧХ", IDM_MODE_FRF, 0);
+            create_frf_panel(hwnd, inst);
             g.play = mk(g_str->btn_play, IDC_PLAY, 0);
             g.measure = mk(g_str->btn_measure, IDC_MEASURE, 0);
             g.marker_btn = mk(g_str == &kEn ? L"Marker" : L"Маркер", IDM_ADD_MARKER, 0);
@@ -328,11 +335,13 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (btn == g.measure) {
                 active = g.measure_mode;
             } else if (btn == g.autoy) {
-                active = g.auto_y;
+                active = g.mode == AnalysisMode::FRF ? g.frf.auto_y : g.auto_y;
             } else if (btn == g.mode_time) {
-                active = !g.freq_mode;
+                active = (g.mode == AnalysisMode::Time);
+            } else if (btn == g.mode_frf) {
+                active = g.mode == AnalysisMode::FRF;
             } else if (btn == g.mode_freq) {
-                active = g.freq_mode;
+                active = (g.mode == AnalysisMode::FFT);
             } else if (btn == g.marker_btn) {
                 active = g.pending_marker;
             } else if (btn == g.vline_btn) {
@@ -357,6 +366,7 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             KillTimer(hwnd, 3);
             if (g_settings_dirty) { save_runtime_settings_now(); g_settings_dirty = false; }
+            g_frf_worker.cancel();
             g_spectrum_worker.cancel();
             request_async_load_cancel();
             if (g_load_worker.joinable()) g_load_worker.join();

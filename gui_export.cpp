@@ -1,0 +1,599 @@
+// GUI file export: samples, spectra, PNG, and save dialogs.
+#include "gui_export.hpp"
+#include "gui_frf.hpp"
+#include "gui_analysis_source.hpp"
+#include "gui_export_metadata.hpp"
+#include "gui_status.hpp"
+#include "gui_state.hpp"
+#include "gui_theme.hpp"
+#include "gui_text.hpp"
+#include "gui_layout.hpp"
+#include "gui_processing.hpp"
+#include "gui_render.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_dialogs.hpp"
+
+namespace gui {
+
+// ---- PNG export (GDI+) ---------------------------------------------------
+
+int png_encoder_clsid(CLSID* clsid) {
+    UINT num = 0, size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    if (size == 0) return -1;
+    auto* info = reinterpret_cast<Gdiplus::ImageCodecInfo*>(malloc(size));
+    if (!info) return -1;
+    Gdiplus::GetImageEncoders(num, size, info);
+    int found = -1;
+    for (UINT i = 0; i < num; ++i)
+        if (wcscmp(info[i].MimeType, L"image/png") == 0) { *clsid = info[i].Clsid; found = static_cast<int>(i); break; }
+    free(info);
+    return found;
+}
+
+bool save_png(const std::wstring& path) {
+    if (g.mode == AnalysisMode::FRF && (!g.frf.result.ok || g.frf.pending)) return false;
+    RECT pr = plot_rect();
+    int W = (pr.right - pr.left) + 90;
+    int H = (pr.bottom - pr.top) + 60;
+    if (W < 400) W = 1000;
+    if (H < 240) H = 600;
+
+    HDC screen = GetDC(g.main);
+    HDC mem = CreateCompatibleDC(screen);
+    HBITMAP bmp = CreateCompatibleBitmap(screen, W, H);
+    HGDIOBJ obmp = SelectObject(mem, bmp);
+
+    RECT all = {0, 0, W, H};
+    HBRUSH bg = CreateSolidBrush(g_theme->bg_plot);
+    FillRect(mem, &all, bg);
+    DeleteObject(bg);
+    SelectObject(mem, reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    SetBkMode(mem, TRANSPARENT);
+    RECT inner = {70, 14, W - 20, H - 46};
+    draw_chart(mem, inner);
+
+    SelectObject(mem, obmp);
+
+    bool ok = false;
+    {
+        Gdiplus::Bitmap gb(bmp, nullptr);
+        CLSID clsid;
+        if (png_encoder_clsid(&clsid) >= 0)
+            ok = (gb.Save(path.c_str(), &clsid, nullptr) == Gdiplus::Ok);
+    }
+
+    DeleteObject(bmp);
+    DeleteDC(mem);
+    ReleaseDC(g.main, screen);
+    // draw_chart updated the mapping cache for the off-screen rect; restore it.
+    InvalidateRect(g.main, nullptr, FALSE);
+    return ok;
+}
+
+double export_channel_sample(std::size_t channel_index, std::size_t row_index, bool apply_processing) {
+    if (channel_index >= g.ds.channel_count()) return std::numeric_limits<double>::quiet_NaN();
+    const auto& column = g.ds.channels[channel_index];
+    if (row_index >= column.size()) return std::numeric_limits<double>::quiet_NaN();
+    if (!apply_processing) return column[row_index];
+    return rendered_channel_sample(channel_index, row_index);
+}
+
+std::vector<std::size_t> export_channel_indices(bool include_hidden_channels) {
+    std::vector<std::size_t> cols;
+    const std::size_t count = g.ds.channel_count();
+    if (include_hidden_channels) {
+        cols.reserve(count);
+        for (std::size_t c = 0; c < count; ++c) cols.push_back(c);
+        return cols;
+    }
+    for (std::size_t c = 0; c < count; ++c) {
+        if (c < g.visible.size() && g.visible[c]) cols.push_back(c);
+    }
+    return cols;
+}
+
+std::vector<int> export_spectrum_channel_indices(const lvm::Spectrum& spec) {
+    std::vector<int> indices;
+    indices.reserve(spec.names.size());
+    for (std::size_t c : spec.source_channels) {
+        indices.push_back(static_cast<int>(c));
+    }
+    return indices;
+}
+
+bool build_export_spectrum(const ExportOptions& opts, lvm::Spectrum& out_spec,
+                           std::vector<int>& out_channel_indices, bool& out_all_channels) {
+    if (!has_data() || g.mode != AnalysisMode::FFT) return false;
+    out_all_channels = false;
+    const bool have_current_spectrum = ensure_current_spectrum();
+    if (opts.apply_processing_to_data && !opts.include_hidden_channels && have_current_spectrum) {
+        out_spec = g.spec;
+        out_channel_indices = g.spec_channel_indices;
+        return out_spec.ok;
+    }
+
+    double source_start = 0.0;
+    double source_end = 0.0;
+    bool from_selection = false;
+    if (!last_fft_source_window(source_start, source_end, from_selection) &&
+        !current_fft_source_window(source_start, source_end, from_selection)) {
+        return false;
+    }
+
+    std::vector<std::size_t> all_channels;
+    all_channels.reserve(g.ds.channel_count());
+    for (std::size_t i = 0; i < g.ds.channel_count(); ++i) {
+        if (opts.include_hidden_channels || (i < g.visible.size() && g.visible[i])) all_channels.push_back(i);
+    }
+
+    lvm::Dataset view;
+    if (all_channels.empty()) return false;
+    build_time_window_dataset(g.ds, source_start, source_end, view, &all_channels, opts.apply_processing_to_data);
+    out_spec = lvm::compute_spectrum(view, 0);
+    for (auto& c : out_spec.source_channels) c = all_channels[c];
+    if (!out_spec.ok) return false;
+    out_channel_indices = export_spectrum_channel_indices(out_spec);
+    out_all_channels = true;
+    return true;
+}
+
+bool export_range_bounds_for_mode(ExportRangeMode range, double& start, double& end, bool& actual_selected) {
+    if (g.mode == AnalysisMode::FRF) return false;
+    if (!has_data()) return false;
+    actual_selected = false;
+    if ((g.mode == AnalysisMode::FFT)) {
+        if (!ensure_current_spectrum()) return false;
+        actual_selected = (range == ExportRangeMode::Selected);
+        if (range == ExportRangeMode::Whole) {
+            start = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.front();
+            end = g.spec.freqs.empty() ? 0.0 : g.spec.freqs.back();
+        } else {
+            start = g.freq_start;
+            end = g.freq_end;
+        }
+        if (!std::isfinite(start) || !std::isfinite(end)) return false;
+        if (end < start) std::swap(start, end);
+        return end > start;
+    }
+
+    switch (range) {
+        case ExportRangeMode::Selected:
+            if (has_fft_window()) {
+                start = g.fft_window_start;
+                end = g.fft_window_end;
+                clamp_time_window(start, end);
+                actual_selected = true;
+                return end > start;
+            }
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Visible:
+            start = g.win_start;
+            end = g.win_end;
+            clamp_time_window(start, end);
+            return end > start;
+        case ExportRangeMode::Whole:
+            start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+            end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+            return end > start;
+    }
+    return false;
+}
+
+bool write_tabular_export(std::ofstream& out, const ExportOptions& opts) {
+    if (g.mode == AnalysisMode::FRF) return opts.format == ExportFileFormat::Csv && write_frf_csv(out);
+    if (!has_data()) return false;
+
+    const bool csv = opts.format == ExportFileFormat::Csv;
+    const char sep = csv ? ',' : '\t';
+    const char* line_end = csv ? "\n" : "\r\n";
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool actual_selected_range = false;
+
+    if ((g.mode == AnalysisMode::FFT)) {
+        lvm::Spectrum export_spec;
+        std::vector<int> spec_channel_indices;
+        bool export_all_channels = false;
+        if (!build_export_spectrum(opts, export_spec, spec_channel_indices, export_all_channels)) return false;
+
+        if (opts.selected_range == ExportRangeMode::Whole) {
+            export_start = export_spec.freqs.empty() ? 0.0 : export_spec.freqs.front();
+            export_end = export_spec.freqs.empty() ? 0.0 : export_spec.freqs.back();
+        } else {
+            export_start = g.freq_start;
+            export_end = g.freq_end;
+            actual_selected_range = (opts.selected_range == ExportRangeMode::Selected);
+        }
+        if (!std::isfinite(export_start) || !std::isfinite(export_end)) return false;
+        if (export_end < export_start) std::swap(export_start, export_end);
+        if (export_end <= export_start) return false;
+
+        std::vector<std::size_t> cols;
+        std::vector<std::size_t> source_cols;
+        for (std::size_t j = 0; j < export_spec.amp.size(); ++j) {
+            const int ci = (j < spec_channel_indices.size()) ? spec_channel_indices[j] : -1;
+            const bool visible_channel =
+                ci >= 0 && static_cast<std::size_t>(ci) < g.visible.size() &&
+                g.visible[static_cast<std::size_t>(ci)];
+            if (export_all_channels || visible_channel) {
+                const std::size_t label_index = (ci >= 0) ? static_cast<std::size_t>(ci) : j;
+                source_cols.push_back(label_index);
+                cols.push_back(j);
+            }
+        }
+        if (cols.empty()) return false;
+        write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range, source_cols);
+        write_export_comment(out, L"[fft_sampling]", line_end);
+        write_export_key_value(out, L"source_start", to_w(numfmt(export_spec.source_start)), line_end);
+        write_export_key_value(out, L"source_end", to_w(numfmt(export_spec.source_end)), line_end);
+        write_export_key_value(out, L"sample_dt", to_w(numfmt(export_spec.sample_dt)), line_end);
+        write_export_key_value(out, L"sample_count", std::to_wstring(export_spec.n), line_end);
+        write_export_key_value(out, L"gaps_ignored", export_spec.gaps_ignored ? L"1" : L"0", line_end);
+        write_export_key_value(out, L"resampled", export_spec.resampled ? L"1" : L"0", line_end);
+        write_export_comment(out, L"", line_end);
+        out << "Frequency";
+        for (std::size_t c : source_cols) {
+            const std::string name = to_utf8(export_channel_label_text(c, opts.include_channel_names));
+            out << sep << (csv ? lvm::csv_field(name) : lvm::tsv_header_field(name));
+        }
+        out << line_end;
+        std::size_t begin = 0;
+        std::size_t end = export_spec.freqs.size();
+        if (opts.selected_range != ExportRangeMode::Whole) {
+            double start = export_start;
+            double finish = export_end;
+            if (start > finish) std::swap(start, finish);
+            const auto bounds = export_range_bounds(export_spec.freqs, start, finish);
+            begin = bounds.first;
+            end = bounds.second;
+        }
+        for (std::size_t k = begin; k < end; ++k) {
+            out << numfmt(export_spec.freqs[k]);
+            for (std::size_t j : cols) {
+                if (j < export_spec.amp.size() && k < export_spec.amp[j].size()) {
+                    out << sep << numfmt(export_spec.amp[j][k]);
+                } else {
+                    out << sep;
+                }
+            }
+            out << line_end;
+        }
+        return true;
+    }
+
+    if (opts.selected_range != ExportRangeMode::Whole) {
+        // Selected range falls back to the visible view when no explicit window exists.
+        if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+    } else {
+        export_start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+        export_end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+    }
+    const std::vector<std::size_t> cols = export_channel_indices(opts.include_hidden_channels);
+    if (cols.empty()) return false;
+    write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range, cols);
+    out << "Time";
+    for (std::size_t c : cols) {
+        const std::string name = to_utf8(export_channel_label_text(c, opts.include_channel_names));
+        out << sep << (csv ? lvm::csv_field(name) : lvm::tsv_header_field(name));
+    }
+    out << line_end;
+
+    std::size_t begin = 0;
+    std::size_t end = g.ds.rows();
+    if (opts.selected_range != ExportRangeMode::Whole && export_end > export_start) {
+        const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
+        begin = bounds.first;
+        end = bounds.second;
+    }
+    if (begin >= end) return false;
+    for (std::size_t r = begin; r < end; ++r) {
+        out << numfmt(g.ds.time[r]);
+        for (std::size_t c : cols) {
+            out << sep << numfmt(export_channel_sample(c, r, opts.apply_processing_to_data));
+        }
+        out << line_end;
+    }
+    return true;
+}
+
+bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
+    return lvm::atomic_write_file(std::filesystem::path(path), [&](std::ofstream& out) { return write_tabular_export(out, opts); }, &g.last_error);
+}
+
+bool write_lvm_export(std::ofstream& out, const ExportOptions& opts) {
+    if (!has_data() || g.mode != AnalysisMode::Time) return false;
+
+    double export_start = 0.0;
+    double export_end = 0.0;
+    bool actual_selected_range = false;
+    if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+
+    const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
+    std::size_t begin = bounds.first;
+    std::size_t end = bounds.second;
+    if (begin >= end) return false;
+
+    const std::vector<std::size_t> cols = export_channel_indices(opts.include_hidden_channels);
+
+    if (cols.empty()) return false;
+
+    const char* line_end = "\r\n";
+    SYSTEMTIME stamp{};
+    GetLocalTime(&stamp);
+    const std::wstring date_text = lvm_current_date_text(stamp);
+    const std::wstring time_text = lvm_current_time_text(stamp);
+    const std::wstring y_unit = g.axis_y_label.empty() ? L"Value" : g.axis_y_label;
+    const double delta_x = lvm_export_nominal_delta_x();
+    const std::wstring delta_x_text = format_edit_number(delta_x);
+    auto repeat_header = [&](const char* key, const std::wstring& value) {
+        out << key;
+        const std::string encoded = to_utf8(value);
+        for (std::size_t i = 0; i < cols.size(); ++i) {
+            out << '\t' << encoded;
+        }
+        out << line_end;
+    };
+    auto clean_label = [](std::string text) {
+        for (char& ch : text) {
+            if (ch == '\t' || ch == '\r' || ch == '\n') ch = ' ';
+        }
+        return text;
+    };
+
+    write_export_metadata(out, opts, false, export_start, export_end, actual_selected_range, cols);
+    out << "LabVIEW Measurement" << line_end;
+    out << "Writer_Version\t0.92" << line_end;
+    out << "Reader_Version\t1" << line_end;
+    out << "Separator\tTab" << line_end;
+    out << "Multi_Headings\tYes" << line_end;
+    out << "X_Columns\tMulti" << line_end;
+    out << "Time_Pref\tAbsolute" << line_end;
+    out << "Operator\tAM Graph Viewer" << line_end;
+    out << "Date\t" << to_utf8(date_text) << line_end;
+    out << "Time\t" << to_utf8(time_text) << line_end;
+    out << "***End_of_Header***" << line_end << line_end;
+
+    out << "Channels\t" << cols.size() << line_end;
+    repeat_header("Samples", std::to_wstring(end - begin));
+    repeat_header("Date", date_text);
+    repeat_header("Time", time_text);
+    repeat_header("Y_Unit_Label", y_unit);
+    repeat_header("X_Dimension", L"Time");
+    repeat_header("X0", L"0");
+    repeat_header("Delta_X", delta_x_text);
+    out << "***End_of_Header***" << line_end;
+
+    std::string labels = "X_Value";
+    for (std::size_t i = 0; i < cols.size(); ++i) {
+        labels.push_back('\t');
+        labels += clean_label(to_utf8(export_channel_label_text(cols[i], opts.include_channel_names)));
+        if (i + 1 < cols.size()) {
+            labels.push_back('\t');
+            labels += "X_Value";
+        }
+    }
+    labels += "\tComment";
+    out << labels << line_end;
+
+    for (std::size_t r = begin; r < end; ++r) {
+        std::string row;
+        for (std::size_t c : cols) {
+            if (!row.empty()) row.push_back('\t');
+            row += numfmt(g.ds.time[r]);
+            row.push_back('\t');
+            row += numfmt(export_channel_sample(c, r, opts.apply_processing_to_data));
+        }
+        row.push_back('\t');
+        out << row << line_end;
+    }
+    return true;
+}
+
+bool save_lvm_export(const std::wstring& path, const ExportOptions& opts) {
+    return lvm::atomic_write_file(std::filesystem::path(path), [&](std::ofstream& out) { return write_lvm_export(out, opts); }, &g.last_error);
+}
+
+bool save_dialog(std::wstring& out_path, const wchar_t* filter, const wchar_t* defext,
+                 const std::wstring& defname) {
+    wchar_t file[2048] = L"";
+    lstrcpynW(file, defname.c_str(), 2048);
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g.main;
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = file;
+    ofn.nMaxFile = 2048;
+    ofn.lpstrDefExt = defext;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    if (!GetSaveFileNameW(&ofn)) return false;
+    out_path = file;
+    return true;
+}
+
+std::wstring file_stem() {
+    std::wstring stem = g.file_name;
+    std::size_t dot = stem.find_last_of(L'.');
+    if (dot != std::wstring::npos) stem = stem.substr(0, dot);
+    return stem;
+}
+
+void save_png_dialog() {
+    if (g.mode == AnalysisMode::FRF && (!g.frf.result.ok || g.frf.pending)) {
+        show_styled_info_prompt(g.main, L"FRF", frf_status_text().c_str(), false);
+        return;
+    }
+    if (!has_data()) { show_styled_info_prompt(g.main, g_str->msg_nodata, g_str->msg_openfirst, false); return; }
+    std::wstring def = file_stem() + (g.mode == AnalysisMode::FRF ? L"_frf.png" :
+        (g.mode == AnalysisMode::FFT ? L"_spectrum.png" : L"_plot.png"));
+    std::wstring path;
+    if (!save_dialog(path, g_str->filter_png, L"png", def)) return;
+    if (save_png(path)) {
+        const wchar_t* b = wcsrchr(path.c_str(), L'\\');
+        status_msg(std::wstring(g_str->msg_saved_png) + (b ? b + 1 : path.c_str()));
+    } else {
+        MessageBoxW(g.main, g_str->msg_savepng_err, g_str->msg_error_title, MB_ICONERROR);
+    }
+}
+
+const wchar_t* export_file_extension(ExportFileFormat format) {
+    switch (format) {
+        case ExportFileFormat::Txt: return L"txt";
+        case ExportFileFormat::Csv: return L"csv";
+        case ExportFileFormat::Lvm: return L"lvm";
+    }
+    return L"txt";
+}
+
+const wchar_t* export_file_filter(ExportFileFormat format) {
+    const bool en = (g_str == &kEn);
+    switch (format) {
+        case ExportFileFormat::Txt:
+            return en ? L"TXT file\0*.txt\0All files\0*.*\0"
+                      : L"TXT файлы\0*.txt\0Все файлы\0*.*\0";
+        case ExportFileFormat::Csv:
+            return en ? L"CSV file\0*.csv\0All files\0*.*\0"
+                      : L"CSV файлы\0*.csv\0Все файлы\0*.*\0";
+        case ExportFileFormat::Lvm:
+            return en ? L"LVM file\0*.lvm\0All files\0*.*\0"
+                      : L"LVM файлы\0*.lvm\0Все файлы\0*.*\0";
+    }
+    return en ? L"TXT file\0*.txt\0All files\0*.*\0"
+              : L"TXT файлы\0*.txt\0Все файлы\0*.*\0";
+}
+
+const wchar_t* export_file_name(ExportFileFormat format) {
+    switch (format) {
+        case ExportFileFormat::Txt: return L"TXT";
+        case ExportFileFormat::Csv: return L"CSV";
+        case ExportFileFormat::Lvm: return L"LVM";
+    }
+    return L"TXT";
+}
+
+bool save_export_file(const std::wstring& path, const ExportOptions& opts) {
+    if (g.mode == AnalysisMode::FRF) return opts.format == ExportFileFormat::Csv && save_frf_csv(path);
+    switch (opts.format) {
+        case ExportFileFormat::Txt:
+        case ExportFileFormat::Csv:
+            return save_tabular_export(path, opts);
+        case ExportFileFormat::Lvm:
+            return save_lvm_export(path, opts);
+    }
+    return false;
+}
+
+void save_as_dialog() {
+    if (g.mode == AnalysisMode::FRF) {
+        if (!g.frf.result.ok || g.frf.pending) {
+            show_styled_info_prompt(g.main, L"FRF", frf_status_text().c_str(), false);
+            return;
+        }
+        std::wstring path;
+        if (!save_dialog(path, export_file_filter(ExportFileFormat::Csv), L"csv", file_stem()+L"_frf.csv")) return;
+        if (save_frf_csv(path)) status_msg(L"FRF: " + path);
+        else MessageBoxW(g.main, to_w(g.last_error).c_str(), L"FRF", MB_OK | MB_ICONERROR);
+        return;
+    }
+    if (!has_data()) { show_styled_info_prompt(g.main, g_str->msg_nodata, g_str->msg_openfirst, false); return; }
+    ExportOptions opts;
+    if (!prompt_export_options(opts)) return;
+    if (opts.format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
+        MessageBoxW(g.main,
+                    g_str == &kEn ? L"LVM export is available only in Time mode."
+                                   : L"Экспорт LVM доступен только в режиме времени.",
+                    g_str->msg_error_title, MB_ICONINFORMATION);
+        return;
+    }
+
+    const wchar_t* ext = export_file_extension(opts.format);
+    std::wstring def = export_default_name(file_stem(), opts.selected_range, L".", (g.mode == AnalysisMode::FFT));
+    def += ext;
+    std::wstring path;
+    if (!save_dialog(path, export_file_filter(opts.format), ext, def)) return;
+    if (save_export_file(path, opts)) {
+        const wchar_t* b = wcsrchr(path.c_str(), L'\\');
+        status_msg(export_status_prefix(export_file_name(opts.format), opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
+    } else {
+        MessageBoxW(g.main,
+                    g_str == &kEn ? L"Failed to export file." : L"Не удалось сохранить файл.",
+                    g_str->msg_error_title, MB_ICONERROR);
+    }
+}
+
+std::wstring lvm_current_date_text(const SYSTEMTIME& st) {
+    wchar_t buf[32]{};
+    swprintf(buf, 32, L"%04u/%02u/%02u",
+             static_cast<unsigned int>(st.wYear),
+             static_cast<unsigned int>(st.wMonth),
+             static_cast<unsigned int>(st.wDay));
+    return buf;
+}
+
+std::wstring lvm_current_time_text(const SYSTEMTIME& st) {
+    wchar_t buf[32]{};
+    swprintf(buf, 32, L"%02u:%02u:%02u,%03u",
+             static_cast<unsigned int>(st.wHour),
+             static_cast<unsigned int>(st.wMinute),
+             static_cast<unsigned int>(st.wSecond),
+             static_cast<unsigned int>(st.wMilliseconds));
+    return buf;
+}
+
+double lvm_export_nominal_delta_x() {
+    if (g.cached_global_gap_step_ready && g.cached_global_gap_step > 0.0) return g.cached_global_gap_step;
+    if (g.approx_dt > 0.0) return g.approx_dt;
+    if (g.ds.time.size() > 1) {
+        const double diff = g.ds.time[1] - g.ds.time[0];
+        if (std::isfinite(diff) && diff > 0.0) return diff;
+    }
+    return 1e-6;
+}
+
+bool write_frf_csv(std::ofstream& out) {
+    const auto& common = g.frf.result.common();
+    if (!g.frf.result.ok || g.frf.pending) return false;
+    const double low = std::pow(10.0, g.frf.log_start), high = std::pow(10.0, g.frf.log_end);
+    bool have_bins = false;
+    for (double f : common.frequencies) if (f > 0 && f >= low*(1-1e-12) && f <= high*(1+1e-12)) { have_bins = true; break; }
+    if (!have_bins) return false;
+    write_frf_metadata(out);
+    const bool multi=g.frf.outputs.size()>1;
+    if (multi) out << "response_index,response_name,";
+    out << "frequency_hz,dynamic_coefficient,h_real,h_imag,valid,coherence,coherence_valid\n";
+    for (std::size_t response=0;response<g.frf.result.responses.size();++response) {
+      const auto& r=g.frf.result.responses[response];
+      for (std::size_t k = 1; k < common.frequencies.size(); ++k) {
+        const double f = common.frequencies[k];
+        if (f < low*(1-1e-12) || f > high*(1+1e-12)) continue;
+        if (multi) {
+            out << g.frf.outputs[response] << ",\"";
+            const auto name=to_utf8(g.frf.output_names[response]);
+            for (char c:name) { if (c=='"') out << '"'; out << c; }
+            out << "\",";
+        }
+        out << numfmt(f) << ',';
+        if (k<r.valid.size() && r.valid[k]) {
+            const double kd = lvm::frf_dynamic_coefficient(r, k);
+            out << numfmt(kd) << ','
+                << numfmt(r.transfer[k].real()) << ',' << numfmt(r.transfer[k].imag()) << ",1";
+        } else {
+            out << ",,,0";
+        }
+        if (k<r.coherence_valid.size() && r.coherence_valid[k]) out << ',' << numfmt(r.coherence[k]) << ",1\n";
+        else out << ",,0\n";
+    }
+    }
+    return out.good();
+}
+
+bool save_frf_csv(const std::wstring& path) {
+    return lvm::atomic_write_file(std::filesystem::path(path), [&](std::ofstream& out) {
+        return write_frf_csv(out);
+    }, &g.last_error);
+}
+
+} // namespace gui

@@ -1,10 +1,11 @@
 // Playback: native viewer implementation.
 #include "gui_playback.hpp"
+#include "gui_frf.hpp"
+#include "gui_controls.hpp"
 #include "gui_ids.hpp"
 #include "gui_layout.hpp"
 #include "gui_render.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_spectrum.hpp"
 #include "gui_state.hpp"
 #include "gui_status.hpp"
@@ -47,7 +48,7 @@ void stop_play() {
 }
 
 void start_play() {
-    if (!has_data() || g.freq_mode) return;
+    if (!has_data() || g.mode != AnalysisMode::Time) return;
     g.playing = true;
     g.playhead_active = true;
     if (g.playhead < g.win_start || g.playhead >= g.data_t1) g.playhead = g.win_start;
@@ -74,6 +75,7 @@ LRESULT handle_playback_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (LOWORD(wp) == 2) {
+                poll_frf_result();
                 if (auto result = g_spectrum_worker.take_result()) {
                     if (result->generation == g.spec_generation) {
                         apply_spectrum_result(std::move(result->spectrum));
@@ -102,7 +104,7 @@ LRESULT handle_playback_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
-            if (g.playing && !g.freq_mode && has_data()) {
+            if (g.playing && (g.mode == AnalysisMode::Time) && has_data()) {
                 // Real-time playhead: 1 s of signal per 1 s of wall-clock time.
                 LARGE_INTEGER now, freq;
                 QueryPerformanceCounter(&now);

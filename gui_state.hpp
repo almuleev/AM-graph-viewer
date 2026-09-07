@@ -1,6 +1,7 @@
 #pragma once
 #include "gui_platform.hpp"
 #include "gui_theme.hpp"
+#include "frf_analysis.hpp"
 
 namespace gui {
 
@@ -53,6 +54,25 @@ enum class AsyncLoadStage : unsigned char {
     LoadingFile = 2
 };
 
+enum class AnalysisMode { Time, FFT, FRF };
+
+struct FrfState {
+    std::vector<int> inputs{0}, outputs{1};
+    bool apply_processing = false;
+    lvm::FrfOptions options;
+    lvm::FrfBatchResult result;
+    bool pending = false, attempted = false;
+    std::uint64_t generation = 0;
+    bool view_initialized = false, auto_y = true;
+    double log_start = 0.0, log_end = 3.0;
+    double y_min = 0.0, y_max = 1.0;
+    double source_start = 0.0, source_end = 0.0;
+    bool from_selection = false;
+    std::wstring input_name;
+    std::vector<std::wstring> output_names;
+    std::wstring processing_description;
+};
+
 struct App {
     lvm::Dataset ds;
     std::vector<char> visible;
@@ -78,7 +98,8 @@ struct App {
     std::vector<std::vector<double>> filtered_channel_cache;
     std::vector<char> filtered_channel_cache_valid;
     bool has_non_identity_formula = false;
-    bool freq_mode = false;
+    AnalysisMode mode = AnalysisMode::Time;
+    FrfState frf;
 
     double data_t0 = 0.0, data_t1 = 1.0;
     double win_start = 0.0, win_end = 1.0;
@@ -193,7 +214,8 @@ struct App {
 
     HWND main = nullptr;
     HWND open = nullptr, savepng = nullptr, savecsv = nullptr;
-    HWND mode_time = nullptr, mode_freq = nullptr;
+    HWND mode_time = nullptr, mode_freq = nullptr, mode_frf = nullptr;
+    HWND frf_panel = nullptr;
     HWND play = nullptr, measure = nullptr, marker_btn = nullptr;
     HWND vline_btn = nullptr, hline_btn = nullptr;
     HWND reset = nullptr, autoy = nullptr, ptsettings = nullptr, sidepanel_btn = nullptr;

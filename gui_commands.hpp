@@ -3,6 +3,10 @@
 
 namespace gui {
 
+enum class AnalysisMode;
+
 LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+void set_mode(AnalysisMode mode);
 
 } // namespace gui

@@ -1,7 +1,16 @@
 // Commands: native viewer implementation.
 #include "gui_commands.hpp"
+#include "gui_frf_render.hpp"
+#include "gui_frf.hpp"
+#include "gui_spectrum.hpp"
+#include "gui_gap_details.hpp"
+#include "gui_controls.hpp"
+#include "gui_hotkeys.hpp"
+#include "gui_welcome.hpp"
+#include "gui_menu.hpp"
+#include "gui_settings_window.hpp"
+#include "gui_export.hpp"
 #include "gui_dialogs.hpp"
-#include "gui_export_metadata.hpp"
 #include "gui_ids.hpp"
 #include "gui_input.hpp"
 #include "gui_layout.hpp"
@@ -11,7 +20,6 @@
 #include "gui_processing.hpp"
 #include "gui_render_data.hpp"
 #include "gui_settings.hpp"
-#include "gui_settings_hotkeys.hpp"
 #include "gui_side_panel.hpp"
 #include "gui_state.hpp"
 #include "gui_state_history.hpp"
@@ -36,17 +44,19 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_COMMAND: {
             g_filter_slider_before.reset();
             const int id = LOWORD(wp);
+            if (g.mode == AnalysisMode::FRF && !frf_command_supported(id)) return 0;
             switch (id) {
                 case IDC_OPEN: open_file(); return 0;
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
                 case IDC_SAVECSV: save_as_dialog(); return 0;
                 case IDM_EXIT: DestroyWindow(hwnd); return 0;
                 case IDM_MODE_TIME:
-                    set_mode(false);
+                    set_mode(AnalysisMode::Time);
                     return 0;
                 case IDM_MODE_FREQ:
-                    set_mode(true);
+                    set_mode(AnalysisMode::FFT);
                     return 0;
+                case IDM_MODE_FRF: set_mode(AnalysisMode::FRF); return 0;
                 case IDC_PLAY: toggle_play(); return 0;
                 case IDC_SHOW_ALL:
                 {
@@ -211,6 +221,11 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     }
                     return 0;
                 case IDC_AUTOY:
+                    if (g.mode == AnalysisMode::FRF) {
+                        frf_y_range(g.frf.y_min, g.frf.y_max);
+                        g.frf.auto_y = !g.frf.auto_y;
+                        sync_menu(); set_status(); InvalidateRect(hwnd, nullptr, TRUE); return 0;
+                    }
                     g.auto_y = !g.auto_y;
                     if (!g.auto_y) current_time_yrange(g.y_lock_min, g.y_lock_max);
                     SendMessageW(g.autoy, BM_SETCHECK,
@@ -618,6 +633,47 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void set_mode(AnalysisMode mode) {
+    if (g.ds.frequency_axis && mode != AnalysisMode::FFT) return;
+    if (g.mode == mode) return;
+    if (g.mode != AnalysisMode::FRF) {
+        normalize_active_point_group();
+        active_point_group_index_for_mode(current_point_group_mode()) = g.active_point_group;
+    }
+    finish_channel_rename(true);
+    g.mode = mode;
+    g.dragging = false; g.fft_selecting = false;
+    g.gap_click_pending = false;
+    if (g.main && GetCapture() == g.main) ReleaseCapture();
+    g.vvalid = false;
+    if (mode != AnalysisMode::Time) {
+        stop_play();
+        hide_gap_details_card();
+    }
+    if (mode == AnalysisMode::FRF) {
+        g.pending_line = 0; g.pending_marker = false; g.measure_mode = false;
+        refresh_frf_controls(true);
+        ensure_current_frf();
+    } else {
+        normalize_active_point_group();
+        if (PointGroup* group = active_point_group()) {
+            g.marker_color = group->color;
+            sync_point_display_from_active_group();
+        }
+        if (mode == AnalysisMode::FFT) {
+            g.spec_fit_pending = true;
+            compute_spectrum_from_current_source();
+            g.freq_start = 0.0;
+            g.freq_end = g.spec_valid ? g.spec.nyquist : 1.0;
+        }
+    }
+    sync_menu();
+    refresh_side_panel_controls();
+    if (g.main) layout();
+    set_status();
+    if (g.main) InvalidateRect(g.main, nullptr, TRUE);
 }
 
 } // namespace gui

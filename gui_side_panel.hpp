@@ -53,4 +53,10 @@ void apply_side_panel_visibility();
 
 void refresh_side_panel_controls();
 
+const wchar_t* channel_show_all_text();
+
+const wchar_t* channel_hide_all_text();
+
+void set_all_channels_visible(bool visible);
+
 } // namespace gui

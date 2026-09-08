@@ -58,7 +58,7 @@ enum class AsyncLoadStage : unsigned char {
 };
 
 struct FrfState {
-    std::vector<int> inputs{0}, outputs{1};
+    std::vector<int> inputs, outputs;
     bool apply_processing = false;
     lvm::FrfOptions options;
     lvm::FrfBatchResult result;

@@ -13,11 +13,11 @@
 
 namespace gui {
 lvm::FrfWorker g_frf_worker;
-void show_frf_channel_picker(bool supports);
-bool handle_frf_picker_command(int id);
+void show_frf_channel_popup(bool supports);
+void set_frf_channels_from_popup(bool supports,std::vector<int> selection);
 namespace {
 enum {
-    InputLabel = 7100, Input, OutputLabel, Output, Processing,
+    InputLabel = 7100, Input, InputSummary, OutputLabel, Output, Processing,
     LowLabel, Low, HighLabel, High, ApplyRange, Method, Source,
     Calculate, Csv, Png, Hint, EstimatorLabel, Estimator, LengthLabel, Length,
     SmoothingLabel, Smoothing
@@ -55,40 +55,27 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             };
             make(InputLabel, L"STATIC", SS_LEFT, 12, 4, 278, 18);
             make(Input, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 22, 278, 24);
-            make(OutputLabel, L"STATIC", SS_LEFT, 12, 50, 278, 18);
-            make(Output, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 68, 278, 24);
-            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 96, 278, 24);
-            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 124, 130, 18);
-            make(LengthLabel, L"STATIC", SS_LEFT, 156, 124, 134, 18);
-            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 12, 144, 130, 200);
-            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 144, 134, 24);
-            make(Method, L"STATIC", SS_LEFT, 12, 174, 278, 48);
-            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 224, 130, 18);
-            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 156, 222, 134, 200);
-            make(Source, L"STATIC", SS_LEFT, 12, 250, 278, 32);
-            make(LowLabel, L"STATIC", SS_LEFT, 12, 284, 130, 18);
-            make(HighLabel, L"STATIC", SS_LEFT, 156, 284, 134, 18);
-            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 304, 130, 24);
-            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 304, 134, 24);
-            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 332, 278, 24);
-            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 362, 122, 24);
-            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 362, 72, 24);
-            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 362, 72, 24);
-            make(Hint, L"STATIC", SS_LEFT, 12, 392, 278, 42);
-            auto make_picker = [&](int id, const wchar_t* cls, DWORD style, int x, int y, int w, int h) {
-                HWND c=CreateWindowExW(0,cls,L"",WS_CHILD|style,x,y,w,h,hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),inst,nullptr);
-                SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(g.ui_font),TRUE);
-            };
-            make_picker(7300,L"STATIC",SS_LEFT,12,98,278,18);
-            make_picker(7306,L"STATIC",SS_LEFT,12,118,278,32);
-            make_picker(7307,L"STATIC",SS_LEFT,12,152,134,18);
-            make_picker(7308,L"STATIC",SS_LEFT,156,152,134,18);
-            make_picker(7301,L"LISTBOX",WS_BORDER|WS_VSCROLL|LBS_EXTENDEDSEL|LBS_NOTIFY|WS_TABSTOP,12,172,134,140);
-            make_picker(7302,L"LISTBOX",WS_BORDER|WS_VSCROLL|LBS_EXTENDEDSEL|LBS_NOTIFY|WS_TABSTOP,156,172,134,140);
-            make_picker(7303,L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,12,324,100,26);
-            make_picker(7304,L"BUTTON",BS_DEFPUSHBUTTON|WS_TABSTOP,124,324,80,26);
-            make_picker(7305,L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,212,324,78,26);
+            make(InputSummary, L"STATIC", SS_LEFT, 12, 47, 278, 17);
+            make(OutputLabel, L"STATIC", SS_LEFT, 12, 66, 278, 18);
+            make(Output, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 84, 278, 24);
+            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 112, 278, 24);
+            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 140, 130, 18);
+            make(LengthLabel, L"STATIC", SS_LEFT, 156, 140, 134, 18);
+            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 12, 160, 130, 200);
+            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 160, 134, 24);
+            make(Method, L"STATIC", SS_LEFT, 12, 190, 278, 48);
+            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 240, 130, 18);
+            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 156, 238, 134, 200);
+            make(Source, L"STATIC", SS_LEFT, 12, 266, 278, 32);
+            make(LowLabel, L"STATIC", SS_LEFT, 12, 300, 130, 18);
+            make(HighLabel, L"STATIC", SS_LEFT, 156, 300, 134, 18);
+            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 320, 130, 24);
+            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 320, 134, 24);
+            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 348, 278, 24);
+            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 378, 122, 24);
+            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 378, 72, 24);
+            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 378, 72, 24);
+            make(Hint, L"STATIC", SS_LEFT, 12, 408, 278, 42);
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"H1 (Welch)"));
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Direct Y/X"));
             for (const wchar_t* choice : {L"Off",L"1/24 octave",L"1/12 octave",L"1/6 octave",L"1/3 octave"})
@@ -116,10 +103,9 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if ((id==Input || id==Output) && code==BN_CLICKED) {
-                show_frf_channel_picker(id==Input);
+                show_frf_channel_popup(id==Input);
                 return 0;
             }
-            if (handle_frf_picker_command(id)) return 0;
             if (code != BN_CLICKED && code != BN_DOUBLECLICKED) return 0;
             if (id == Processing) {
                 g.frf.apply_processing = !g.frf.apply_processing;
@@ -213,76 +199,88 @@ bool valid_selection(std::vector<int> references,std::vector<int> responses) {
 }
 
 namespace {
-enum { PickerTitle=7300, PickerSupports=7301, PickerResponses, PickerSwap, PickerApply, PickerCancel,
-       PickerHelp, PickerSupportsLabel, PickerResponsesLabel };
+enum { PopupList=7301 };
+struct ChannelPopup { HWND hwnd=nullptr, list=nullptr; bool supports=true; } g_channel_popup;
 
-std::vector<int> picker_selection(HWND list) {
-    const int count=static_cast<int>(SendMessageW(list,LB_GETSELCOUNT,0,0));
-    if (count<=0) return {};
-    std::vector<int> rows(static_cast<std::size_t>(count));
-    SendMessageW(list,LB_GETSELITEMS,count,reinterpret_cast<LPARAM>(rows.data()));
-    std::vector<int> result; result.reserve(rows.size());
-    for (int row:rows) result.push_back(static_cast<int>(SendMessageW(list,LB_GETITEMDATA,row,0)));
+std::vector<int> popup_selection() {
+    std::vector<int> result;
+    for (int row=0;row<static_cast<int>(g.ds.channel_count());++row)
+        if (SendMessageW(g_channel_popup.list,LB_GETSEL,row,0)>0) result.push_back(row);
     return result;
 }
-void picker_set_selection(HWND list,const std::vector<int>& channels) {
-    SendMessageW(list,LB_SETSEL,FALSE,-1);
-    for (int channel:channels) SendMessageW(list,LB_SETSEL,TRUE,channel);
+bool popup_channel_disabled(int channel) {
+    const auto& other=g_channel_popup.supports ? g.frf.outputs : g.frf.inputs;
+    return std::find(other.begin(),other.end(),channel)!=other.end();
 }
-void picker_populate(HWND list,const std::vector<int>& channels) {
-    SendMessageW(list,LB_RESETCONTENT,0,0);
-    for (std::size_t c=0;c<g.ds.channel_count();++c) {
-        const std::wstring item=std::to_wstring(c+1)+L": "+channel_display_label(static_cast<int>(c));
-        const int row=static_cast<int>(SendMessageW(list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(item.c_str())));
-        SendMessageW(list,LB_SETITEMDATA,row,c);
-    }
-    picker_set_selection(list,channels);
-}
-}
-
-void show_frf_channel_picker(bool supports) {
-    if (!g.frf_panel) return;
-    for (int id : {Processing,EstimatorLabel,Estimator,LengthLabel,Length,Method,SmoothingLabel,Smoothing,
-                   Source,LowLabel,Low,HighLabel,High,ApplyRange,Calculate,Csv,Png,Hint})
-        ShowWindow(control(id),SW_HIDE);
-    label(PickerTitle,tr(L"Channel roles",L"Роли каналов"));
-    label(PickerHelp,tr(L"Choose both roles. A channel can belong to one role only.",
-        L"Выберите обе роли. Канал может относиться только к одной роли."));
-    label(PickerSupportsLabel,tr(L"Supports / Reference",L"Опоры"));
-    label(PickerResponsesLabel,tr(L"Responses",L"Отклики"));
-    label(PickerSwap,tr(L"Swap",L"Поменять")); label(PickerApply,tr(L"Apply",L"Применить")); label(PickerCancel,tr(L"Cancel",L"Отмена"));
-    picker_populate(control(PickerSupports),g.frf.inputs);
-    picker_populate(control(PickerResponses),g.frf.outputs);
-    for (int id : {PickerTitle,PickerHelp,PickerSupportsLabel,PickerResponsesLabel,PickerSupports,PickerResponses,PickerSwap,PickerApply,PickerCancel})
-        ShowWindow(control(id),SW_SHOW);
-    SetFocus(control(supports ? PickerSupports : PickerResponses));
-}
-
-bool handle_frf_picker_command(int id) {
-    if (!g.frf_panel || !(GetWindowLongPtrW(control(PickerSupports),GWL_STYLE)&WS_VISIBLE)) return false;
-    if (id==PickerSwap) {
-        const auto left=picker_selection(control(PickerSupports)), right=picker_selection(control(PickerResponses));
-        picker_set_selection(control(PickerSupports),right); picker_set_selection(control(PickerResponses),left);
-        return true;
-    }
-    if (id!=PickerApply && id!=PickerCancel) return false;
-    if (id==PickerApply) {
-        const auto supports=picker_selection(control(PickerSupports));
-        const auto responses=picker_selection(control(PickerResponses));
-        if (!valid_selection(supports,responses)) {
-            MessageBoxW(g.frf_panel,tr(L"Choose at least one support and one response; channel roles cannot overlap.",
-                L"Выберите хотя бы одну опору и отклик; роли каналов не должны пересекаться."),L"FRF",MB_OK|MB_ICONINFORMATION);
-            return true;
+void close_frf_channel_popup() { if (g_channel_popup.hwnd) DestroyWindow(g_channel_popup.hwnd); }
+LRESULT CALLBACK FrfChannelPopupProc(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp) {
+    switch(msg) {
+        case WM_CREATE: {
+            HINSTANCE inst=GetModuleHandleW(nullptr);
+            g_channel_popup.list=CreateWindowExW(0,L"LISTBOX",L"",WS_CHILD|WS_VISIBLE|WS_BORDER|WS_VSCROLL|
+                LBS_MULTIPLESEL|LBS_NOTIFY|LBS_OWNERDRAWFIXED|WS_TABSTOP,4,4,312,246,hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(PopupList)),inst,nullptr);
+            SendMessageW(g_channel_popup.list,WM_SETFONT,reinterpret_cast<WPARAM>(g.ui_font),TRUE);
+            const auto& selected=g_channel_popup.supports ? g.frf.inputs : g.frf.outputs;
+            for (std::size_t c=0;c<g.ds.channel_count();++c) {
+                const std::wstring text=std::to_wstring(c+1)+L": "+channel_display_label(static_cast<int>(c));
+                SendMessageW(g_channel_popup.list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(text.c_str()));
+                if (std::find(selected.begin(),selected.end(),static_cast<int>(c))!=selected.end())
+                    SendMessageW(g_channel_popup.list,LB_SETSEL,TRUE,c);
+            }
+            return 0;
         }
-        set_frf_channels(supports,responses);
+        case WM_COMMAND:
+            if (LOWORD(wp)==PopupList && HIWORD(wp)==LBN_SELCHANGE) {
+                auto selected=popup_selection();
+                selected.erase(std::remove_if(selected.begin(),selected.end(),popup_channel_disabled),selected.end());
+                SendMessageW(g_channel_popup.list,LB_SETSEL,FALSE,-1);
+                for (int channel:selected) SendMessageW(g_channel_popup.list,LB_SETSEL,TRUE,channel);
+                set_frf_channels_from_popup(g_channel_popup.supports,std::move(selected));
+                InvalidateRect(g_channel_popup.list,nullptr,FALSE);
+            }
+            return 0;
+        case WM_DRAWITEM: {
+            auto* item=reinterpret_cast<DRAWITEMSTRUCT*>(lp);
+            if (!item || item->CtlID!=PopupList || item->itemID==static_cast<UINT>(-1)) break;
+            const int channel=static_cast<int>(item->itemID), checked=SendMessageW(g_channel_popup.list,LB_GETSEL,channel,0)>0;
+            const bool disabled=popup_channel_disabled(channel);
+            FillRect(item->hDC,&item->rcItem,g_panel_brush);
+            RECT box{item->rcItem.left+6,item->rcItem.top+4,item->rcItem.left+20,item->rcItem.top+18};
+            UINT checkbox=DFCS_BUTTONCHECK;
+            if (checked) checkbox|=DFCS_CHECKED;
+            if (disabled) checkbox|=DFCS_INACTIVE;
+            DrawFrameControl(item->hDC,&box,DFC_BUTTON,checkbox);
+            SetBkMode(item->hDC,TRANSPARENT); SetTextColor(item->hDC,disabled ? g_theme->text_secondary : g_theme->text_primary);
+            const std::wstring text=std::to_wstring(channel+1)+L": "+channel_display_label(channel);
+            RECT label{box.right+8,item->rcItem.top,item->rcItem.right-4,item->rcItem.bottom};
+            DrawTextW(item->hDC,text.c_str(),-1,&label,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
+            return TRUE;
+        }
+        case WM_ACTIVATE: if (LOWORD(wp)==WA_INACTIVE) PostMessageW(hwnd,WM_CLOSE,0,0); return 0;
+        case WM_CLOSE: DestroyWindow(hwnd); return 0;
+        case WM_DESTROY: g_channel_popup={}; return 0;
     }
-    for (int picker : {PickerTitle,PickerHelp,PickerSupportsLabel,PickerResponsesLabel,PickerSupports,PickerResponses,PickerSwap,PickerApply,PickerCancel})
-        ShowWindow(control(picker),SW_HIDE);
-    for (int regular : {Processing,EstimatorLabel,Estimator,LengthLabel,Length,Method,SmoothingLabel,Smoothing,
-                        Source,LowLabel,Low,HighLabel,High,ApplyRange,Calculate,Csv,Png,Hint})
-        ShowWindow(control(regular),SW_SHOW);
-    refresh_frf_controls();
-    return true;
+    return DefWindowProcW(hwnd,msg,wp,lp);
+}
+}
+
+void show_frf_channel_popup(bool supports) {
+    if (g_channel_popup.hwnd) {
+        if (g_channel_popup.supports==supports) { close_frf_channel_popup(); return; }
+        close_frf_channel_popup();
+    }
+    static bool registered=false;
+    if (!registered) {
+        WNDCLASSW wc{}; wc.hInstance=GetModuleHandleW(nullptr); wc.lpfnWndProc=FrfChannelPopupProc;
+        wc.hCursor=LoadCursor(nullptr,IDC_ARROW); wc.lpszClassName=L"AMGraphFrfChannelPopup";
+        RegisterClassW(&wc); registered=true;
+    }
+    RECT anchor{}; GetWindowRect(control(supports ? Input : Output),&anchor);
+    g_channel_popup.supports=supports;
+    g_channel_popup.hwnd=CreateWindowExW(WS_EX_TOOLWINDOW,L"AMGraphFrfChannelPopup",L"",WS_POPUP|WS_BORDER,
+        anchor.left,anchor.bottom,320,254,g.main,nullptr,GetModuleHandleW(nullptr),nullptr);
+    if (g_channel_popup.hwnd) { ShowWindow(g_channel_popup.hwnd,SW_SHOWNORMAL); SetFocus(g_channel_popup.list); }
 }
 
 bool set_frf_channels(std::vector<int> references,std::vector<int> responses) {
@@ -294,6 +292,22 @@ bool set_frf_channels(std::vector<int> references,std::vector<int> responses) {
     if (g.mode==AnalysisMode::FRF) compute_frf_from_current_source();
     refresh_frf_controls();
     return true;
+}
+void set_frf_channels_from_popup(bool supports,std::vector<int> selection) {
+    std::sort(selection.begin(),selection.end());
+    selection.erase(std::unique(selection.begin(),selection.end()),selection.end());
+    auto references=supports ? selection : g.frf.inputs;
+    auto responses=supports ? g.frf.outputs : selection;
+    const auto& other=supports ? responses : references;
+    selection.erase(std::remove_if(selection.begin(),selection.end(),[&](int channel) {
+        return std::find(other.begin(),other.end(),channel)!=other.end();
+    }),selection.end());
+    if (supports) references=selection; else responses=selection;
+    if (references==g.frf.inputs && responses==g.frf.outputs) return;
+    g.frf.inputs=std::move(references); g.frf.outputs=std::move(responses);
+    invalidate_frf();
+    if (g.mode==AnalysisMode::FRF) compute_frf_from_current_source();
+    refresh_frf_controls();
 }
 std::wstring frf_curve_label(std::size_t response) {
     if (response>=g.frf.output_names.size()) return L"";
@@ -473,13 +487,28 @@ void refresh_frf_controls(bool repopulate) {
         label(Length,std::to_wstring(g.frf.options.segment_length).c_str());
     }
     const auto button_text=[&](const std::vector<int>& channels,bool reference) {
-        const wchar_t* action=reference ? tr(L"Select supports: ",L"Выбрать опоры: ") :
-            tr(L"Select responses: ",L"Выбрать отклики: ");
-        if (channels.size()==1) return std::wstring(action)+channel_display_label(channels.front())+L" ▾";
-        return std::wstring(action)+std::to_wstring(channels.size())+tr(L" channels ▾",L" каналов ▾");
+        if (channels.empty()) return std::wstring(reference ? tr(L"Choose supports…",L"Выбрать опоры…") :
+            tr(L"Choose responses…",L"Выбрать отклики…"));
+        std::wstring names;
+        for (int channel:channels) {
+            if (!names.empty()) names+=L", ";
+            names+=channel_display_label(channel);
+        }
+        HWND button=control(reference ? Input : Output);
+        if (!button || !g.ui_font)
+            return names.size()<=34 ? names+L" ▾" : std::to_wstring(channels.size())+
+                tr(L" channels selected ▾",L" каналов выбрано ▾");
+        RECT rect{}; GetClientRect(button,&rect);
+        HDC dc=GetDC(button); HGDIOBJ previous=SelectObject(dc,g.ui_font);
+        SIZE extent{}; GetTextExtentPoint32W(dc,names.c_str(),static_cast<int>(names.size()),&extent);
+        SelectObject(dc,previous); ReleaseDC(button,dc);
+        if (extent.cx<=rect.right-rect.left-30) return names+L" ▾";
+        return std::to_wstring(channels.size())+tr(L" channels selected ▾",L" каналов выбрано ▾");
     };
     label(Input,button_text(g.frf.inputs,true).c_str());
     label(Output,button_text(g.frf.outputs,false).c_str());
+    label(InputSummary,g.frf.inputs.size()>1 ? (tr(L"AVG of ",L"Среднее из ")+std::to_wstring(g.frf.inputs.size())+
+        tr(L" channels",L" каналов")).c_str() : L"");
     if (g.frf.view_initialized) {
         label(Low, format_edit_number(std::pow(10.0, g.frf.log_start)).c_str());
         label(High, format_edit_number(std::pow(10.0, g.frf.log_end)).c_str());

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Меню выбора ролей АЧХ теперь использует палитру приложения в тёмной теме,
+  включая фон, границы, подсветку, текст и флажки. В светлой теме сохранено
+  нативное меню Windows. Повторное нажатие на тот же контроль надёжно скрывает
+  popup даже при смене фокуса окна.
+- The FRF role menu now uses the application palette in Dark theme, including
+  its background, borders, hover state, text, and checkmarks. Light theme keeps
+  the native Windows menu appearance. A second click on the same control now
+  reliably hides the popup even while its window loses focus.
+
 ## v0.13.2
 
 - Выпущена стабилизированная версия выбора ролей АЧХ: постоянное системно

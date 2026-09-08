@@ -207,6 +207,7 @@ struct FrfRoleMenu {
     bool supports=true;
     int width=0, row_height=0, channel_rows=0, clear_top=0, hot_row=-1;
 } g_frf_role_menu;
+int g_frf_role_menu_suppressed_role=-1;
 
 bool role_menu_disabled(int channel) {
     const auto& opposite=g_frf_role_menu.supports ? g.frf.outputs : g.frf.inputs;
@@ -214,6 +215,12 @@ bool role_menu_disabled(int channel) {
 }
 void close_frf_role_menu() {
     if (g_frf_role_menu.window) DestroyWindow(g_frf_role_menu.window);
+}
+bool cursor_over_role_control(bool supports) {
+    RECT bounds{};
+    if (!GetWindowRect(control(supports ? Input : Output),&bounds)) return false;
+    POINT cursor{}; GetCursorPos(&cursor);
+    return PtInRect(&bounds,cursor)!=FALSE;
 }
 int role_menu_row(POINT point) {
     const int row=(point.y-2)/g_frf_role_menu.row_height;
@@ -224,12 +231,18 @@ int role_menu_row(POINT point) {
 }
 void draw_role_menu(HWND window,HDC dc) {
     RECT area{}; GetClientRect(window,&area);
-    HTHEME theme=OpenThemeData(window,L"MENU");
+    const bool dark=g_theme==&kDarkTheme;
+    HTHEME theme=dark ? nullptr : OpenThemeData(window,L"MENU");
     if (theme) {
         DrawThemeBackground(theme,dc,MENU_POPUPBACKGROUND,0,&area,nullptr);
         DrawThemeBackground(theme,dc,MENU_POPUPBORDERS,0,&area,nullptr);
     } else {
-        FillRect(dc,&area,GetSysColorBrush(COLOR_MENU));
+        HBRUSH background=CreateSolidBrush(dark ? g_theme->bg_panel : GetSysColor(COLOR_MENU));
+        FillRect(dc,&area,background); DeleteObject(background);
+        if (dark) {
+            HBRUSH border=CreateSolidBrush(g_theme->frame);
+            FrameRect(dc,&area,border); DeleteObject(border);
+        }
     }
     HGDIOBJ previous=SelectObject(dc,g_frf_role_menu.font);
     SetBkMode(dc,TRANSPARENT);
@@ -243,24 +256,40 @@ void draw_role_menu(HWND window,HDC dc) {
         if (theme) {
             DrawThemeBackground(theme,dc,MENU_POPUPITEM,
                 disabled ? (hot ? MPI_DISABLEDHOT : MPI_DISABLED) : (hot ? MPI_HOT : MPI_NORMAL),&item,nullptr);
-        } else if (hot) {
-            FillRect(dc,&item,GetSysColorBrush(COLOR_HIGHLIGHT));
+        } else if (hot && !disabled) {
+            HBRUSH hover=CreateSolidBrush(dark ? g_theme->btn_hover : GetSysColor(COLOR_HIGHLIGHT));
+            FillRect(dc,&item,hover); DeleteObject(hover);
         }
         RECT check{item.left+3,item.top+2,item.left+23,item.bottom-2};
         if (theme) {
             DrawThemeBackground(theme,dc,MENU_POPUPCHECKBACKGROUND,disabled ? MCB_DISABLED : MCB_NORMAL,&check,nullptr);
             if (checked) DrawThemeBackground(theme,dc,MENU_POPUPCHECK,disabled ? MC_CHECKMARKDISABLED : MC_CHECKMARKNORMAL,&check,nullptr);
+        } else if (dark) {
+            HBRUSH frame=CreateSolidBrush(g_theme->frame);
+            FrameRect(dc,&check,frame); DeleteObject(frame);
+            if (checked) {
+                HPEN pen=CreatePen(PS_SOLID,2,disabled ? g_theme->text_secondary : g_theme->accent);
+                HGDIOBJ old_pen=SelectObject(dc,pen);
+                MoveToEx(dc,check.left+4,check.top+(check.bottom-check.top)/2,nullptr);
+                LineTo(dc,check.left+8,check.bottom-5);
+                LineTo(dc,check.right-4,check.top+4);
+                SelectObject(dc,old_pen); DeleteObject(pen);
+            }
         } else {
             DrawFrameControl(dc,&check,DFC_BUTTON,DFCS_BUTTONCHECK|(checked ? DFCS_CHECKED : 0)|(disabled ? DFCS_INACTIVE : 0));
         }
-        SetTextColor(dc,GetSysColor(disabled ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT)));
+        SetTextColor(dc,dark ? (disabled ? g_theme->text_secondary : g_theme->text_primary) :
+            GetSysColor(disabled ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT)));
         const std::wstring name=std::to_wstring(channel+1)+L": "+channel_display_label(channel);
         RECT text{check.right+4,item.top,item.right-6,item.bottom};
         DrawTextW(dc,name.c_str(),-1,&text,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
     }
     RECT separator{2,g_frf_role_menu.clear_top-5,g_frf_role_menu.width-2,g_frf_role_menu.clear_top-1};
     if (theme) DrawThemeBackground(theme,dc,MENU_POPUPSEPARATOR,0,&separator,nullptr);
-    else FillRect(dc,&separator,GetSysColorBrush(COLOR_MENU));
+    else {
+        HBRUSH separator_brush=CreateSolidBrush(dark ? g_theme->separator : GetSysColor(COLOR_MENU));
+        FillRect(dc,&separator,separator_brush); DeleteObject(separator_brush);
+    }
     const bool can_clear=!selected.empty();
     const bool clear_hot=g_frf_role_menu.hot_row==-2;
     RECT clear{2,g_frf_role_menu.clear_top,g_frf_role_menu.width-2,
@@ -269,9 +298,11 @@ void draw_role_menu(HWND window,HDC dc) {
         DrawThemeBackground(theme,dc,MENU_POPUPITEM,
             can_clear ? (clear_hot ? MPI_HOT : MPI_NORMAL) : (clear_hot ? MPI_DISABLEDHOT : MPI_DISABLED),&clear,nullptr);
     } else if (clear_hot && can_clear) {
-        FillRect(dc,&clear,GetSysColorBrush(COLOR_HIGHLIGHT));
+        HBRUSH hover=CreateSolidBrush(dark ? g_theme->btn_hover : GetSysColor(COLOR_HIGHLIGHT));
+        FillRect(dc,&clear,hover); DeleteObject(hover);
     }
-    SetTextColor(dc,GetSysColor(can_clear ? (clear_hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT) : COLOR_GRAYTEXT));
+    SetTextColor(dc,dark ? (can_clear ? g_theme->text_primary : g_theme->text_secondary) :
+        GetSysColor(can_clear ? (clear_hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT) : COLOR_GRAYTEXT));
     RECT clear_text{27,clear.top,clear.right-6,clear.bottom};
     DrawTextW(dc,tr(L"Clear",L"Очистить"),-1,&clear_text,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
     SelectObject(dc,previous);
@@ -325,7 +356,11 @@ LRESULT CALLBACK FrfRoleMenuProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
         case WM_ERASEBKGND:
             return 1;
         case WM_ACTIVATE:
-            if (LOWORD(wp)==WA_INACTIVE) PostMessageW(window,WM_CLOSE,0,0);
+            if (LOWORD(wp)==WA_INACTIVE) {
+                if (cursor_over_role_control(g_frf_role_menu.supports))
+                    g_frf_role_menu_suppressed_role=g_frf_role_menu.supports ? 1 : 0;
+                PostMessageW(window,WM_CLOSE,0,0);
+            }
             return 0;
         case WM_CLOSE: DestroyWindow(window); return 0;
         case WM_DESTROY:
@@ -338,6 +373,12 @@ LRESULT CALLBACK FrfRoleMenuProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
 }
 
 void show_frf_channel_menu(bool supports) {
+    const int role=supports ? 1 : 0;
+    if (g_frf_role_menu_suppressed_role==role) {
+        g_frf_role_menu_suppressed_role=-1;
+        return;
+    }
+    g_frf_role_menu_suppressed_role=-1;
     if (g_frf_role_menu.window) {
         if (g_frf_role_menu.supports==supports) { close_frf_role_menu(); return; }
         close_frf_role_menu();

@@ -521,6 +521,16 @@ void frf_integration() {
             "FRF role menu remains open and leaves panel controls visible after a choice");
         SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
         require(!IsWindow(role_menu),"the same FRF role control closes its menu");
+        g_theme=&kDarkTheme;
+        update_theme_brushes();
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
+        role_menu=FindWindowW(L"AMSignalFrfRoleMenu",nullptr);
+        require(role_menu!=nullptr && IsWindowVisible(role_menu),"FRF role menu opens in the dark theme");
+        SendMessageW(role_menu,WM_PAINT,0,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
+        require(!IsWindow(role_menu),"the dark FRF role menu also closes on a repeated control click");
+        g_theme=&kLightTheme;
+        update_theme_brushes();
         wchar_t range_text[80]{};
         require(GetWindowTextW(GetDlgItem(g.frf_panel,7107),range_text,80)>0,"FRF range edit displays calculated limit");
         RECT panel; GetClientRect(g.frf_panel,&panel);

@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.13.1
+
+- Выбор опор и откликов в АЧХ возвращён к одному меню-подобному Win32-popup с
+  системными флажками из первой версии. Изменение флажка сразу обновляет роль и
+  запускает нужный пересчёт, но popup остаётся открытым для выбора нескольких
+  каналов; остальные контроли правой панели не скрываются. Он закрывается
+  кликом вне него или повторным
+  нажатием того же контрола. Удалены встроенный редактор ролей, кнопки Apply/Cancel и обмен
+  ролями.
+- При новом или загруженном документе роли опор и откликов не предвыбраны. Окно
+  выбора имеет слегка скруглённые границы. На кнопках выводятся
+  имена каналов, если они помещаются, иначе число выбранных каналов; под
+  несколькими опорами показывается `AVG of N channels`. Пункт `Clear` очищает
+  только открытую роль и оставляет меню открытым. Каналы, уже назначенные
+  противоположной роли, видны в списке, но недоступны, поэтому роли не могут
+  пересекаться.
+- FRF support and response selection has returned to one menu-like Win32 popup
+  with the original system checkbox appearance. Each toggle takes effect immediately
+  and triggers the required recalculation while the popup remains open for multi-select;
+  the remaining right-panel controls stay visible. It closes on an outside click or a second click on the same control. The embedded
+  role editor, Apply/Cancel buttons, and role swap action have been removed.
+- A new or loaded document starts with no preselected support or response roles.
+  The selection popup has lightly rounded corners. Buttons
+  show channel names when they fit and a selected-channel count otherwise; multiple
+  supports also show `AVG of N channels`. The `Clear` item removes only the open
+  role and leaves the menu open. Channels already assigned to the opposite
+  role remain visible but disabled, so roles cannot overlap.
+
 ## v0.13.0
 
 - Программа переименована в `AMSignal`: обновлены заголовки окон, справка,

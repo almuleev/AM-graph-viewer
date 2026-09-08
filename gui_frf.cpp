@@ -13,11 +13,12 @@
 
 namespace gui {
 lvm::FrfWorker g_frf_worker;
-void show_frf_channel_picker(bool supports);
-bool handle_frf_picker_command(int id);
+void show_frf_channel_menu(bool supports);
+void set_frf_channels_from_menu(bool supports,std::vector<int> selection);
+void clear_frf_channel_selection(bool supports);
 namespace {
 enum {
-    InputLabel = 7100, Input, OutputLabel, Output, Processing,
+    InputLabel = 7100, Input, InputSummary, OutputLabel, Output, Processing,
     LowLabel, Low, HighLabel, High, ApplyRange, Method, Source,
     Calculate, Csv, Png, Hint, EstimatorLabel, Estimator, LengthLabel, Length,
     SmoothingLabel, Smoothing
@@ -55,40 +56,27 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             };
             make(InputLabel, L"STATIC", SS_LEFT, 12, 4, 278, 18);
             make(Input, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 22, 278, 24);
-            make(OutputLabel, L"STATIC", SS_LEFT, 12, 50, 278, 18);
-            make(Output, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 68, 278, 24);
-            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 96, 278, 24);
-            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 124, 130, 18);
-            make(LengthLabel, L"STATIC", SS_LEFT, 156, 124, 134, 18);
-            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 12, 144, 130, 200);
-            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 144, 134, 24);
-            make(Method, L"STATIC", SS_LEFT, 12, 174, 278, 48);
-            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 224, 130, 18);
-            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 156, 222, 134, 200);
-            make(Source, L"STATIC", SS_LEFT, 12, 250, 278, 32);
-            make(LowLabel, L"STATIC", SS_LEFT, 12, 284, 130, 18);
-            make(HighLabel, L"STATIC", SS_LEFT, 156, 284, 134, 18);
-            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 304, 130, 24);
-            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 304, 134, 24);
-            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 332, 278, 24);
-            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 362, 122, 24);
-            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 362, 72, 24);
-            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 362, 72, 24);
-            make(Hint, L"STATIC", SS_LEFT, 12, 392, 278, 42);
-            auto make_picker = [&](int id, const wchar_t* cls, DWORD style, int x, int y, int w, int h) {
-                HWND c=CreateWindowExW(0,cls,L"",WS_CHILD|style,x,y,w,h,hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),inst,nullptr);
-                SendMessageW(c,WM_SETFONT,reinterpret_cast<WPARAM>(g.ui_font),TRUE);
-            };
-            make_picker(7300,L"STATIC",SS_LEFT,12,98,278,18);
-            make_picker(7306,L"STATIC",SS_LEFT,12,118,278,32);
-            make_picker(7307,L"STATIC",SS_LEFT,12,152,134,18);
-            make_picker(7308,L"STATIC",SS_LEFT,156,152,134,18);
-            make_picker(7301,L"LISTBOX",WS_BORDER|WS_VSCROLL|LBS_EXTENDEDSEL|LBS_NOTIFY|WS_TABSTOP,12,172,134,140);
-            make_picker(7302,L"LISTBOX",WS_BORDER|WS_VSCROLL|LBS_EXTENDEDSEL|LBS_NOTIFY|WS_TABSTOP,156,172,134,140);
-            make_picker(7303,L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,12,324,100,26);
-            make_picker(7304,L"BUTTON",BS_DEFPUSHBUTTON|WS_TABSTOP,124,324,80,26);
-            make_picker(7305,L"BUTTON",BS_PUSHBUTTON|WS_TABSTOP,212,324,78,26);
+            make(InputSummary, L"STATIC", SS_LEFT, 12, 47, 278, 17);
+            make(OutputLabel, L"STATIC", SS_LEFT, 12, 66, 278, 18);
+            make(Output, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 84, 278, 24);
+            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 112, 278, 24);
+            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 140, 130, 18);
+            make(LengthLabel, L"STATIC", SS_LEFT, 156, 140, 134, 18);
+            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 12, 160, 130, 200);
+            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 160, 134, 24);
+            make(Method, L"STATIC", SS_LEFT, 12, 190, 278, 48);
+            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 240, 130, 18);
+            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 156, 238, 134, 200);
+            make(Source, L"STATIC", SS_LEFT, 12, 266, 278, 32);
+            make(LowLabel, L"STATIC", SS_LEFT, 12, 300, 130, 18);
+            make(HighLabel, L"STATIC", SS_LEFT, 156, 300, 134, 18);
+            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 320, 130, 24);
+            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 320, 134, 24);
+            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 348, 278, 24);
+            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 378, 122, 24);
+            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 378, 72, 24);
+            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 378, 72, 24);
+            make(Hint, L"STATIC", SS_LEFT, 12, 408, 278, 42);
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"H1 (Welch)"));
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Direct Y/X"));
             for (const wchar_t* choice : {L"Off",L"1/24 octave",L"1/12 octave",L"1/6 octave",L"1/3 octave"})
@@ -116,10 +104,9 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if ((id==Input || id==Output) && code==BN_CLICKED) {
-                show_frf_channel_picker(id==Input);
+                show_frf_channel_menu(id==Input);
                 return 0;
             }
-            if (handle_frf_picker_command(id)) return 0;
             if (code != BN_CLICKED && code != BN_DOUBLECLICKED) return 0;
             if (id == Processing) {
                 g.frf.apply_processing = !g.frf.apply_processing;
@@ -213,76 +200,183 @@ bool valid_selection(std::vector<int> references,std::vector<int> responses) {
 }
 
 namespace {
-enum { PickerTitle=7300, PickerSupports=7301, PickerResponses, PickerSwap, PickerApply, PickerCancel,
-       PickerHelp, PickerSupportsLabel, PickerResponsesLabel };
+struct FrfRoleMenu {
+    HWND window=nullptr;
+    HFONT font=nullptr;
+    bool owns_font=false;
+    bool supports=true;
+    int width=0, row_height=0, channel_rows=0, clear_top=0, hot_row=-1;
+} g_frf_role_menu;
 
-std::vector<int> picker_selection(HWND list) {
-    const int count=static_cast<int>(SendMessageW(list,LB_GETSELCOUNT,0,0));
-    if (count<=0) return {};
-    std::vector<int> rows(static_cast<std::size_t>(count));
-    SendMessageW(list,LB_GETSELITEMS,count,reinterpret_cast<LPARAM>(rows.data()));
-    std::vector<int> result; result.reserve(rows.size());
-    for (int row:rows) result.push_back(static_cast<int>(SendMessageW(list,LB_GETITEMDATA,row,0)));
-    return result;
+bool role_menu_disabled(int channel) {
+    const auto& opposite=g_frf_role_menu.supports ? g.frf.outputs : g.frf.inputs;
+    return std::find(opposite.begin(),opposite.end(),channel)!=opposite.end();
 }
-void picker_set_selection(HWND list,const std::vector<int>& channels) {
-    SendMessageW(list,LB_SETSEL,FALSE,-1);
-    for (int channel:channels) SendMessageW(list,LB_SETSEL,TRUE,channel);
+void close_frf_role_menu() {
+    if (g_frf_role_menu.window) DestroyWindow(g_frf_role_menu.window);
 }
-void picker_populate(HWND list,const std::vector<int>& channels) {
-    SendMessageW(list,LB_RESETCONTENT,0,0);
-    for (std::size_t c=0;c<g.ds.channel_count();++c) {
-        const std::wstring item=std::to_wstring(c+1)+L": "+channel_display_label(static_cast<int>(c));
-        const int row=static_cast<int>(SendMessageW(list,LB_ADDSTRING,0,reinterpret_cast<LPARAM>(item.c_str())));
-        SendMessageW(list,LB_SETITEMDATA,row,c);
+int role_menu_row(POINT point) {
+    const int row=(point.y-2)/g_frf_role_menu.row_height;
+    if (point.y>=2 && row>=0 && row<g_frf_role_menu.channel_rows) return row;
+    if (point.y>=g_frf_role_menu.clear_top &&
+        point.y<g_frf_role_menu.clear_top+g_frf_role_menu.row_height) return -2;
+    return -1;
+}
+void draw_role_menu(HWND window,HDC dc) {
+    RECT area{}; GetClientRect(window,&area);
+    HTHEME theme=OpenThemeData(window,L"MENU");
+    if (theme) {
+        DrawThemeBackground(theme,dc,MENU_POPUPBACKGROUND,0,&area,nullptr);
+        DrawThemeBackground(theme,dc,MENU_POPUPBORDERS,0,&area,nullptr);
+    } else {
+        FillRect(dc,&area,GetSysColorBrush(COLOR_MENU));
     }
-    picker_set_selection(list,channels);
-}
-}
-
-void show_frf_channel_picker(bool supports) {
-    if (!g.frf_panel) return;
-    for (int id : {Processing,EstimatorLabel,Estimator,LengthLabel,Length,Method,SmoothingLabel,Smoothing,
-                   Source,LowLabel,Low,HighLabel,High,ApplyRange,Calculate,Csv,Png,Hint})
-        ShowWindow(control(id),SW_HIDE);
-    label(PickerTitle,tr(L"Channel roles",L"Роли каналов"));
-    label(PickerHelp,tr(L"Choose both roles. A channel can belong to one role only.",
-        L"Выберите обе роли. Канал может относиться только к одной роли."));
-    label(PickerSupportsLabel,tr(L"Supports / Reference",L"Опоры"));
-    label(PickerResponsesLabel,tr(L"Responses",L"Отклики"));
-    label(PickerSwap,tr(L"Swap",L"Поменять")); label(PickerApply,tr(L"Apply",L"Применить")); label(PickerCancel,tr(L"Cancel",L"Отмена"));
-    picker_populate(control(PickerSupports),g.frf.inputs);
-    picker_populate(control(PickerResponses),g.frf.outputs);
-    for (int id : {PickerTitle,PickerHelp,PickerSupportsLabel,PickerResponsesLabel,PickerSupports,PickerResponses,PickerSwap,PickerApply,PickerCancel})
-        ShowWindow(control(id),SW_SHOW);
-    SetFocus(control(supports ? PickerSupports : PickerResponses));
-}
-
-bool handle_frf_picker_command(int id) {
-    if (!g.frf_panel || !(GetWindowLongPtrW(control(PickerSupports),GWL_STYLE)&WS_VISIBLE)) return false;
-    if (id==PickerSwap) {
-        const auto left=picker_selection(control(PickerSupports)), right=picker_selection(control(PickerResponses));
-        picker_set_selection(control(PickerSupports),right); picker_set_selection(control(PickerResponses),left);
-        return true;
-    }
-    if (id!=PickerApply && id!=PickerCancel) return false;
-    if (id==PickerApply) {
-        const auto supports=picker_selection(control(PickerSupports));
-        const auto responses=picker_selection(control(PickerResponses));
-        if (!valid_selection(supports,responses)) {
-            MessageBoxW(g.frf_panel,tr(L"Choose at least one support and one response; channel roles cannot overlap.",
-                L"Выберите хотя бы одну опору и отклик; роли каналов не должны пересекаться."),L"FRF",MB_OK|MB_ICONINFORMATION);
-            return true;
+    HGDIOBJ previous=SelectObject(dc,g_frf_role_menu.font);
+    SetBkMode(dc,TRANSPARENT);
+    const auto& selected=g_frf_role_menu.supports ? g.frf.inputs : g.frf.outputs;
+    for (int channel=0;channel<g_frf_role_menu.channel_rows;++channel) {
+        RECT item{2,2+channel*g_frf_role_menu.row_height,g_frf_role_menu.width-2,
+            2+(channel+1)*g_frf_role_menu.row_height};
+        const bool disabled=role_menu_disabled(channel);
+        const bool checked=std::find(selected.begin(),selected.end(),channel)!=selected.end();
+        const bool hot=channel==g_frf_role_menu.hot_row;
+        if (theme) {
+            DrawThemeBackground(theme,dc,MENU_POPUPITEM,
+                disabled ? (hot ? MPI_DISABLEDHOT : MPI_DISABLED) : (hot ? MPI_HOT : MPI_NORMAL),&item,nullptr);
+        } else if (hot) {
+            FillRect(dc,&item,GetSysColorBrush(COLOR_HIGHLIGHT));
         }
-        set_frf_channels(supports,responses);
+        RECT check{item.left+3,item.top+2,item.left+23,item.bottom-2};
+        if (theme) {
+            DrawThemeBackground(theme,dc,MENU_POPUPCHECKBACKGROUND,disabled ? MCB_DISABLED : MCB_NORMAL,&check,nullptr);
+            if (checked) DrawThemeBackground(theme,dc,MENU_POPUPCHECK,disabled ? MC_CHECKMARKDISABLED : MC_CHECKMARKNORMAL,&check,nullptr);
+        } else {
+            DrawFrameControl(dc,&check,DFC_BUTTON,DFCS_BUTTONCHECK|(checked ? DFCS_CHECKED : 0)|(disabled ? DFCS_INACTIVE : 0));
+        }
+        SetTextColor(dc,GetSysColor(disabled ? COLOR_GRAYTEXT : (hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT)));
+        const std::wstring name=std::to_wstring(channel+1)+L": "+channel_display_label(channel);
+        RECT text{check.right+4,item.top,item.right-6,item.bottom};
+        DrawTextW(dc,name.c_str(),-1,&text,DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
     }
-    for (int picker : {PickerTitle,PickerHelp,PickerSupportsLabel,PickerResponsesLabel,PickerSupports,PickerResponses,PickerSwap,PickerApply,PickerCancel})
-        ShowWindow(control(picker),SW_HIDE);
-    for (int regular : {Processing,EstimatorLabel,Estimator,LengthLabel,Length,Method,SmoothingLabel,Smoothing,
-                        Source,LowLabel,Low,HighLabel,High,ApplyRange,Calculate,Csv,Png,Hint})
-        ShowWindow(control(regular),SW_SHOW);
-    refresh_frf_controls();
-    return true;
+    RECT separator{2,g_frf_role_menu.clear_top-5,g_frf_role_menu.width-2,g_frf_role_menu.clear_top-1};
+    if (theme) DrawThemeBackground(theme,dc,MENU_POPUPSEPARATOR,0,&separator,nullptr);
+    else FillRect(dc,&separator,GetSysColorBrush(COLOR_MENU));
+    const bool can_clear=!selected.empty();
+    const bool clear_hot=g_frf_role_menu.hot_row==-2;
+    RECT clear{2,g_frf_role_menu.clear_top,g_frf_role_menu.width-2,
+        g_frf_role_menu.clear_top+g_frf_role_menu.row_height};
+    if (theme) {
+        DrawThemeBackground(theme,dc,MENU_POPUPITEM,
+            can_clear ? (clear_hot ? MPI_HOT : MPI_NORMAL) : (clear_hot ? MPI_DISABLEDHOT : MPI_DISABLED),&clear,nullptr);
+    } else if (clear_hot && can_clear) {
+        FillRect(dc,&clear,GetSysColorBrush(COLOR_HIGHLIGHT));
+    }
+    SetTextColor(dc,GetSysColor(can_clear ? (clear_hot ? COLOR_HIGHLIGHTTEXT : COLOR_MENUTEXT) : COLOR_GRAYTEXT));
+    RECT clear_text{27,clear.top,clear.right-6,clear.bottom};
+    DrawTextW(dc,tr(L"Clear",L"Очистить"),-1,&clear_text,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+    SelectObject(dc,previous);
+    if (theme) CloseThemeData(theme);
+}
+LRESULT CALLBACK FrfRoleMenuProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
+    switch (message) {
+        case WM_CREATE: {
+            return 0;
+        }
+        case WM_PAINT: {
+            PAINTSTRUCT paint{}; HDC dc=BeginPaint(window,&paint);
+            draw_role_menu(window,dc); EndPaint(window,&paint);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track),TME_LEAVE,window,0};
+            TrackMouseEvent(&track);
+            POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+            const int row=role_menu_row(point);
+            if (row!=g_frf_role_menu.hot_row) {
+                g_frf_role_menu.hot_row=row;
+                InvalidateRect(window,nullptr,FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+            if (g_frf_role_menu.hot_row!=-1) {
+                g_frf_role_menu.hot_row=-1;
+                InvalidateRect(window,nullptr,FALSE);
+            }
+            return 0;
+        case WM_LBUTTONUP: {
+            POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};
+            const int channel=role_menu_row(point);
+            if (channel==-2) {
+                clear_frf_channel_selection(g_frf_role_menu.supports);
+                InvalidateRect(window,nullptr,FALSE);
+            } else if (channel>=0 && !role_menu_disabled(channel)) {
+                auto selected=g_frf_role_menu.supports ? g.frf.inputs : g.frf.outputs;
+                auto it=std::find(selected.begin(),selected.end(),channel);
+                if (it==selected.end()) selected.push_back(channel); else selected.erase(it);
+                set_frf_channels_from_menu(g_frf_role_menu.supports,std::move(selected));
+                InvalidateRect(window,nullptr,FALSE);
+            }
+            return 0;
+        }
+        case WM_KEYDOWN:
+            if (wp==VK_ESCAPE) { close_frf_role_menu(); return 0; }
+            return 0;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_ACTIVATE:
+            if (LOWORD(wp)==WA_INACTIVE) PostMessageW(window,WM_CLOSE,0,0);
+            return 0;
+        case WM_CLOSE: DestroyWindow(window); return 0;
+        case WM_DESTROY:
+            if (g_frf_role_menu.owns_font) DeleteObject(g_frf_role_menu.font);
+            g_frf_role_menu={};
+            return 0;
+    }
+    return DefWindowProcW(window,message,wp,lp);
+}
+}
+
+void show_frf_channel_menu(bool supports) {
+    if (g_frf_role_menu.window) {
+        if (g_frf_role_menu.supports==supports) { close_frf_role_menu(); return; }
+        close_frf_role_menu();
+    }
+    static bool registered=false;
+    if (!registered) {
+        WNDCLASSW window_class{}; window_class.hInstance=GetModuleHandleW(nullptr);
+        window_class.lpfnWndProc=FrfRoleMenuProc; window_class.hCursor=LoadCursor(nullptr,IDC_ARROW);
+        window_class.lpszClassName=L"AMSignalFrfRoleMenu";
+        RegisterClassW(&window_class); registered=true;
+    }
+    NONCLIENTMETRICSW metrics{};
+    metrics.cbSize=sizeof(metrics);
+    SystemParametersInfoW(SPI_GETNONCLIENTMETRICS,sizeof(metrics),&metrics,0);
+    g_frf_role_menu.font=CreateFontIndirectW(&metrics.lfMenuFont);
+    g_frf_role_menu.owns_font=g_frf_role_menu.font!=nullptr;
+    if (!g_frf_role_menu.font) g_frf_role_menu.font=static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    RECT anchor{}; GetWindowRect(control(supports ? Input : Output),&anchor);
+    HDC dc=GetDC(nullptr); HGDIOBJ previous=SelectObject(dc,g_frf_role_menu.font);
+    int widest=anchor.right-anchor.left;
+    for (std::size_t c=0;c<g.ds.channel_count();++c) {
+        const std::wstring name=std::to_wstring(c+1)+L": "+channel_display_label(static_cast<int>(c));
+        SIZE size{}; GetTextExtentPoint32W(dc,name.c_str(),static_cast<int>(name.size()),&size);
+        widest=std::max(widest,static_cast<int>(size.cx)+40);
+    }
+    SelectObject(dc,previous); ReleaseDC(nullptr,dc);
+    g_frf_role_menu.supports=supports;
+    g_frf_role_menu.width=std::min(std::max(widest,180),500);
+    g_frf_role_menu.row_height=std::max(GetSystemMetrics(SM_CYMENU),20);
+    g_frf_role_menu.channel_rows=static_cast<int>(g.ds.channel_count());
+    g_frf_role_menu.clear_top=2+g_frf_role_menu.channel_rows*g_frf_role_menu.row_height+5;
+    const int height=g_frf_role_menu.clear_top+g_frf_role_menu.row_height+2;
+    g_frf_role_menu.window=CreateWindowExW(WS_EX_TOOLWINDOW,L"AMSignalFrfRoleMenu",L"",WS_POPUP|WS_BORDER,
+        anchor.left,anchor.bottom,g_frf_role_menu.width,height,g.main,nullptr,GetModuleHandleW(nullptr),nullptr);
+    if (g_frf_role_menu.window) {
+        HRGN rounded=CreateRoundRectRgn(0,0,g_frf_role_menu.width+1,height+1,10,10);
+        if (!SetWindowRgn(g_frf_role_menu.window,rounded,TRUE)) DeleteObject(rounded);
+        ShowWindow(g_frf_role_menu.window,SW_SHOWNORMAL);
+    }
 }
 
 bool set_frf_channels(std::vector<int> references,std::vector<int> responses) {
@@ -294,6 +388,25 @@ bool set_frf_channels(std::vector<int> references,std::vector<int> responses) {
     if (g.mode==AnalysisMode::FRF) compute_frf_from_current_source();
     refresh_frf_controls();
     return true;
+}
+void set_frf_channels_from_menu(bool supports,std::vector<int> selection) {
+    std::sort(selection.begin(),selection.end());
+    selection.erase(std::unique(selection.begin(),selection.end()),selection.end());
+    auto references=supports ? selection : g.frf.inputs;
+    auto responses=supports ? g.frf.outputs : selection;
+    const auto& other=supports ? responses : references;
+    selection.erase(std::remove_if(selection.begin(),selection.end(),[&](int channel) {
+        return std::find(other.begin(),other.end(),channel)!=other.end();
+    }),selection.end());
+    if (supports) references=selection; else responses=selection;
+    if (references==g.frf.inputs && responses==g.frf.outputs) return;
+    g.frf.inputs=std::move(references); g.frf.outputs=std::move(responses);
+    invalidate_frf();
+    if (g.mode==AnalysisMode::FRF) compute_frf_from_current_source();
+    refresh_frf_controls();
+}
+void clear_frf_channel_selection(bool supports) {
+    set_frf_channels_from_menu(supports,{});
 }
 std::wstring frf_curve_label(std::size_t response) {
     if (response>=g.frf.output_names.size()) return L"";
@@ -473,13 +586,28 @@ void refresh_frf_controls(bool repopulate) {
         label(Length,std::to_wstring(g.frf.options.segment_length).c_str());
     }
     const auto button_text=[&](const std::vector<int>& channels,bool reference) {
-        const wchar_t* action=reference ? tr(L"Select supports: ",L"Выбрать опоры: ") :
-            tr(L"Select responses: ",L"Выбрать отклики: ");
-        if (channels.size()==1) return std::wstring(action)+channel_display_label(channels.front())+L" ▾";
-        return std::wstring(action)+std::to_wstring(channels.size())+tr(L" channels ▾",L" каналов ▾");
+        if (channels.empty()) return std::wstring(reference ? tr(L"Choose supports…",L"Выбрать опоры…") :
+            tr(L"Choose responses…",L"Выбрать отклики…"));
+        std::wstring names;
+        for (int channel:channels) {
+            if (!names.empty()) names+=L", ";
+            names+=channel_display_label(channel);
+        }
+        HWND button=control(reference ? Input : Output);
+        if (!button || !g.ui_font)
+            return names.size()<=34 ? names+L" ▾" : std::to_wstring(channels.size())+
+                tr(L" channels selected ▾",L" каналов выбрано ▾");
+        RECT rect{}; GetClientRect(button,&rect);
+        HDC dc=GetDC(button); HGDIOBJ previous=SelectObject(dc,g.ui_font);
+        SIZE extent{}; GetTextExtentPoint32W(dc,names.c_str(),static_cast<int>(names.size()),&extent);
+        SelectObject(dc,previous); ReleaseDC(button,dc);
+        if (extent.cx<=rect.right-rect.left-30) return names+L" ▾";
+        return std::to_wstring(channels.size())+tr(L" channels selected ▾",L" каналов выбрано ▾");
     };
     label(Input,button_text(g.frf.inputs,true).c_str());
     label(Output,button_text(g.frf.outputs,false).c_str());
+    label(InputSummary,g.frf.inputs.size()>1 ? (tr(L"AVG of ",L"Среднее из ")+std::to_wstring(g.frf.inputs.size())+
+        tr(L" channels",L" каналов")).c_str() : L"");
     if (g.frf.view_initialized) {
         label(Low, format_edit_number(std::pow(10.0, g.frf.log_start)).c_str());
         label(High, format_edit_number(std::pow(10.0, g.frf.log_end)).c_str());

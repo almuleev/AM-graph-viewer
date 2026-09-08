@@ -426,6 +426,8 @@ void frf_integration() {
         y.push_back((i<512 ? 2 : 4)*x.back());
     }
     reset_document({"Input, special", "Output"}, t, {x,y});
+    require(g.frf.inputs.empty() && g.frf.outputs.empty(), "FRF starts without preselected channel roles");
+    require(set_frf_channels({0},{1}), "FRF accepts the first selected support and response");
     g.frf.options.estimator=lvm::FrfEstimator::Direct;
     set_fft_window(t[0],t[511]);
     g.visible={0,0};
@@ -511,20 +513,23 @@ void frf_integration() {
         require(std::wstring(input_text).find(L"Input, special")!=std::wstring::npos,
                 "FRF Input button displays the selected channel");
         SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
-        require((GetWindowLongPtrW(GetDlgItem(g.frf_panel,7301),GWL_STYLE)&WS_VISIBLE) &&
-                (GetWindowLongPtrW(GetDlgItem(g.frf_panel,7302),GWL_STYLE)&WS_VISIBLE),
-                "FRF channel roles open in the embedded panel editor");
-        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7305,BN_CLICKED),0);
-        require(!(GetWindowLongPtrW(GetDlgItem(g.frf_panel,7301),GWL_STYLE)&WS_VISIBLE),"FRF channel editor closes back into the panel");
+        HWND role_menu=FindWindowW(L"AMSignalFrfRoleMenu",nullptr);
+        require(role_menu!=nullptr && IsWindowVisible(role_menu),"FRF roles open in one persistent menu");
+        SendMessageW(role_menu,WM_LBUTTONUP,0,MAKELPARAM(10,GetSystemMetrics(SM_CYMENU)+3));
+        require(IsWindow(role_menu) && IsWindow(GetDlgItem(g.frf_panel,7111)) &&
+                g.frf.inputs==std::vector<int>{0},
+            "FRF role menu remains open and leaves panel controls visible after a choice");
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
+        require(!IsWindow(role_menu),"the same FRF role control closes its menu");
         wchar_t range_text[80]{};
-        require(GetWindowTextW(GetDlgItem(g.frf_panel,7106),range_text,80)>0,"FRF range edit displays calculated limit");
+        require(GetWindowTextW(GetDlgItem(g.frf_panel,7107),range_text,80)>0,"FRF range edit displays calculated limit");
         RECT panel; GetClientRect(g.frf_panel,&panel);
         require(panel.right==kRightPanel && panel.bottom>=398,"FRF controls fit the minimum-size analysis panel");
-        SendMessageW(GetDlgItem(g.frf_panel,7121),CB_SETCURSEL,0,0);
-        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7121,CBN_SELCHANGE),0);
+        SendMessageW(GetDlgItem(g.frf_panel,7122),CB_SETCURSEL,0,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7122,CBN_SELCHANGE),0);
         require(g.frf.display_smoothing_octaves==0,"FRF display smoothing can be disabled without recalculation");
-        SendMessageW(GetDlgItem(g.frf_panel,7121),CB_SETCURSEL,2,0);
-        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7121,CBN_SELCHANGE),0);
+        SendMessageW(GetDlgItem(g.frf_panel,7122),CB_SETCURSEL,2,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7122,CBN_SELCHANGE),0);
         require(std::abs(g.frf.display_smoothing_octaves-1.0/12.0)<1e-12,"FRF display smoothing can select one twelfth octave");
         const auto png=test_dir / "frf_plot.png";
         require(save_png(png.wstring()),"FRF saves graph through the existing PNG exporter");
@@ -556,9 +561,9 @@ void frf_integration() {
             if(g.frf.pending) std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         require(g.frf.result.ok && !g.frf.pending,"main-window timer accepts the FRF worker result");
-        SetWindowTextW(GetDlgItem(g.frf_panel,7119),L"128");
-        SendMessageW(GetDlgItem(g.frf_panel,7117),CB_SETCURSEL,0,0);
-        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7117,CBN_SELCHANGE),0);
+        SetWindowTextW(GetDlgItem(g.frf_panel,7120),L"128");
+        SendMessageW(GetDlgItem(g.frf_panel,7118),CB_SETCURSEL,0,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7118,CBN_SELCHANGE),0);
         const auto h1_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
         while(g.frf.pending && std::chrono::steady_clock::now()<h1_deadline) {
             poll_frf_result();
@@ -570,7 +575,7 @@ void frf_integration() {
         near(g.frf.result.common().coherence[2],1,"GUI H1 exposes coherence from the same FFT averages");
         near(lvm::frf_dynamic_coefficient(g.frf.result.common(),2),4,"H1 dynamic coefficient preserves known gain");
         wchar_t details[256]{};
-        GetWindowTextW(GetDlgItem(g.frf_panel,7110),details,256);
+        GetWindowTextW(GetDlgItem(g.frf_panel,7111),details,256);
         const std::wstring actual=details;
         require(actual.find(L"L=128")!=std::wstring::npos && actual.find(L"K=7")!=std::wstring::npos &&
                 actual.find(L"Δf=8")!=std::wstring::npos && actual.find(L"overlap=50%")!=std::wstring::npos,
@@ -660,6 +665,7 @@ void frf_gap_stitching() {
         y.push_back(2*x.back());
     }
     reset_document({"Input","Output"},t,{x,y});
+    require(set_frf_channels({0},{1}),"FRF gap test selects both channel roles");
     set_fft_window(t[256],t[767]);
     g.frf.options.segment_length=512;
     set_mode(AnalysisMode::FRF);
@@ -706,6 +712,23 @@ void frf_gap_stitching() {
     require(!ensure_current_frf() && g.frf.result.error==lvm::FrfError::TooShort,"GUI reports insufficient selected samples for L");
 }
 
+void frf_loaded_document_defaults() {
+    reset_document({"Old support","Old response"},{0,1,2,3},{{1,2,3,4},{4,3,2,1}});
+    g.frf.inputs={0}; g.frf.outputs={1};
+    lvm::Dataset loaded;
+    loaded.ok=true;
+    loaded.names={"Loaded support","Loaded response"};
+    loaded.time={0,1,2,3}; loaded.raw_time=loaded.time;
+    loaded.channels={{1,0,-1,0},{2,0,-2,0}};
+    apply_loaded_dataset(std::move(loaded),L"loaded.lvm",false,false,0,false);
+    require(g.frf.inputs.empty() && g.frf.outputs.empty(),
+        "opening a file clears preselected FRF channel roles");
+    require(set_frf_channels({0},{1}),"FRF clear test selects both roles");
+    clear_frf_channel_selection(true);
+    require(g.frf.inputs.empty() && g.frf.outputs==std::vector<int>{1},
+        "FRF Clear removes only the selected role");
+}
+
 void reopen_spectrum() {
     const auto path = test_dir / "recovered_fft.csv";
     const auto original = lvm::read_lvm_file(path);
@@ -746,6 +769,7 @@ int main() {
         frf_integration();
         frf_multi_channels();
         frf_gap_stitching();
+        frf_loaded_document_defaults();
         std::cout << checks << " GUI integration checks passed\n";
         return 0;
     } catch(const std::exception& ex) {

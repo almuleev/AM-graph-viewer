@@ -19,9 +19,12 @@ struct PointDisplay {
     bool dist = false;    // Euclidean distance to the previous point
 };
 
+enum class AnalysisMode { Time, FFT, FRF };
+
 enum class PointGroupMode : unsigned char {
     Time = 0,
     Frequency = 1,
+    FRF = 2,
 };
 
 // A reference line the user dropped on the plot. `value` is in data units of
@@ -30,7 +33,7 @@ enum class PointGroupMode : unsigned char {
 struct GuideLine {
     bool vertical = true;
     double value = 0.0;
-    bool freq = false;
+    AnalysisMode mode = AnalysisMode::Time;
 };
 
 struct PointGroup {
@@ -54,8 +57,6 @@ enum class AsyncLoadStage : unsigned char {
     LoadingFile = 2
 };
 
-enum class AnalysisMode { Time, FFT, FRF };
-
 struct FrfState {
     std::vector<int> inputs{0}, outputs{1};
     bool apply_processing = false;
@@ -66,6 +67,8 @@ struct FrfState {
     bool view_initialized = false, auto_y = true;
     double log_start = 0.0, log_end = 3.0;
     double y_min = 0.0, y_max = 1.0;
+    // Display-only logarithmic smoothing band; 0 leaves the curve unsmoothed.
+    double display_smoothing_octaves = 1.0 / 12.0;
     double source_start = 0.0, source_end = 0.0;
     bool from_selection = false;
     std::wstring input_name;
@@ -135,6 +138,7 @@ struct App {
     int active_point_group = -1;
     int time_active_point_group = -1;
     int freq_active_point_group = -1;
+    int frf_active_point_group = -1;
 
     std::vector<GuideLine> guides;  // vertical / horizontal reference lines
     int pending_line = 0;           // 0 none, 1 next click = vertical, 2 = horizontal

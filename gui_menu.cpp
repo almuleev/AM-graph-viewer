@@ -215,7 +215,8 @@ void sync_menu() {
     EnableMenuItem(g.menu, IDM_MODE_FRF, MF_BYCOMMAND | (frf_available ? MF_ENABLED : MF_GRAYED));
     for (int id : {IDC_PLAY, IDC_MEASURE, IDM_ADD_MARKER, IDM_ADD_VLINE, IDM_ADD_HLINE,
          IDM_ADD_VLINE_EXACT, IDM_ADD_HLINE_EXACT, IDM_CLEAR_POINTS, IDM_CLEAR_MARKERS, IDM_CLEAR_LINES, IDM_VISMOOTH})
-        EnableMenuItem(g.menu, id, MF_BYCOMMAND | (g.mode == AnalysisMode::FRF ? MF_GRAYED : MF_ENABLED));
+        EnableMenuItem(g.menu, id, MF_BYCOMMAND |
+            (g.mode == AnalysisMode::FRF && !frf_command_supported(id) ? MF_GRAYED : MF_ENABLED));
     EnableMenuItem(g.menu, IDM_MODE_TIME, MF_BYCOMMAND | (g.ds.frequency_axis ? MF_GRAYED : MF_ENABLED));
     auto chk = [&](UINT id, bool on) {
         CheckMenuItem(g.menu, id, MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED));

@@ -74,7 +74,7 @@ void set_status() {
     if (has_data()) {
         std::size_t nlines = 0;
         for (const auto& gl : g.guides)
-            if (gl.freq == (g.mode == AnalysisMode::FFT)) ++nlines;
+            if (gl.mode == g.mode) ++nlines;
         if (nlines) { swprintf(buf, 512, g_str->st_lines, nlines); s += buf; }
         std::size_t nmark = 0;
         for (const auto& m : g.markers)

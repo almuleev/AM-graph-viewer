@@ -854,6 +854,7 @@ void test_frf() {
     double unrelated_mean=0;
     for(std::size_t k=2;k<500;++k) unrelated_mean+=unrelated.coherence[k]/498;
     check(unrelated_mean<.05,"unrelated broadband signals have low averaged coherence");
+    check(unrelated.ok,"low coherence remains a diagnostic and does not remove the transfer curve");
 
     lvm::FrfWorker worker;
     worker.submit(noisy,opt,17); worker.submit(in,opt,18);

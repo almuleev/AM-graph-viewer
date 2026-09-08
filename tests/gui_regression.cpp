@@ -4,6 +4,7 @@
 #include "../gui_commands.hpp"
 #include "../gui_frf.hpp"
 #include "../gui_frf_render.hpp"
+#include "../gui_input.hpp"
 #include "../gui_navigation.hpp"
 #include "../gui_hotkeys.hpp"
 #include "../gui_window.hpp"
@@ -472,7 +473,13 @@ void frf_integration() {
     near(g.frf.log_end,view_end,"FRF frequency limits preserved on return");
     g.pending_marker=false;
     WndProc(nullptr,WM_COMMAND,IDM_ADD_MARKER,0);
-    require(!g.pending_marker,"FFT/time markers cannot be placed on FRF");
+    require(!g.pending_marker,"markers remain unavailable on FRF");
+    WndProc(nullptr,WM_COMMAND,IDM_ADD_VLINE,0);
+    require(g.pending_line==1 && frf_command_supported(IDC_MEASURE),"FRF reuses the standard point and line tools");
+    add_guide_line(true,16);
+    add_guide_line(false,2);
+    require(g.guides.size()>=2 && g.guides[g.guides.size()-2].mode==AnalysisMode::FRF &&
+            g.guides.back().mode==AnalysisMode::FRF,"FRF lines use the common annotation collection");
     clear_fft_window();
     g.win_start=t[512]; g.win_end=t.back();
     ensure_current_frf();
@@ -503,10 +510,22 @@ void frf_integration() {
         GetWindowTextW(GetDlgItem(g.frf_panel,7101),input_text,128);
         require(std::wstring(input_text).find(L"Input, special")!=std::wstring::npos,
                 "FRF Input button displays the selected channel");
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7101,BN_CLICKED),0);
+        require((GetWindowLongPtrW(GetDlgItem(g.frf_panel,7301),GWL_STYLE)&WS_VISIBLE) &&
+                (GetWindowLongPtrW(GetDlgItem(g.frf_panel,7302),GWL_STYLE)&WS_VISIBLE),
+                "FRF channel roles open in the embedded panel editor");
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7305,BN_CLICKED),0);
+        require(!(GetWindowLongPtrW(GetDlgItem(g.frf_panel,7301),GWL_STYLE)&WS_VISIBLE),"FRF channel editor closes back into the panel");
         wchar_t range_text[80]{};
         require(GetWindowTextW(GetDlgItem(g.frf_panel,7106),range_text,80)>0,"FRF range edit displays calculated limit");
         RECT panel; GetClientRect(g.frf_panel,&panel);
         require(panel.right==kRightPanel && panel.bottom>=398,"FRF controls fit the minimum-size analysis panel");
+        SendMessageW(GetDlgItem(g.frf_panel,7121),CB_SETCURSEL,0,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7121,CBN_SELCHANGE),0);
+        require(g.frf.display_smoothing_octaves==0,"FRF display smoothing can be disabled without recalculation");
+        SendMessageW(GetDlgItem(g.frf_panel,7121),CB_SETCURSEL,2,0);
+        SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7121,CBN_SELCHANGE),0);
+        require(std::abs(g.frf.display_smoothing_octaves-1.0/12.0)<1e-12,"FRF display smoothing can select one twelfth octave");
         const auto png=test_dir / "frf_plot.png";
         require(save_png(png.wstring()),"FRF saves graph through the existing PNG exporter");
         {
@@ -598,11 +617,6 @@ void frf_multi_channels() {
     const auto generation=g.frf.generation;
     require(!set_frf_channels({0,1},{1,2}) && !set_frf_channels({},{2}) && !set_frf_channels({0,0},{2}) &&
             !set_frf_channels({0},{9}) && g.frf.generation==generation,"invalid roles, empty lists, duplicates and indices cannot change selection");
-    HMENU refs=create_frf_channel_menu(true), outs=create_frf_channel_menu(false);
-    require((GetMenuState(refs,1,MF_BYCOMMAND)&MF_CHECKED) && (GetMenuState(refs,3,MF_BYCOMMAND)&MF_GRAYED) &&
-            (GetMenuState(outs,1,MF_BYCOMMAND)&MF_GRAYED) && (GetMenuState(outs,3,MF_BYCOMMAND)&MF_CHECKED),
-            "picker checkmarks and disabled opposite roles match selection");
-    DestroyMenu(refs); DestroyMenu(outs);
     g.frf.apply_processing=true; g.channel_formulas[0]=L"3*x"; rebuild_formula_cache_from_state(); on_frf_processing_changed();
     near(lvm::frf_dynamic_coefficient(g.frf.result.responses[0],4),2,"each reference is processed before averaging");
     g.frf.apply_processing=false; invalidate_frf(); ensure_current_frf();
@@ -627,8 +641,7 @@ void frf_multi_channels() {
     g.main=window.hwnd; g.ui_font=reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)); update_theme_brushes();
     create_frf_panel(g.main,GetModuleHandleW(nullptr)); layout();
     require(save_png((test_dir/"frf_multi.png").wstring()),"all FRF curves export to one PNG");
-    require(g_legend_items.size()==3 && g_legend_items[0].channel==2 && g_legend_items[2].channel==4,
-            "rendered legend contains every response with stable channel identity");
+    require(g_legend_items.empty(),"FRF plot omits the overlay legend");
     require(channel_color(2)!=channel_color(3) && channel_color(3)!=channel_color(4),"responses have distinct colors");
     Gdiplus::GdiplusShutdown(token);
     g.main=nullptr;

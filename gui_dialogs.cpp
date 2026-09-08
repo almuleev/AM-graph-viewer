@@ -1185,8 +1185,11 @@ bool prompt_export_options(ExportOptions& out_options) {
 bool prompt_exact_guide_value(bool vertical, double& out_value) {
     double default_value = 0.0;
     if (vertical) {
-        default_value = (g.mode == AnalysisMode::FFT) ? 0.5 * (g.freq_start + g.freq_end)
+        default_value = (g.mode == AnalysisMode::FRF) ? std::pow(10.0,0.5*(g.frf.log_start+g.frf.log_end)) :
+                        (g.mode == AnalysisMode::FFT) ? 0.5 * (g.freq_start + g.freq_end)
                                     : 0.5 * (g.win_start + g.win_end);
+    } else if ((g.mode == AnalysisMode::FRF)) {
+        default_value=0.5*(g.frf.y_min+g.frf.y_max);
     } else if ((g.mode == AnalysisMode::FFT)) {
         double ymin = 0.0, ymax = 0.0;
         if (!current_freq_yrange(ymin, ymax)) {

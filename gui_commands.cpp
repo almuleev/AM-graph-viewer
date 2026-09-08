@@ -315,6 +315,7 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         ua.saved_active_point_group = g.active_point_group;
                         ua.saved_time_active_point_group = g.time_active_point_group;
                         ua.saved_freq_active_point_group = g.freq_active_point_group;
+                        ua.saved_frf_active_point_group = g.frf_active_point_group;
                         ua.cleared_mode = current_point_group_mode();
                         push_undo(ua);
                         clear_measure_point_groups();
@@ -638,10 +639,8 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 void set_mode(AnalysisMode mode) {
     if (g.ds.frequency_axis && mode != AnalysisMode::FFT) return;
     if (g.mode == mode) return;
-    if (g.mode != AnalysisMode::FRF) {
-        normalize_active_point_group();
-        active_point_group_index_for_mode(current_point_group_mode()) = g.active_point_group;
-    }
+    normalize_active_point_group();
+    active_point_group_index_for_mode(current_point_group_mode()) = g.active_point_group;
     finish_channel_rename(true);
     g.mode = mode;
     g.dragging = false; g.fft_selecting = false;
@@ -653,7 +652,11 @@ void set_mode(AnalysisMode mode) {
         hide_gap_details_card();
     }
     if (mode == AnalysisMode::FRF) {
-        g.pending_line = 0; g.pending_marker = false; g.measure_mode = false;
+        normalize_active_point_group();
+        if (PointGroup* group = active_point_group()) {
+            g.marker_color = group->color;
+            sync_point_display_from_active_group();
+        }
         refresh_frf_controls(true);
         ensure_current_frf();
     } else {

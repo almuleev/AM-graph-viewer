@@ -23,11 +23,15 @@ std::vector<UndoAction> g_redo;
 std::optional<SettingsSnapshot> g_filter_slider_before;
 
 PointGroupMode current_point_group_mode() {
-    return (g.mode == AnalysisMode::FFT) ? PointGroupMode::Frequency : PointGroupMode::Time;
+    if (g.mode == AnalysisMode::FFT) return PointGroupMode::Frequency;
+    if (g.mode == AnalysisMode::FRF) return PointGroupMode::FRF;
+    return PointGroupMode::Time;
 }
 
 int& active_point_group_index_for_mode(PointGroupMode mode) {
-    return mode == PointGroupMode::Frequency ? g.freq_active_point_group : g.time_active_point_group;
+    if (mode == PointGroupMode::Frequency) return g.freq_active_point_group;
+    if (mode == PointGroupMode::FRF) return g.frf_active_point_group;
+    return g.time_active_point_group;
 }
 
 bool point_group_matches_mode(const PointGroup& group, PointGroupMode mode) {
@@ -57,6 +61,7 @@ void shift_point_group_active_indices_after_insert(std::size_t index) {
     bump(g.active_point_group);
     bump(g.time_active_point_group);
     bump(g.freq_active_point_group);
+    bump(g.frf_active_point_group);
 }
 
 void shift_point_group_active_indices_after_erase(std::size_t index) {
@@ -70,6 +75,7 @@ void shift_point_group_active_indices_after_erase(std::size_t index) {
     fix(g.active_point_group);
     fix(g.time_active_point_group);
     fix(g.freq_active_point_group);
+    fix(g.frf_active_point_group);
 }
 
 void normalize_active_point_group() {
@@ -139,6 +145,7 @@ void clear_all_measure_point_groups() {
     g.active_point_group = -1;
     g.time_active_point_group = -1;
     g.freq_active_point_group = -1;
+    g.frf_active_point_group = -1;
 }
 
 PointDisplay* active_point_display() {
@@ -330,6 +337,7 @@ SettingsSnapshot capture_settings_snapshot() {
     snapshot.active_point_group = g.active_point_group;
     snapshot.time_active_point_group = g.time_active_point_group;
     snapshot.freq_active_point_group = g.freq_active_point_group;
+    snapshot.frf_active_point_group = g.frf_active_point_group;
     snapshot.guides = g.guides;
     snapshot.markers = g.markers;
     snapshot.active_marker = g.active_marker;
@@ -370,7 +378,7 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
         for (std::size_t i = 0; i < lhs.size(); ++i) {
             if (lhs[i].vertical != rhs[i].vertical ||
                 lhs[i].value != rhs[i].value ||
-                lhs[i].freq != rhs[i].freq) {
+                lhs[i].mode != rhs[i].mode) {
                 return false;
             }
         }
@@ -406,6 +414,7 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
            a.active_point_group != b.active_point_group ||
            a.time_active_point_group != b.time_active_point_group ||
            a.freq_active_point_group != b.freq_active_point_group ||
+           a.frf_active_point_group != b.frf_active_point_group ||
            !same_guides(a.guides, b.guides) ||
            !same_markers(a.markers, b.markers) ||
            a.active_marker != b.active_marker ||
@@ -476,6 +485,7 @@ void apply_settings_snapshot(const SettingsSnapshot& snapshot) {
     g.active_point_group = snapshot.active_point_group;
     g.time_active_point_group = snapshot.time_active_point_group;
     g.freq_active_point_group = snapshot.freq_active_point_group;
+    g.frf_active_point_group = snapshot.frf_active_point_group;
     normalize_active_point_group();
     sync_point_display_from_active_group();
     g.guides = snapshot.guides;
@@ -533,7 +543,7 @@ void pop_undo() {
             break;
         case UndoAction::ADD_LINE: {
             auto it = std::find_if(g.guides.begin(), g.guides.end(), [&](const GuideLine& gl) {
-                return gl.vertical == a.line.vertical && gl.value == a.line.value && gl.freq == a.line.freq;
+                return gl.vertical == a.line.vertical && gl.value == a.line.value && gl.mode == a.line.mode;
             });
             if (it != g.guides.end()) {
                 g_redo.push_back(a);
@@ -557,6 +567,7 @@ void pop_undo() {
             g.active_point_group = a.saved_active_point_group;
             g.time_active_point_group = a.saved_time_active_point_group;
             g.freq_active_point_group = a.saved_freq_active_point_group;
+            g.frf_active_point_group = a.saved_frf_active_point_group;
             normalize_active_point_group();
             if (PointGroup* group = active_point_group()) g.marker_color = group->color;
             break;

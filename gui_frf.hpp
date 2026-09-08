@@ -9,7 +9,6 @@ void compute_frf_from_current_source();
 bool ensure_current_frf();
 void apply_frf_result(lvm::FrfBatchResult result);
 bool set_frf_channels(std::vector<int> references, std::vector<int> responses);
-HMENU create_frf_channel_menu(bool reference);
 std::wstring frf_curve_label(std::size_t response);
 void poll_frf_result();
 void on_frf_processing_changed();

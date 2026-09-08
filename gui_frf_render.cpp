@@ -1,10 +1,14 @@
 #include "gui_frf_render.hpp"
 #include "gui_frf.hpp"
+#include "gui_input.hpp"
+#include "gui_side_panel.hpp"
+#include "gui_state_history.hpp"
 #include "gui_state.hpp"
 #include "gui_render.hpp"
 #include "gui_layout.hpp"
 #include "gui_navigation.hpp"
 #include "gui_status.hpp"
+#include "gui_menu.hpp"
 #include "gui_ids.hpp"
 #include "gui_text.hpp"
 #include "gui_theme.hpp"
@@ -14,11 +18,41 @@ namespace {
 double dynamic_coefficient(const lvm::FrfResult& r, std::size_t k) {
     return lvm::frf_dynamic_coefficient(r, k);
 }
+std::vector<double> display_coefficients(const lvm::FrfResult& r) {
+    const std::size_t n=r.frequencies.size();
+    std::vector<double> values(n,std::numeric_limits<double>::quiet_NaN());
+    if (n<2) return values;
+    if (g.frf.display_smoothing_octaves<=0) {
+        for (std::size_t k=1;k<n;++k) values[k]=dynamic_coefficient(r,k);
+        return values;
+    }
+    std::vector<double> sums(n+1,0); std::vector<std::size_t> counts(n+1,0);
+    for (std::size_t k=1;k<n;++k) {
+        sums[k+1]=sums[k]; counts[k+1]=counts[k];
+        const double value=dynamic_coefficient(r,k);
+        if (std::isfinite(value)) { sums[k+1]+=value; ++counts[k+1]; }
+    }
+    const double span=std::pow(2.0,g.frf.display_smoothing_octaves/2);
+    std::size_t lo=1,hi=1;
+    for (std::size_t k=1;k<n;++k) {
+        if (!std::isfinite(dynamic_coefficient(r,k))) continue;
+        const double low=r.frequencies[k]/span, high=r.frequencies[k]*span;
+        while (lo<n && r.frequencies[lo]<low) ++lo;
+        while (hi<n && r.frequencies[hi]<=high) ++hi;
+        const auto count=counts[hi]-counts[lo];
+        if (count) values[k]=(sums[hi]-sums[lo])/count;
+    }
+    return values;
+}
 void line(HDC dc, int x0, int y0, int x1, int y1) {
     MoveToEx(dc, x0, y0, nullptr); LineTo(dc, x1, y1);
 }
 void changed() {
-    refresh_frf_controls(); set_status(); invalidate_plot();
+    // Pan and zoom only change the graph and its axis labels. Do not invalidate
+    // the bottom status bar: it contains text that does not change on zoom.
+    RECT dirty=plot_rect();
+    dirty.bottom+=kAxisBottom;
+    InvalidateRect(g.main,&dirty,FALSE);
 }
 }
 
@@ -36,9 +70,10 @@ void frf_y_range(double& low, double& high) {
     const double a = frf_frequency_at_fraction(0), b = frf_frequency_at_fraction(1);
     for (const auto& r:g.frf.result.responses) {
         if (!r.ok) continue;
+        const auto values=display_coefficients(r);
         for (std::size_t k = 1; k < r.frequencies.size(); ++k) {
             if (r.frequencies[k] < a || r.frequencies[k] > b) continue;
-            const double value = dynamic_coefficient(r,k);
+            const double value = values[k];
             if (!std::isfinite(value)) continue;
             low = std::min(low, value); high = std::max(high, value);
         }
@@ -119,55 +154,35 @@ void draw_frf(HDC dc, const RECT& p) {
     for (std::size_t response=0;response<g.frf.result.responses.size();++response) {
         const auto& r=g.frf.result.responses[response];
         if (!r.ok) continue;
-        HPEN curve = CreatePen(PS_SOLID, 1, channel_color(g.frf.outputs[response]));
+        const COLORREF color=channel_color(g.frf.outputs[response]);
+        HPEN curve = CreatePen(PS_SOLID, 1, color);
         old_pen = SelectObject(dc, curve);
         const std::size_t begin = std::max<std::size_t>(1, static_cast<std::size_t>(
             std::lower_bound(r.frequencies.begin(), r.frequencies.end(), f0) - r.frequencies.begin()));
         const std::size_t end = static_cast<std::size_t>(
             std::upper_bound(r.frequencies.begin(), r.frequencies.end(), f1) - r.frequencies.begin());
+        const auto values=display_coefficients(r);
         bool started = false;
-        // Collapse samples at the same screen x into a min/max segment. Never join
-        // across invalid input bins, even when many bins occupy a single pixel.
-        int column = -1, ylo = 0, yhi = 0, last_y = 0;
+        // Use one mean value per screen column instead of a min/max whisker.
+        // Invalid bins still break the curve rather than being joined across.
+        int column = -1; double sum_y=0; std::size_t count_y=0;
         auto flush = [&] {
             if (column < 0) return;
-            if (started) LineTo(dc, column, ylo); else MoveToEx(dc, column, ylo, nullptr);
-            LineTo(dc, column, yhi + 1);
-            MoveToEx(dc, column, last_y, nullptr);
+            const int y=static_cast<int>(std::lround(sum_y/count_y));
+            if (started) LineTo(dc,column,y); else MoveToEx(dc,column,y,nullptr);
             started = true;
         };
         for (std::size_t k = begin; k < end; ++k) {
-            const double v = dynamic_coefficient(r,k);
+            const double v = values[k];
             if (!std::isfinite(v)) { flush(); column = -1; started = false; continue; }
             const int x = mapx(r.frequencies[k]), y = mapy(v);
-            if (x != column) { flush(); column = x; ylo = yhi = last_y = y; }
-            else { ylo = std::min(ylo, y); yhi = std::max(yhi, y); last_y = y; }
+            if (x != column) { flush(); column=x; sum_y=y; count_y=1; }
+            else { sum_y+=y; ++count_y; }
         }
         flush();
         SelectObject(dc, old_pen); DeleteObject(curve);
     }
     RestoreDC(dc, saved);
-    SetTextColor(dc, g_theme->text_primary);
-    // Compact multi-column legend; the cursor exposes the full curve label.
-    const int rows=std::max(1,(height-20)/20);
-    const int columns=std::max(1,static_cast<int>((g.frf.output_names.size()+rows-1)/rows));
-    const int column_width=std::max(1,(width-20)/columns);
-    for (std::size_t i=0;i<g.frf.output_names.size();++i) {
-        const int left=p.left+10+static_cast<int>(i/rows)*column_width;
-        const int top=p.top+6+static_cast<int>(i%rows)*20;
-        RECT box{left,top,left+column_width-4,top+20};
-        FillRect(dc,&box,g_panel_brush);
-        HPEN pen=CreatePen(PS_SOLID,2,channel_color(g.frf.outputs[i]));
-        auto previous=SelectObject(dc,pen);
-        line(dc,left+3,top+10,left+22,top+10);
-        SelectObject(dc,previous); DeleteObject(pen);
-        RECT label{left+28,top,box.right-3,top+20};
-        std::wstring name=frf_curve_label(i);
-        if (i<g.frf.result.responses.size() && !g.frf.result.responses[i].ok)
-            name+=L" — "+gui::frf_error_text(g.frf.result.responses[i].error);
-        DrawTextW(dc,name.c_str(),-1,&label,DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|DT_END_ELLIPSIS);
-        g_legend_items.push_back({g.frf.outputs[i],box});
-    }
     RECT xlabel{p.left, p.bottom+23, p.right, p.bottom+42};
     DrawTextW(dc, L"Frequency, Hz (log)", -1, &xlabel, DT_CENTER | DT_SINGLELINE);
     RECT ylabel{4, p.top+2, 34, p.top+22};
@@ -175,6 +190,8 @@ void draw_frf(HDC dc, const RECT& p) {
     SelectObject(dc, font);
     g.vx0 = g.frf.log_start; g.vx1 = g.frf.log_end;
     g.vy0 = low; g.vy1 = high; g.vrect = p; g.vvalid = true;
+    draw_guides(dc);
+    draw_measure(dc);
 }
 
 LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -193,6 +210,27 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             changed(); return 0;
         }
         case WM_LBUTTONDOWN:
+            if (inside(GET_X_LPARAM(lp),GET_Y_LPARAM(lp)) && (g.pending_line || g.measure_mode) && g.vvalid) {
+                double frequency=0, coefficient=0;
+                if (!px_to_data(GET_X_LPARAM(lp),GET_Y_LPARAM(lp),frequency,coefficient)) return 0;
+                if (g.pending_line) {
+                    GuideLine line;
+                    line.vertical=g.pending_line==1; line.value=line.vertical ? frequency : coefficient; line.mode=AnalysisMode::FRF;
+                    g.guides.push_back(line);
+                    UndoAction action; action.type=UndoAction::ADD_LINE; action.line=line; push_undo(action);
+                } else if (g.measure_mode) {
+                    bool created=false;
+                    const int group=ensure_point_group_for_measurement((GetKeyState(VK_CONTROL)&0x8000)!=0,&created);
+                    if (group>=0) {
+                        g.point_groups[static_cast<std::size_t>(group)].points.push_back({frequency,coefficient});
+                        UndoAction action; action.type=UndoAction::ADD_POINT; action.point={frequency,coefficient};
+                        action.point_group_index=group; action.point_group_created=created;
+                        action.point_group_state=g.point_groups[static_cast<std::size_t>(group)]; action.point_group_state.points.clear();
+                        push_undo(action); refresh_side_panel_controls();
+                    }
+                }
+                set_status(); sync_menu(); invalidate_plot(); return 0;
+            }
             if (inside(GET_X_LPARAM(lp), GET_Y_LPARAM(lp)) && g.frf.result.ok &&
                 prepare_plot_drag(GET_X_LPARAM(lp), GET_Y_LPARAM(lp))) { g.dragging = true; SetCapture(hwnd); }
             return 0;
@@ -215,20 +253,22 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 std::size_t k = it == fs.end() ? fs.size()-1 : static_cast<std::size_t>(it-fs.begin());
                 if (k > 1 && f-fs[k-1] < fs[k]-f) --k;
                 double low,high; frf_y_range(low,high);
+                std::vector<std::vector<double>> values;
+                for (const auto& result:g.frf.result.responses) values.push_back(display_coefficients(result));
                 std::size_t nearest=g.frf.result.responses.size();
                 double distance=std::numeric_limits<double>::infinity();
                 for (std::size_t i=0;i<g.frf.result.responses.size();++i) {
-                    const double kd=dynamic_coefficient(g.frf.result.responses[i],k);
+                    const double kd=k<values[i].size() ? values[i][k] : std::numeric_limits<double>::quiet_NaN();
                     if (!std::isfinite(kd)) continue;
                     const double py=p.bottom-(kd-low)/(high-low)*(p.bottom-p.top);
                     const double d=std::fabs(py-GET_Y_LPARAM(lp));
                     if (d<distance) { distance=d; nearest=i; }
                 }
                 wchar_t text[160]{};
-                set_status();
                 if (nearest<g.frf.result.responses.size()) {
                     const auto& result=g.frf.result.responses[nearest];
-                    swprintf(text,160,L" | f = %.6g Hz | КД = %.6g",fs[k],lvm::frf_dynamic_coefficient(result,k));
+                    const wchar_t* suffix=g.frf.display_smoothing_octaves>0 ? L" (сгл.)" : L"";
+                    swprintf(text,160,L" | f = %.6g Hz | КД%s = %.6g",fs[k],suffix,values[nearest][k]);
                     g.status_detail_text=frf_curve_label(nearest)+text;
                     if (k<result.coherence_valid.size() && result.coherence_valid[k]) {
                         swprintf(text,160,L" | Coherence = %.4f",result.coherence[k]);
@@ -250,7 +290,17 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_KEYDOWN:
             if (wp == VK_ESCAPE) { g.dragging = false; if (GetCapture() == hwnd) ReleaseCapture(); }
             return 0;
-        case WM_RBUTTONDOWN: return 0;
+        case WM_RBUTTONDOWN:
+            if (has_measure_points()) {
+                UndoAction action; action.type=UndoAction::CLEAR_POINTS; action.saved_point_groups=g.point_groups;
+                action.saved_active_point_group=g.active_point_group;
+                action.saved_time_active_point_group=g.time_active_point_group;
+                action.saved_freq_active_point_group=g.freq_active_point_group;
+                action.saved_frf_active_point_group=g.frf_active_point_group;
+                action.cleared_mode=current_point_group_mode();
+                push_undo(action); clear_measure_point_groups(); refresh_side_panel_controls(); invalidate_plot(); return 0;
+            }
+            return 0;
         case WM_SETCURSOR:
             if (reinterpret_cast<HWND>(wp) == hwnd && LOWORD(lp) == HTCLIENT) {
                 SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE;

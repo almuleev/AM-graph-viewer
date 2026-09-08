@@ -17,6 +17,7 @@ struct SettingsSnapshot {
     int active_point_group = -1;
     int time_active_point_group = -1;
     int freq_active_point_group = -1;
+    int frf_active_point_group = -1;
     std::vector<GuideLine> guides;
     std::vector<App::Marker> markers;
     int active_marker = -1;
@@ -48,6 +49,7 @@ struct UndoAction {
     int saved_active_point_group = -1;
     int saved_time_active_point_group = -1;
     int saved_freq_active_point_group = -1;
+    int saved_frf_active_point_group = -1;
     std::vector<GuideLine> saved_lines;
     std::vector<App::Marker> saved_markers;
     SettingsSnapshot before_settings;

@@ -26,7 +26,7 @@ void add_guide_line(bool vertical, double value) {
     GuideLine gl;
     gl.vertical = vertical;
     gl.value = value;
-    gl.freq = (g.mode == AnalysisMode::FFT);
+    gl.mode = g.mode;
     g.guides.push_back(gl);
     UndoAction ua;
     ua.type = UndoAction::ADD_LINE;
@@ -45,6 +45,7 @@ bool px_to_data(int px, int py, double& dx, double& dy) {
     const RECT& p = g.vrect;
     if (p.right <= p.left || p.bottom <= p.top) return false;
     dx = g.vx0 + static_cast<double>(px - p.left) / (p.right - p.left) * (g.vx1 - g.vx0);
+    if (g.mode == AnalysisMode::FRF) dx = std::pow(10.0, dx);
     if ((g.mode == AnalysisMode::Time) && g.stitch_time_gaps) dx = raw_time_from_stitched(dx);
     dy = g.vy0 + static_cast<double>(p.bottom - py) / (p.bottom - p.top) * (g.vy1 - g.vy0);
     return true;
@@ -379,8 +380,8 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (px_to_data(mx, my, dx, dy)) {
                     GuideLine gl;
                     gl.vertical = (g.pending_line == 1);
-                    gl.freq = (g.mode == AnalysisMode::FFT);
-                    if (gl.vertical && g.snap_to_data) { double sx = dx, sy = dy; snap_to_nearest(sx, sy); dx = sx; }
+                    gl.mode = g.mode;
+                    if (gl.vertical && g.snap_to_data && g.mode != AnalysisMode::FRF) { double sx = dx, sy = dy; snap_to_nearest(sx, sy); dx = sx; }
                     gl.value = gl.vertical ? dx : dy;
                     g.guides.push_back(gl);
                     UndoAction ua; ua.type = UndoAction::ADD_LINE; ua.line = gl;
@@ -421,7 +422,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 double dx, dy;
                 if (px_to_data(mx, my, dx, dy)) {
                     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                    if (g.snap_to_data) snap_to_nearest(dx, dy);
+                    if (g.snap_to_data && g.mode != AnalysisMode::FRF) snap_to_nearest(dx, dy);
                     bool created_group = false;
                     const int group_index = ensure_point_group_for_measurement(ctrl, &created_group);
                     if (group_index < 0 || group_index >= static_cast<int>(g.point_groups.size())) return 0;
@@ -464,6 +465,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 ua.saved_active_point_group = g.active_point_group;
                 ua.saved_time_active_point_group = g.time_active_point_group;
                 ua.saved_freq_active_point_group = g.freq_active_point_group;
+                ua.saved_frf_active_point_group = g.frf_active_point_group;
                 ua.cleared_mode = current_point_group_mode();
                 push_undo(ua);
                 clear_measure_point_groups();

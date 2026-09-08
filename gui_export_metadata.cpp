@@ -172,7 +172,8 @@ void write_export_metadata(std::ofstream& out,
             std::wstring line = L"group[" + std::to_wstring(i + 1) + L"] name=" + export_metadata_text(group.name);
             line += L", visible=" + std::wstring(group.visible ? L"1" : L"0");
             line += L", color=" + export_color_triplet(group.color);
-            line += L", mode=" + std::wstring(group.mode == PointGroupMode::Frequency ? L"frequency" : L"time");
+            line += L", mode=" + std::wstring(group.mode == PointGroupMode::FRF ? L"frf" :
+                group.mode == PointGroupMode::Frequency ? L"frequency" : L"time");
             line += L", active=" + std::wstring((i == static_cast<std::size_t>(active_point_group_index_for_mode(group.mode))) ? L"1" : L"0");
             line += L", display=" + export_point_display_text(group.display);
             write_export_comment(out, line, line_end);
@@ -209,7 +210,8 @@ void write_export_metadata(std::ofstream& out,
             const auto& gl = g.guides[i];
             std::wstring line = L"guide[" + std::to_wstring(i + 1) + L"] kind=" + (gl.vertical ? L"vertical" : L"horizontal");
             line += L", value=" + format_edit_number(gl.value);
-            line += L", mode=" + std::wstring(gl.freq ? L"frequency" : L"time");
+            line += L", mode=" + std::wstring(gl.mode == AnalysisMode::FRF ? L"frf" :
+                gl.mode == AnalysisMode::FFT ? L"frequency" : L"time");
             write_export_comment(out, line, line_end);
         }
         write_export_comment(out, L"", line_end);
@@ -399,8 +401,10 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
     int current_group = -1;
     int active_time_group = -1;
     int active_freq_group = -1;
+    int active_frf_group = -1;
     int last_time_group = -1;
     int last_freq_group = -1;
+    int last_frf_group = -1;
 
     for (const std::string& raw_comment : comments) {
         const std::string line = trim_copy(raw_comment);
@@ -553,6 +557,8 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
                 const std::string mode = lower_copy(trim_copy(mode_text));
                 if (mode == "frequency" || mode == "fft" || mode == "hz") {
                     group.mode = PointGroupMode::Frequency;
+                } else if (mode == "frf") {
+                    group.mode = PointGroupMode::FRF;
                 } else if (mode == "time" || mode == "seconds" || mode == "sec") {
                     group.mode = PointGroupMode::Time;
                 }
@@ -562,12 +568,15 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
                 parse_point_display(display_text, group.display);
                 if (group.mode == PointGroupMode::Frequency) {
                     last_freq_group = static_cast<int>(point_groups.size());
+                } else if (group.mode == PointGroupMode::FRF) {
+                    last_frf_group = static_cast<int>(point_groups.size());
                 } else {
                     last_time_group = static_cast<int>(point_groups.size());
                 }
                 bool active = false;
                 if (parse_bool(active_text, active) && active) {
                     if (group.mode == PointGroupMode::Frequency) active_freq_group = static_cast<int>(point_groups.size());
+                    else if (group.mode == PointGroupMode::FRF) active_frf_group = static_cast<int>(point_groups.size());
                     else active_time_group = static_cast<int>(point_groups.size());
                 }
                 point_groups.push_back(std::move(group));
@@ -614,7 +623,7 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
             guide.vertical = !(kind == "horizontal");
             parse_double(extract_between(tail, "value=", ", mode="), guide.value);
             const std::string mode = lower_copy(extract_after(tail, "mode="));
-            guide.freq = (mode == "frequency");
+            guide.mode = mode == "frf" ? AnalysisMode::FRF : mode == "frequency" ? AnalysisMode::FFT : AnalysisMode::Time;
             guides.push_back(guide);
             continue;
         }
@@ -626,6 +635,7 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
         g.point_groups = std::move(point_groups);
         g.time_active_point_group = active_time_group >= 0 ? active_time_group : last_time_group;
         g.freq_active_point_group = active_freq_group >= 0 ? active_freq_group : last_freq_group;
+        g.frf_active_point_group = active_frf_group >= 0 ? active_frf_group : last_frf_group;
         normalize_active_point_group();
         sync_point_display_from_active_group();
     }

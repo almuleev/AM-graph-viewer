@@ -137,12 +137,15 @@ FrfResult compute_frf(const FrfSamples& s, const FrfOptions& options, const std:
         const auto h=xy[k]/xx[k];
         const std::complex<double> value{static_cast<double>(h.real()),static_cast<double>(h.imag())};
         if (!std::isfinite(std::abs(value))) continue;
-        r.transfer[k]=value; r.valid[k]=1; any=true;
+        r.transfer[k]=value;
         if (options.estimator==FrfEstimator::H1 && r.averages>=2 && yy[k]>0) {
             // Dividing before squaring avoids overflow of the PSD product.
             const long double c=std::norm((xy[k]/std::sqrt(xx[k]))/std::sqrt(yy[k]));
-            if (std::isfinite(c)) { r.coherence[k]=static_cast<double>(std::clamp(c,0.0L,1.0L)); r.coherence_valid[k]=1; }
+            if (std::isfinite(c)) {
+                r.coherence[k]=static_cast<double>(std::clamp(c,0.0L,1.0L)); r.coherence_valid[k]=1;
+            }
         }
+        r.valid[k]=1; any=true;
     }
     r.ok=any; if (!any) r.error=FrfError::WeakReference;
     return r;

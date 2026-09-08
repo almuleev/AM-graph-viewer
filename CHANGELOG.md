@@ -11,6 +11,27 @@
   Direct estimators, background calculation, coherence, logarithmic frequency,
   CSV/PNG export, and multiple response curves. The vertical scale is the
   linear dynamic coefficient `KD = abs(H)`, not dB.
+- Бины со слабой опорой исключаются из кривой и CSV, а coherence остаётся
+  диагностической величиной и не скрывает данные автоматически. Убрана min/max-отрисовка, создававшая вертикальные иглы; сглаживание
+  графика на логарифмической частотной шкале выбирается от выключенного до
+  1/3 октавы и не меняет исходные данные экспорта.
+- Weak-reference bins are excluded from the curve and CSV, while coherence is
+  diagnostic and does not hide data automatically. Rendering no longer draws min/max spike columns; optional display-only
+  logarithmic smoothing ranges from off to one-third octave.
+- Удалены порог и визуальная отметка coherence: coherence остаётся только
+  диагностическим значением под курсором и в CSV.
+- Removed the coherence threshold and visual marking: coherence remains a
+  diagnostic value under the cursor and in CSV.
+- Легенда нескольких откликов больше не выводится поверх графика АЧХ.
+- The multi-response legend is no longer drawn over the FRF plot.
+- Выбор опор и откликов перенесён из двух всплывающих меню в единый диалог с
+  двумя списками, проверкой пересечения и обменом ролями.
+- Support and response selection moved from popup menus into an editor embedded
+  in the FRF panel, with role-overlap validation and a swap action.
+- FRF использует общие с Time/FFT точки измерения и вертикальные/горизонтальные
+  линии в Hz и КД, включая группы, настройки отображения и Undo/Redo.
+- FRF now reuses the Time/FFT measurement points and vertical/horizontal guides
+  in Hz and KD, including groups, display settings, and Undo/Redo.
 
 - Добавлены короткие правила `AGENTS.md` и карта `docs/ARCHITECTURE.md` для адресного поиска по проекту. Удалён устаревший `PROJECT_CONTEXT.md`; исторические отчёты перенесены в локальный архив, исключённый из Git. Обновлены ссылки в README.
 - Убраны повторные и малоценные условия тестов; сохранены полные сравнения FFT для 10 и 10 000 разрывов, проверки Light Mode, экспорта и истории. Усилена проверка успешности двух расчётов FFT. Пройдены 197 проверок ядра и 141 проверка GUI.

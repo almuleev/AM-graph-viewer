@@ -212,7 +212,8 @@ void draw_guides(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FRF) ? std::log10(dx) :
+            (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
@@ -231,13 +232,13 @@ void draw_guides(HDC dc) {
     wchar_t b[48];
     HBRUSH wb = CreateSolidBrush(g_theme->bg_plot);
     for (const auto& gl : g.guides) {
-        if (gl.freq != (g.mode == AnalysisMode::FFT)) continue;
+        if (gl.mode != g.mode) continue;
         if (gl.vertical) {
             SelectObject(dc, vpen);
             const int X = mx(gl.value);
             if (X < p.left || X > p.right) continue;
             MoveToEx(dc, X, p.top, nullptr); LineTo(dc, X, p.bottom);
-            swprintf(b, 48, (g.mode == AnalysisMode::FFT) ? g_str->fmt_hz : g_str->fmt_sec, gl.value);
+            swprintf(b, 48, (g.mode == AnalysisMode::FFT || g.mode == AnalysisMode::FRF) ? g_str->fmt_hz : g_str->fmt_sec, gl.value);
             SetTextAlign(dc, TA_LEFT | TA_TOP);
             SIZE ts;
             GetTextExtentPoint32W(dc, b, lstrlenW(b), &ts);
@@ -273,7 +274,8 @@ void draw_markers(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FRF) ? std::log10(dx) :
+            (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {
@@ -352,7 +354,7 @@ void draw_measure(HDC dc) {
     auto my = [&](double dy) {
         return p.bottom - static_cast<int>((dy - g.vy0) / (g.vy1 - g.vy0) * (p.bottom - p.top));
     };
-    const wchar_t* xunit = (g.mode == AnalysisMode::FFT) ? g_str->unit_hz : g_str->unit_sec;
+    const wchar_t* xunit = (g.mode == AnalysisMode::FFT || g.mode == AnalysisMode::FRF) ? g_str->unit_hz : g_str->unit_sec;
 
     HRGN clip = CreateRectRgn(p.left, p.top, p.right + 1, p.bottom + 1);
     SelectClipRgn(dc, clip);
@@ -427,7 +429,7 @@ void draw_measure(HDC dc) {
                 if (group.display.dy) { swprintf(b, 96, g_str->fmt_pt_dy, dy); dl += b; }
                 if (group.display.inv_dt) {
                     const double inv = (dx != 0.0) ? 1.0 / dx : 0.0;
-                    if ((g.mode == AnalysisMode::FFT)) {
+                    if ((g.mode == AnalysisMode::FFT) || (g.mode == AnalysisMode::FRF)) {
                         swprintf(b, 96, g_str == &kEn ? L"1/Δf=%.5g Hz" : L"1/Δf=%.5g Гц", inv);
                     } else {
                         swprintf(b, 96, g_str->fmt_pt_invdt, inv);

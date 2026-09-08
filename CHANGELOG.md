@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.13.2
+
+- Выпущена стабилизированная версия выбора ролей АЧХ: постоянное системно
+  оформленное меню, скруглённые границы, выбор без скрытия правой панели,
+  независимая очистка текущей роли через `Clear` и отсутствие предвыбора
+  каналов как для нового, так и для загруженного документа.
+- Released the stabilized FRF role-selection interface: a persistent
+  system-themed menu with rounded corners, selection without hiding the
+  right panel, independent clearing of the current role through `Clear`,
+  and no preselected channels for either new or loaded documents.
+
 ## v0.13.1
 
 - Выбор опор и откликов в АЧХ возвращён к одному меню-подобному Win32-popup с

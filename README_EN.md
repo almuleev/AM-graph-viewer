@@ -1,14 +1,14 @@
-# AM Graph Viewer
+# AMSignal
 
 <p align="center">
-  <img src="docs/assets/github-banner.png" alt="AM Graph Viewer banner">
+  <img src="docs/assets/github-banner.png" alt="AMSignal banner">
 </p>
 
 Native Win32 viewer and CLI toolkit for LabVIEW `.lvm` / `.txt` signal files.
 
 ## Why This Project Exists
 
-LabVIEW measurement logs are often easy to produce but inconvenient to inspect quickly outside a LabVIEW environment. `AM Graph Viewer` focuses on a practical middle ground:
+LabVIEW measurement logs are often easy to produce but inconvenient to inspect quickly outside a LabVIEW environment. `AMSignal` focuses on a practical middle ground:
 
 - no Qt
 - no external GUI runtime
@@ -123,7 +123,7 @@ make test
 - Language: `C++17`
 - GUI stack: `Win32 API + GDI/GDI+`
 - Recommended Windows toolchain: `MSYS2 / MinGW g++`
-- GUI output name follows the current git tag and is built as `AMGraphViewer-v0.12.0-win-x64.exe`
+- GUI output name follows the current git tag and is built as `AMSignal-0.13.0-x64.exe`
 
 ## Repository Layout
 

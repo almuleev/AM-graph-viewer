@@ -1,5 +1,5 @@
 param(
-    [string]$OutputDir = "dist\AMGraphViewer",
+    [string]$OutputDir = "dist\AMSignal",
     [switch]$Zip
 )
 
@@ -27,8 +27,9 @@ $OutputDir = $releaseTarget
 
 $version = git -c core.excludesFile= describe --tags --always --dirty 2>$null
 if (-not $version) { $version = "dev" }
-$guiExe = "AMGraphViewer-$version-win-x64.exe"
-$zipName = "AMGraphViewer-$version-win-x64.zip"
+$releaseVersion = $version -replace '^v', ''
+$guiExe = "AMSignal-$releaseVersion-x64.exe"
+$zipName = "AMSignal-$releaseVersion-x64.zip"
 
 $files = @(
     $guiExe,

@@ -4,14 +4,14 @@
 namespace gui {
 
 const Strings kRu = {
-    L"AM Graph Viewer",
+    L"AMSignal",
     L"Открыть", L"PNG", L"Сохранить как…", L"Старт", L"Стоп", L"Точки", L"Сброс", L"АвтоМасштаб",
     L"Время", L"Гц (FFT)", L"Y: авто", L"Y: фикс.", L"Линий", L"Маркеров", L"Скорость воспроизведения",
     L"Время, c", L"Частота, Гц",
     L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Гц", L"d=%.5g",
-    L"Горячие клавиши — AM Graph Viewer",
+    L"Горячие клавиши — AMSignal",
     L"Нет данных", L"Сначала откройте файл.", L"Не удалось сохранить PNG.", L"Ошибка чтения",
-    L"AM Graph Viewer",
+    L"AMSignal",
     L"Недавние файлы", L"Горячие клавиши", L"Начать работу",
     L"Открыть файл…", L"PNG", L"Старт", L"Стоп", L"Режим измерения точек", L"Сбросить вид", L"АвтоМасштаб",
     L"Русский", L"English", L"Язык",
@@ -47,14 +47,14 @@ const Strings kRu = {
 };
 
 const Strings kEn = {
-    L"AM Graph Viewer",
+    L"AMSignal",
     L"Open", L"PNG", L"Save as…", L"▶ Play", L"⏸ Pause", L"Points", L"Reset", L"Auto zoom",
     L"Time", L"Hz (FFT)", L"Y: auto", L"Y: fixed", L"Lines", L"Markers", L"Playback speed",
     L"Time, s", L"Frequency, Hz",
     L"Δx=%.5g", L"Δy=%.5g", L"1/Δt=%.5g Hz", L"d=%.5g",
-    L"Keyboard shortcuts — AM Graph Viewer",
+    L"Keyboard shortcuts — AMSignal",
     L"No data", L"Open a file first.", L"Failed to save PNG.", L"Read error",
-    L"AM Graph Viewer",
+    L"AMSignal",
     L"Recent files", L"Keyboard shortcuts", L"Start working",
     L"Open file…", L"PNG", L"Playback", L"Pause", L"Measurement point mode", L"Reset view", L"Auto zoom",
     L"Русский", L"English", L"Language",

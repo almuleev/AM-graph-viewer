@@ -1,7 +1,7 @@
-# AM Graph Viewer
+# AMSignal
 
 <p align="center">
-  <img src="docs/assets/github-banner.png" alt="AM Graph Viewer banner">
+  <img src="docs/assets/github-banner.png" alt="AMSignal banner">
 </p>
 
 <p align="center">
@@ -26,11 +26,11 @@
 
 ## Overview
 
-`AM Graph Viewer` is a lightweight C++ application for engineers and developers who need to inspect LabVIEW measurement logs quickly without pulling in heavy external frameworks.
+`AMSignal` is a lightweight C++ application for engineers and developers who need to inspect LabVIEW measurement logs quickly without pulling in heavy external frameworks.
 
 The project includes two front ends built on one shared parsing and analysis core:
 
-  - `AMGraphViewer-v0.12.0-win-x64.exe` - native desktop viewer for interactive work
+  - `AMSignal-0.13.0-x64.exe` - native desktop viewer for interactive work
 - `Start GUI.bat` - obvious double-click launcher for the GUI in a release folder
 - `lvm_reader.exe` - CLI utility for inspection, FFT and export scenarios
 
@@ -70,7 +70,7 @@ The graph previews below were generated from the bundled sample dataset in [`lvm
 
 1. Open the [latest release](https://github.com/almuleev/am-graph-viewer/releases/latest).
 2. Download the release archive.
-3. Double-click `Start GUI.bat` or `AMGraphViewer-v0.12.0-win-x64.exe`.
+3. Double-click `Start GUI.bat` or `AMSignal-0.13.0-x64.exe`.
 4. Use `run.bat` only if you want the command-line analyzer.
 
 The GUI is the main entry point for first-time users. The CLI helper is useful

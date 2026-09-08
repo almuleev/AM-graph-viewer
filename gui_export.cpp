@@ -352,7 +352,7 @@ bool write_lvm_export(std::ofstream& out, const ExportOptions& opts) {
     out << "Multi_Headings\tYes" << line_end;
     out << "X_Columns\tMulti" << line_end;
     out << "Time_Pref\tAbsolute" << line_end;
-    out << "Operator\tAM Graph Viewer" << line_end;
+    out << "Operator\tAMSignal" << line_end;
     out << "Date\t" << to_utf8(date_text) << line_end;
     out << "Time\t" << to_utf8(time_text) << line_end;
     out << "***End_of_Header***" << line_end << line_end;

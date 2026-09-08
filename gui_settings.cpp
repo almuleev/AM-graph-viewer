@@ -24,7 +24,7 @@ std::wstring app_directory_path() {
 }
 
 std::wstring app_config_path() {
-    return app_directory_path() + L"AMGV.ini";
+    return app_directory_path() + L"AMS.ini";
 }
 
 void load_app_settings() {

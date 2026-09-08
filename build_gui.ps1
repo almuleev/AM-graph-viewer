@@ -8,6 +8,7 @@ if (-not (Get-Command g++ -ErrorAction SilentlyContinue)) {
 }
 $version = git -c core.excludesFile= describe --tags --always --dirty 2>$null
 if (-not $version) { $version = 'dev' }
+$releaseVersion = $version -replace '^v', ''
 $versionDefine = '-DAPP_VERSION_W=L\"' + $version + '\"'
 $compileFlags = @('-std=c++17', '-O2', '-Wall', '-Wextra', '-finput-charset=UTF-8', $versionDefine, '-I.')
 $objectDir = '.build/gui'
@@ -47,7 +48,7 @@ if ($Test) {
     $outName = 'tests/gui_regression.exe'
     & g++ -static -o $outName @objects @libraries
 } else {
-    $outName = "AMGraphViewer-$version-win-x64.exe"
+    $outName = "AMSignal-$releaseVersion-x64.exe"
     $resourceObject = Join-Path $objectDir 'AM_logo_res.o'
     & windres -O coff -i AM_logo.rc -o $resourceObject
     if ($LASTEXITCODE -ne 0) { throw 'Resource compilation failed.' }

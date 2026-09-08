@@ -1,14 +1,14 @@
-﻿# AM Graph Viewer
+﻿# AMSignal
 
 <p align="center">
-  <img src="docs/assets/github-banner.png" alt="Баннер AM Graph Viewer">
+  <img src="docs/assets/github-banner.png" alt="Баннер AMSignal">
 </p>
 
 Нативный Win32-просмотрщик и CLI-инструмент для работы с файлами сигналов LabVIEW `.lvm` / `.txt`.
 
 ## Зачем нужен проект
 
-`AM Graph Viewer` сделан для быстрой инженерной работы с логами LabVIEW без тяжёлых внешних зависимостей:
+`AMSignal` сделан для быстрой инженерной работы с логами LabVIEW без тяжёлых внешних зависимостей:
 
 - без Qt
 - без отдельного GUI-runtime
@@ -127,7 +127,7 @@ make test
 - Язык: `C++17`
 - GUI-стек: `Win32 API + GDI/GDI+`
 - Рекомендуемый toolchain под Windows: `MSYS2 / MinGW g++`
-- Имя GUI-бинарника берётся из текущего git-тега и собирается как `AMGraphViewer-v0.12.0-win-x64.exe`
+- Имя GUI-бинарника берётся из текущего git-тега и собирается как `AMSignal-0.13.0-x64.exe`
 
 ## Структура репозитория
 

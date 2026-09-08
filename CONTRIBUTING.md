@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in improving `AM Graph Viewer`.
+Thanks for your interest in improving `AMSignal`.
 
 ## Before You Start
 

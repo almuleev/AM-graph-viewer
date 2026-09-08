@@ -7,6 +7,7 @@ LDFLAGS  ?= -static
 TARGET   := lvm_reader
 # Identify the actual checkout, including uncommitted source changes.
 VERSION  := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+RELEASE_VERSION := $(patsubst v%,%,$(VERSION))
 CPPFLAGS += -DAPP_VERSION=\"$(VERSION)\"
 
 # Parser/analysis library shared by the CLI and the tests.
@@ -24,11 +25,11 @@ GUI_RES  := AM_logo.o
 ifeq ($(OS),Windows_NT)
     BIN      := $(TARGET).exe
     TEST_BIN := tests/run_tests.exe
-    GUI_BIN  := AMGraphViewer-$(VERSION)-win-x64.exe
+    GUI_BIN  := AMSignal-$(RELEASE_VERSION)-x64.exe
 else
     BIN      := $(TARGET)
     TEST_BIN := tests/run_tests
-    GUI_BIN  := AMGraphViewer-$(VERSION)
+    GUI_BIN  := AMSignal-$(RELEASE_VERSION)
 endif
 
 .PHONY: all clean run test gui test-gui FORCE

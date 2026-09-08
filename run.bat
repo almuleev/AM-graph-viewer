@@ -2,16 +2,16 @@
 chcp 1251 >nul
 setlocal
 cd /d "%~dp0"
-title AM Graph Viewer CLI
+title AMSignal CLI
 
 echo This is the command-line analyzer.
-echo For the graphical viewer, launch "Start GUI.bat" or "AMGraphViewer-v0.12.0-win-x64.exe".
+echo For the graphical viewer, launch "Start GUI.bat" or "AMSignal-0.13.0-x64.exe".
 echo.
 
 set "EXE=%~dp0lvm_reader.exe"
 
 if not exist "%EXE%" (
-  echo [!] CLI version of AM Graph Viewer is not found in this folder.
+  echo [!] CLI version of AMSignal is not found in this folder.
   echo     Build the CLI first (see README.md):
   echo     g++ -std=c++17 -O2 -static -o lvm_reader.exe main.cpp lvm_parser.cpp fft.cpp analysis.cpp
   echo.

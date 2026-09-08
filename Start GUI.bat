@@ -2,10 +2,10 @@
 chcp 1251 >nul
 setlocal
 cd /d "%~dp0"
-title AM Graph Viewer
+title AMSignal
 
 set "EXE="
-for /f "delims=" %%F in ('dir /b /a-d /o:d "%~dp0AMGraphViewer-*-win-x64.exe" 2^>nul') do set "EXE=%~dp0%%F"
+for /f "delims=" %%F in ('dir /b /a-d /o:d "%~dp0AMSignal-*-x64.exe" 2^>nul') do set "EXE=%~dp0%%F"
 
 if exist "%EXE%" (
   start "" "%EXE%"
@@ -13,7 +13,7 @@ if exist "%EXE%" (
 )
 
 echo [!] Graphical viewer not found in this folder.
-echo     Expected file: AMGraphViewer-v0.12.0-win-x64.exe
+echo     Expected file: AMSignal-0.13.0-x64.exe
 echo.
 echo     If you are building from source, run:
 echo     powershell -ExecutionPolicy Bypass -File .\build_gui.ps1

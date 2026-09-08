@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.13.0
+
+- Программа переименована в `AMSignal`: обновлены заголовки окон, справка,
+  метаданные экспортируемых LVM-файлов, документация и скрипты запуска.
+  Файл пользовательских настроек теперь называется `AMS.ini`.
+- The application is now named `AMSignal`: window titles, help text, exported
+  LVM metadata, documentation, and launch scripts have been updated. The user
+  settings file is now named `AMS.ini`.
+- Артефакты GUI-релиза теперь используют единый формат
+  `AMSignal-<version>-x64.exe`, например `AMSignal-0.13.0-x64.exe`; номер в
+  имени файла не содержит префикс `v` тега.
+- GUI release artifacts now use the consistent
+  `AMSignal-<version>-x64.exe` format, for example `AMSignal-0.13.0-x64.exe`;
+  the file version omits the tag's leading `v`.
+
 ## v0.12.7
 
 - Добавлен режим АЧХ: независимые наборы опор и откликов, H1/Welch и Direct,

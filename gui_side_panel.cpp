@@ -165,7 +165,9 @@ void show_ui_controls() {
     for (HWND b : g.buttons) ShowWindow(b, SW_SHOW);
     apply_side_panel_visibility();
     if (g.channel_edit && g.side_panel_visible && g.side_panel_tab == 0) ShowWindow(g.channel_edit, SW_SHOW);
-    if (g.status) ShowWindow(g.status, SW_SHOW);
+    // The native STATIC control only retains text for accessibility; the
+    // owner-drawn status bar supplies the visible status and author credit.
+    if (g.status) ShowWindow(g.status, SW_HIDE);
 }
 
 bool welcome_visible() {
@@ -447,8 +449,8 @@ void set_side_panel_tab(int tab) {
 void apply_side_panel_visibility() {
     const bool show = g.side_panel_visible && !welcome_visible();
     const bool frf = g.mode == AnalysisMode::FRF;
-    if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show && !frf ? SW_SHOW : SW_HIDE);
-    if (g.side_tab_points) ShowWindow(g.side_tab_points, show && (!frf || g.frf_point_settings_open) ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_points) ShowWindow(g.side_tab_points, show ? SW_SHOW : SW_HIDE);
     if (g.side_tab_filter) ShowWindow(g.side_tab_filter, show && !frf ? SW_SHOW : SW_HIDE);
     set_side_panel_tab(g.side_panel_tab);
 }

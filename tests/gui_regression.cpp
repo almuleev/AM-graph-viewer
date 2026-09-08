@@ -523,6 +523,9 @@ void frf_integration() {
         handle_frf_input(g.main,WM_LBUTTONDOWN,0,MAKELPARAM(point_x,point_y));
         require(!g.point_groups.empty() && g.point_groups.back().mode==PointGroupMode::FRF &&
                 !g.point_groups.back().points.empty(),"FRF measurement point uses its dedicated point group");
+        const double snapped_frequency=g.point_groups.back().points.back().first;
+        require(std::find(g.frf.result.common().frequencies.begin(),g.frf.result.common().frequencies.end(),snapped_frequency) !=
+                g.frf.result.common().frequencies.end(),"FRF point snapping selects an actual response-frequency bin");
         g.measure_mode=false;
         wchar_t input_text[128]{};
         GetWindowTextW(GetDlgItem(g.frf_panel,7101),input_text,128);
@@ -550,7 +553,7 @@ void frf_integration() {
         wchar_t range_text[80]{};
         require(GetWindowTextW(GetDlgItem(g.frf_panel,7107),range_text,80)>0,"FRF range edit displays calculated limit");
         RECT panel; GetClientRect(g.frf_panel,&panel);
-        require(panel.right==kRightPanel && panel.bottom>=398,"FRF controls fit the minimum-size analysis panel");
+        require(panel.right==kRightPanel && panel.bottom>=354,"FRF controls fit below the FRF tab strip");
         SendMessageW(GetDlgItem(g.frf_panel,7122),CB_SETCURSEL,0,0);
         SendMessageW(g.frf_panel,WM_COMMAND,MAKEWPARAM(7122,CBN_SELCHANGE),0);
         require(g.frf.display_smoothing_octaves==0,"FRF display smoothing can be disabled without recalculation");

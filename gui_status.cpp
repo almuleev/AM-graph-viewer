@@ -125,7 +125,6 @@ std::wstring toolbar_hover_text(HWND btn) {
     if (btn == g.measure) return g_str->hover_measure;
     if (btn == g.reset) return g_str->hover_reset;
     if (btn == g.autoy) return g_str->hover_autoy;
-    if (btn == g.ptsettings) return en ? L"Open general settings" : L"Открыть общие настройки";
     if (btn == g.sidepanel_btn) return en ? L"Show or hide the right-side work panel" : L"Показать или скрыть рабочую панель справа";
     if (btn == g.mode_frf) return en ? L"Input / Output frequency response" : L"Частотная характеристика Input / Output";
     if (btn == g.mode_time) return en ? L"Switch to Time view" : L"Переключить в режим времени";

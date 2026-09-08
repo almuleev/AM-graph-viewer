@@ -594,8 +594,9 @@ void layout_frf_panel() {
     ShowWindow(g.frf_panel, show ? SW_SHOW : SW_HIDE);
     if (show) {
         RECT r; GetClientRect(g.main, &r);
-        MoveWindow(g.frf_panel, r.right - kRightPanel, kTopBar, kRightPanel,
-            std::max(1L, r.bottom - kTopBar - kBottomBar), TRUE);
+        constexpr int tabs_height = 44;
+        MoveWindow(g.frf_panel, r.right - kRightPanel, kTopBar + tabs_height, kRightPanel,
+            std::max(1L, r.bottom - kTopBar - tabs_height - kBottomBar), TRUE);
     }
 }
 

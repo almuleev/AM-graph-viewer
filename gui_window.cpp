@@ -42,7 +42,6 @@ void rebuild_ui() {
     SetWindowTextW(g.hline_btn, g_str == &kEn ? L"H-Line" : L"H-линия");
     SetWindowTextW(g.reset, g_str->btn_reset);
     SetWindowTextW(g.autoy, g_str->btn_autoy);
-    SetWindowTextW(g.ptsettings, settings_button_text());
     SetWindowTextW(g.sidepanel_btn, side_panel_button_text());
     SetWindowTextW(g.show_all_btn, channel_show_all_text());
     SetWindowTextW(g.hide_all_btn, channel_hide_all_text());
@@ -133,7 +132,6 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.hline_btn = mk(g_str == &kEn ? L"H-Line" : L"H-линия", IDM_ADD_HLINE, 0);
             g.reset = mk(g_str->btn_reset, IDC_RESET, 0);
             g.autoy = mk(g_str->btn_autoy, IDC_AUTOY, 0);
-            g.ptsettings = mk(settings_button_text(), IDC_PTSETTINGS, 0);
             g.sidepanel_btn = mk(side_panel_button_text(), IDC_SIDEPANEL, 0);
             g.show_all_btn = mk(channel_show_all_text(), IDC_SHOW_ALL, 0);
             g.hide_all_btn = mk(channel_hide_all_text(), IDC_HIDE_ALL, 0);

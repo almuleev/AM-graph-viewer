@@ -78,6 +78,32 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel) {
     double best_y = dy;
     int best_ci = -1;
 
+    if (g.mode == AnalysisMode::FRF) {
+        if (!g.frf.result.ok || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
+        for (std::size_t response=0; response<g.frf.result.responses.size(); ++response) {
+            const auto& result=g.frf.result.responses[response];
+            if (!result.ok) continue;
+            for (std::size_t k=1; k<result.frequencies.size(); ++k) {
+                const double x=result.frequencies[k];
+                const double y=lvm::frf_dynamic_coefficient(result,k);
+                if (!(x>0) || !std::isfinite(y)) continue;
+                const double dxp=to_px(x)-target_px;
+                const double dyp=to_py(y)-target_py;
+                const double distance=dxp*dxp+dyp*dyp;
+                if (distance<best_dist2) {
+                    best_dist2=distance; best_x=x; best_y=y;
+                    best_ci=response<g.frf.outputs.size() ? g.frf.outputs[response] : -1;
+                }
+            }
+        }
+        if (best_ci>=0) {
+            dx=best_x; dy=best_y;
+            if (out_channel) *out_channel=best_ci;
+            return true;
+        }
+        return false;
+    }
+
     if ((g.mode == AnalysisMode::FFT)) {
         if (!ensure_current_spectrum() || g.spec.freqs.empty() || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
         const auto& f = g.spec.freqs;

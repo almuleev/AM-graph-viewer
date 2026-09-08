@@ -24,6 +24,16 @@ std::vector<LegendItem> g_legend_items;
 
 RECT g_legend_box = {0,0,0,0};
 
+namespace {
+constexpr wchar_t kStatusAuthorCredit[] = L"AMSignal · Alexander Muleev · al.muleev@gmail.com";
+
+void draw_status_text(HDC dc, int x, int y, int right, const std::wstring& value) {
+    if (value.empty() || x >= right) return;
+    const RECT bounds = {x, y, right, y + kBottomBar - 5};
+    ExtTextOutW(dc, x, y, ETO_CLIPPED, &bounds, value.c_str(), static_cast<UINT>(value.size()), nullptr);
+}
+} // namespace
+
 void invalidate_plot() {
     RECT pr = plot_rect();
     RECT rc; GetClientRect(g.main, &rc);
@@ -1312,21 +1322,31 @@ void on_paint(HDC hdc) {
     MoveToEx(mem, 0, ch - kBottomBar, nullptr); LineTo(mem, cw, ch - kBottomBar);
     SelectObject(mem, oldpen);
     DeleteObject(sb_top);
+    const HFONT status_font = g.axis_font ? g.axis_font :
+        (g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
+    HGDIOBJ previous_font = SelectObject(mem, status_font);
+    SIZE credit_size{};
+    GetTextExtentPoint32W(mem, kStatusAuthorCredit, lstrlenW(kStatusAuthorCredit), &credit_size);
+    const int credit_x = max(12, cw - 12 - static_cast<int>(credit_size.cx));
+    const int status_right = max(12, credit_x - 12);
+
     SetTextColor(mem, g_theme->text_secondary);
     SetTextAlign(mem, TA_LEFT | TA_TOP);
-    SelectObject(mem, g.ui_font);
     if (!g.hover_status_text.empty()) {
         SetTextColor(mem, g_theme->accent);
-        TextOutW(mem, 12, ch - kBottomBar + 5, g.hover_status_text.c_str(), static_cast<int>(g.hover_status_text.size()));
+        draw_status_text(mem, 12, ch - kBottomBar + 7, status_right, g.hover_status_text);
     } else if (!g.status_text.empty()) {
-        TextOutW(mem, 12, ch - kBottomBar + 5, g.status_text.c_str(), static_cast<int>(g.status_text.size()));
+        draw_status_text(mem, 12, ch - kBottomBar + 7, status_right, g.status_text);
         if (!g.status_detail_text.empty()) {
             SIZE sz = {};
             GetTextExtentPoint32W(mem, g.status_text.c_str(), static_cast<int>(g.status_text.size()), &sz);
             SetTextColor(mem, g.status_detail_color);
-            TextOutW(mem, 12 + sz.cx, ch - kBottomBar + 5, g.status_detail_text.c_str(), static_cast<int>(g.status_detail_text.size()));
+            draw_status_text(mem, 12 + sz.cx, ch - kBottomBar + 7, status_right, g.status_detail_text);
         }
     }
+    SetTextColor(mem, g_theme->text_secondary);
+    TextOutW(mem, credit_x, ch - kBottomBar + 7, kStatusAuthorCredit, lstrlenW(kStatusAuthorCredit));
+    SelectObject(mem, previous_font);
 
     BitBlt(hdc, 0, 0, cw, ch, mem, 0, 0, SRCCOPY);
     if (!using_persistent_backbuffer) {

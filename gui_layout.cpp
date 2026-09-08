@@ -42,14 +42,13 @@ void layout() {
     place(g.reset, text_button_width(g.reset, 76, 28), 8);
     place(g.autoy, text_button_width(g.autoy, 108, 34), 8);
 
-    // Row 2: graph tools and settings
+    // Row 2: graph tools and side panel
     x = 8;
     place(g.measure, text_button_width(g.measure, 72, 28), 40);
     place(g.marker_btn, text_button_width(g.marker_btn, 72, 30), 40);
     place(g.vline_btn, text_button_width(g.vline_btn, 78, 30), 40);
     place(g.hline_btn, text_button_width(g.hline_btn, 84, 30), 40);
     sep();
-    place(g.ptsettings, text_button_width(g.ptsettings, 108, 32), 40);
     place(g.sidepanel_btn, text_button_width(g.sidepanel_btn, 92, 32), 40);
 
     const int panel_w = side_panel_width();
@@ -67,7 +66,10 @@ void layout() {
     const int tab_gap = 4;
     const int tab_w = max(84, (content_w - tab_gap * 2) / 3);
     if (g.mode == AnalysisMode::FRF) {
-        if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x, kTopBar + 8, content_w, 28, FALSE);
+        const int frf_tab_w = max(84, (content_w - tab_gap) / 2);
+        if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, frf_tab_w, 28, FALSE);
+        if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + frf_tab_w + tab_gap,
+            kTopBar + 8, frf_tab_w, 28, FALSE);
     } else {
         if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, tab_w, 28, FALSE);
         if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + tab_w + tab_gap, kTopBar + 8, tab_w, 28, FALSE);

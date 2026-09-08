@@ -223,7 +223,7 @@ struct App {
     HWND frf_panel = nullptr;
     HWND play = nullptr, measure = nullptr, marker_btn = nullptr;
     HWND vline_btn = nullptr, hline_btn = nullptr;
-    HWND reset = nullptr, autoy = nullptr, ptsettings = nullptr, sidepanel_btn = nullptr;
+    HWND reset = nullptr, autoy = nullptr, sidepanel_btn = nullptr;
     HWND show_all_btn = nullptr, hide_all_btn = nullptr;
     HWND status = nullptr;
     std::vector<HWND> checks;

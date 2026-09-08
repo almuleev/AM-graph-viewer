@@ -17,7 +17,7 @@ enum {
     IDC_GOTO_START,
     IDC_GOTO_END,
     IDC_AUTOY,          // toolbar: auto-fit vertical scale (was lock_y)
-    IDC_PTSETTINGS,     // toolbar: open the measurement-point settings panel
+    IDC_PTSETTINGS,     // welcome screen: open the point/settings action
     IDC_SIDEPANEL,      // toolbar: show / hide the docked side panel
     IDC_SHOW_ALL,
     IDC_HIDE_ALL,

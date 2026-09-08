@@ -85,19 +85,6 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
-                case IDC_PTSETTINGS:
-                    if (welcome_visible() && !has_data()) { open_settings(); return 0; }
-                    g.side_panel_visible = true;
-                    if (g.mode == AnalysisMode::FRF) {
-                        g.frf_point_settings_open = !g.frf_point_settings_open;
-                        set_side_panel_tab(g.frf_point_settings_open ? 1 : 0);
-                    } else {
-                        set_side_panel_tab(1);
-                    }
-                    save_runtime_settings();
-                    layout();
-                    redraw_window_with_children(hwnd);
-                    return 0;
                 case IDM_SETTINGS: open_settings(); return 0;
                 case IDC_SIDEPANEL:
                     g.side_panel_visible = !g.side_panel_visible;
@@ -108,6 +95,7 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_SIDE_TAB_CHANNELS:
                     g.side_scroll_y = 0;
+                    if (g.mode == AnalysisMode::FRF) g.frf_point_settings_open = false;
                     set_side_panel_tab(0);
                     save_runtime_settings();
                     layout();
@@ -115,6 +103,7 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDC_SIDE_TAB_POINTS:
                     g.side_scroll_y = 0;
+                    if (g.mode == AnalysisMode::FRF) g.frf_point_settings_open = true;
                     set_side_panel_tab(1);
                     save_runtime_settings();
                     layout();
@@ -665,6 +654,8 @@ void set_mode(AnalysisMode mode) {
         hide_gap_details_card();
     }
     if (mode == AnalysisMode::FRF) {
+        g.frf_point_settings_open = g.side_panel_tab == 1;
+        if (!g.frf_point_settings_open) g.side_panel_tab = 0;
         normalize_active_point_group();
         if (PointGroup* group = active_point_group()) {
             g.marker_color = group->color;

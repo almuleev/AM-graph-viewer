@@ -222,8 +222,10 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     g.pending_line=0;
                 } else if (g.pending_marker) {
                     App::Marker marker;
+                    int channel=-1;
+                    const bool snapped=g.snap_to_data && snap_to_nearest_target(frequency,coefficient,&channel);
                     marker.x=frequency; marker.y=coefficient; marker.freq=true;
-                    marker.mode=AnalysisMode::FRF; marker.snapped=false; marker.channel=-1;
+                    marker.mode=AnalysisMode::FRF; marker.snapped=snapped; marker.channel=snapped ? channel : -1;
                     wchar_t label[16]{}; swprintf(label,16,L"M%zu",g.markers.size()+1);
                     marker.label=label;
                     g.markers.push_back(marker);
@@ -231,6 +233,7 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     UndoAction action; action.type=UndoAction::ADD_MARKER; action.marker=marker; push_undo(action);
                     g.pending_marker=false;
                 } else if (g.measure_mode) {
+                    if (g.snap_to_data) snap_to_nearest(frequency,coefficient);
                     bool created=false;
                     const int group=ensure_point_group_for_measurement((GetKeyState(VK_CONTROL)&0x8000)!=0,&created);
                     if (group>=0) {

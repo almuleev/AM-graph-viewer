@@ -6,6 +6,7 @@
 #include "gui_text.hpp"
 #include "gui_dialogs.hpp"
 #include "gui_loading_drop.hpp"
+#include "gui_settings_window.hpp"
 #include "gui_theme.hpp"
 
 namespace gui {
@@ -299,7 +300,8 @@ LRESULT CALLBACK HotkeysDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             g_hotkeys_dialog.list = CreateWindowExW(
                 0, L"LISTBOX", L"",
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT |
+                LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
                 pad, list_y, list_w, list_h, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_HOTKEYS_DIALOG_LIST)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -356,9 +358,21 @@ LRESULT CALLBACK HotkeysDialogProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetTextColor(dc, g_theme->text_primary);
             return reinterpret_cast<LRESULT>(g_input_brush ? g_input_brush : g_panel_brush);
         }
+        case WM_MEASUREITEM: {
+            MEASUREITEMSTRUCT* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lp);
+            if (mis && mis->CtlType == ODT_LISTBOX && mis->CtlID == IDC_HOTKEYS_DIALOG_LIST) {
+                measure_settings_list_item(mis);
+                return TRUE;
+            }
+            break;
+        }
         case WM_DRAWITEM: {
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
             if (!dis || !dis->hwndItem) break;
+            if (dis->CtlType == ODT_LISTBOX && dis->CtlID == IDC_HOTKEYS_DIALOG_LIST) {
+                draw_settings_list_item(dis);
+                return TRUE;
+            }
             if (GetDlgCtrlID(dis->hwndItem) == IDC_HOTKEYS_DIALOG_CLOSE) {
                 wchar_t txt[64]{};
                 GetWindowTextW(dis->hwndItem, txt, 64);

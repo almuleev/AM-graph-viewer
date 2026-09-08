@@ -9,6 +9,7 @@
 #include "gui_ids.hpp"
 #include "gui_playback.hpp"
 #include "gui_side_panel.hpp"
+#include "gui_settings.hpp"
 
 namespace gui {
 
@@ -20,20 +21,22 @@ std::wstring menu_text(const wchar_t* base, int command) {
     return std::wstring(base) + L"\t" + hk;
 }
 
-void append_menu_popup_owner_draw(HMENU bar, HMENU popup, const std::wstring& text) {
+void append_menu_popup_owner_draw(HMENU menu, HMENU popup, const std::wstring& text,
+                                  bool top_level) {
     AppendMenuW(
-        bar,
+        menu,
         MF_OWNERDRAW | MF_POPUP,
         reinterpret_cast<UINT_PTR>(popup),
-        reinterpret_cast<LPCWSTR>(stash_menu_entry(text, true, true)));
+        reinterpret_cast<LPCWSTR>(stash_menu_entry(text, top_level, true)));
 }
 
-void append_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text) {
+void append_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text,
+                                 const std::wstring& subtitle, bool recent_file) {
     AppendMenuW(
         menu,
         MF_OWNERDRAW | MF_STRING,
         id,
-        reinterpret_cast<LPCWSTR>(stash_menu_entry(text, false, false)));
+        reinterpret_cast<LPCWSTR>(stash_menu_entry(text, false, false, subtitle, recent_file)));
 }
 
 void modify_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text) {
@@ -59,6 +62,7 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
     if (!mis || mis->CtlType != ODT_MENU) return;
     const OwnerDrawMenuEntry* entry = reinterpret_cast<const OwnerDrawMenuEntry*>(mis->itemData);
     const std::wstring text = entry ? entry->text : L"";
+    const std::wstring subtitle = entry ? entry->subtitle : L"";
     const std::wstring left = menu_item_left_text(text);
     const std::wstring right = menu_item_right_text(text);
     HDC dc = GetDC(g.main ? g.main : nullptr);
@@ -70,6 +74,8 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
     SIZE right_sz{};
     GetTextExtentPoint32W(dc, left.c_str(), static_cast<int>(left.size()), &left_sz);
     GetTextExtentPoint32W(dc, right.c_str(), static_cast<int>(right.size()), &right_sz);
+    SIZE subtitle_sz{};
+    if (!subtitle.empty()) GetTextExtentPoint32W(dc, subtitle.c_str(), static_cast<int>(subtitle.size()), &subtitle_sz);
     SelectObject(dc, old_font);
     ReleaseDC(g.main ? g.main : nullptr, dc);
     if (entry && entry->top_level) {
@@ -83,8 +89,13 @@ void measure_owner_draw_menu(MEASUREITEMSTRUCT* mis) {
     const UINT right_pad = 12;
     const UINT gap = right.empty() ? 0 : 24;
     const UINT arrow_space = (entry && entry->popup) ? 18 : 0;
-    mis->itemWidth = check_col + left_pad + left_sz.cx + gap + right_sz.cx + arrow_space + right_pad;
-    mis->itemHeight = max(24u, static_cast<UINT>(max(left_sz.cy, right_sz.cy) + 10));
+    const LONG content_width = entry && entry->recent_file
+        ? min<LONG>(360, max(left_sz.cx, subtitle_sz.cx))
+        : left_sz.cx;
+    mis->itemWidth = check_col + left_pad + content_width + gap + right_sz.cx + arrow_space + right_pad;
+    mis->itemHeight = entry && entry->recent_file
+        ? max(42u, static_cast<UINT>(left_sz.cy + subtitle_sz.cy + 15))
+        : max(24u, static_cast<UINT>(max(left_sz.cy, right_sz.cy) + 10));
 }
 
 void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
@@ -99,6 +110,7 @@ void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
     };
     const OwnerDrawMenuEntry* entry = reinterpret_cast<const OwnerDrawMenuEntry*>(dis->itemData);
     const std::wstring text = entry ? entry->text : L"";
+    const std::wstring subtitle = entry ? entry->subtitle : L"";
     const std::wstring left = menu_item_left_text(text);
     const std::wstring right = menu_item_right_text(text);
     RECT r = dis->rcItem;
@@ -155,9 +167,27 @@ void draw_owner_draw_menu(const DRAWITEMSTRUCT* dis) {
     RECT right_rect = r;
     right_rect.left = max(left_rect.right + 8, r.right - 92);
     right_rect.right = r.right - ((entry && entry->popup) ? 24 : 12);
-    DrawTextW(
-        dis->hDC, left.c_str(), -1, &left_rect,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if (entry && entry->recent_file) {
+        RECT card = r;
+        InflateRect(&card, -3, -2);
+        if (hot) fill_rounded_rect(dis->hDC, card, mix_color(g_theme->btn_hover, g_theme->accent, 24),
+                                   mix_color(g_theme->btn_border, g_theme->accent, 88), 5);
+        left_rect.top += 4;
+        left_rect.bottom = (r.top + r.bottom) / 2 + 2;
+        DrawTextW(dis->hDC, left.c_str(), -1, &left_rect,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        RECT subtitle_rect = left_rect;
+        subtitle_rect.top = left_rect.bottom;
+        subtitle_rect.bottom = r.bottom - 4;
+        SetTextColor(dis->hDC, disabled ? g_theme->text_secondary : mix_color(g_theme->text_secondary, g_theme->bg_toolbar, 28));
+        DrawTextW(dis->hDC, subtitle.c_str(), -1, &subtitle_rect,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        SetTextColor(dis->hDC, text_col);
+    } else {
+        DrawTextW(
+            dis->hDC, left.c_str(), -1, &left_rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
     if (!right.empty()) {
         DrawTextW(
             dis->hDC, right.c_str(), -1, &right_rect,
@@ -253,6 +283,21 @@ HMENU make_menu() {
     const std::wstring undo_text = menu_text(text(L"Undo", L"Отменить"), IDM_UNDO);
     const std::wstring redo_text = menu_text(text(L"Redo", L"Повторить"), IDM_REDO);
     append_menu_item_owner_draw(file, IDC_OPEN, open_text);
+    const HMENU recent = CreatePopupMenu();
+    if (g.recent_files.empty()) {
+        append_menu_item_owner_draw(recent, IDM_RECENT_FILE_BASE, text(L"No recent files", L"Недавних файлов нет"));
+        EnableMenuItem(recent, IDM_RECENT_FILE_BASE, MF_BYCOMMAND | MF_GRAYED);
+    } else {
+        for (std::size_t i = 0; i < g.recent_files.size() && i < kMaxRecentFiles; ++i) {
+            const std::wstring& path = g.recent_files[i];
+            const std::size_t slash = path.find_last_of(L"\\/");
+            const std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
+            const std::wstring folder = slash == std::wstring::npos ? L"" : path.substr(0, slash);
+            append_menu_item_owner_draw(recent, IDM_RECENT_FILE_BASE + static_cast<int>(i),
+                                        name, folder, true);
+        }
+    }
+    append_menu_popup_owner_draw(file, recent, text(L"Recent files", L"Недавние файлы"), false);
     append_menu_item_owner_draw(file, IDC_SAVEPNG, save_png_text);
     append_menu_item_owner_draw(file, IDC_SAVECSV, save_as_text);
     AppendMenuW(file, MF_SEPARATOR, 0, nullptr);

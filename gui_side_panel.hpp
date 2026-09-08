@@ -4,10 +4,15 @@
 namespace gui {
 
 extern WNDPROC g_channel_edit_proc;
+extern WNDPROC g_channel_coefficient_edit_proc;
 
 void finish_channel_rename(bool apply);
 
 LRESULT CALLBACK ChannelEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+LRESULT CALLBACK ChannelCoefficientEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+
+bool commit_channel_coefficient(int ci, bool show_error = true);
 
 void finish_channel_rename_if_click_outside(HWND hwnd);
 

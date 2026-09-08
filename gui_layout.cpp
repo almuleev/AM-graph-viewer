@@ -102,11 +102,19 @@ void layout() {
     place_scrolled(g.side_global_formula_apply, panel_x, y, content_w, 28, channels_content_top, show_channels);
     y += 38;
     place_scrolled(g.side_channel_separator, panel_x, y, content_w, 2, channels_content_top, show_channels);
-    y += 14;
+    y += 10;
+    place_scrolled(g.side_channel_formula_label, panel_x, y, content_w, 20, channels_content_top, show_channels);
+    y += 26;
     for (std::size_t i = 0; i < g.checks.size(); ++i) {
         place_scrolled(g.checks[i], panel_x, y + 2, 18, 20, channels_content_top, show_channels);
+        const int coefficient_w = 62;
+        const int label_w = max(60, content_w - 28 - coefficient_w - 6);
         if (i < g.check_labels.size()) {
-            place_scrolled(g.check_labels[i], panel_x + 24, y, max(60, content_w - 28), 24, channels_content_top, show_channels);
+            place_scrolled(g.check_labels[i], panel_x + 24, y, label_w, 24, channels_content_top, show_channels);
+        }
+        if (i < g.channel_coefficient_edits.size()) {
+            place_scrolled(g.channel_coefficient_edits[i], panel_x + 24 + label_w + 6, y + 1, coefficient_w, 22,
+                           channels_content_top, show_channels);
         }
         y += 26;
     }
@@ -121,20 +129,9 @@ void layout() {
         }
     }
 
-    if (g.side_formula_edit && g.side_channel_color && g.side_formula_apply_selected && g.side_formula_apply_visible && g.side_formula_reset_selected && g.side_formula_reset_all) {
+    if (g.side_channel_color) {
         int cy = y + 8;
-        place_scrolled(g.side_channel_formula_label, panel_x, cy, content_w, 20, channels_content_top, show_channels);
-        cy += 24;
-        place_scrolled(g.side_formula_edit, panel_x, cy, content_w, 26, channels_content_top, show_channels);
-        cy += 32;
         place_scrolled(g.side_channel_color, panel_x, cy, content_w, 28, channels_content_top, show_channels);
-        cy += 34;
-        const int button_w = max(80, (content_w - 6) / 2);
-        place_scrolled(g.side_formula_apply_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
-        place_scrolled(g.side_formula_apply_visible, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
-        cy += 34;
-        place_scrolled(g.side_formula_reset_selected, panel_x, cy, button_w, 28, channels_content_top, show_channels);
-        place_scrolled(g.side_formula_reset_all, panel_x + button_w + 6, cy, button_w, 28, channels_content_top, show_channels);
         g.side_content_height_channels = cy + 28;
     }
 

@@ -11,6 +11,14 @@ void draw_button_with_colors(HDC dc, const RECT& r, const wchar_t* txt,
                              COLORREF bg_col, COLORREF border_col, COLORREF text_col,
                              bool pressed);
 
+// Gives owner-drawn drop-down lists the same compact, rounded closed state as
+// the rest of the application.  The list items themselves remain owner-drawn
+// by their parent, so keyboard and native ComboBox behaviour are unchanged.
+void install_themed_combo(HWND combo);
+
+// Applies the compact input-frame treatment used by small numeric fields.
+void install_compact_themed_edit(HWND edit);
+
 bool is_channel_checkbox_id(int id);
 
 bool is_side_toggle_id(int id);

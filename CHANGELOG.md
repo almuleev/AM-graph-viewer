@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.13.5
+
+- Приведены к палитре AMSignal выпадающие списки метода и сглаживания АЧХ,
+  выбора клавиши, формата и области экспорта, а также режима и топологии
+  фильтра. Закрытая часть списков имеет собственные скруглённую рамку,
+  индикатор фокуса и стрелку; пункты сохраняют owner-draw оформление.
+- The FRF method and smoothing, hotkey key, export format and range, and
+  filter mode and topology drop-downs now use the AMSignal palette. Their
+  closed fields have a rounded frame, focus indicator, and custom arrow while
+  preserving owner-drawn list items.
+- Меню «Файл → Недавние файлы» получило оформление вложенного меню приложения:
+  каждый файл отображается карточкой с именем и приглушённым путём. Исправлено
+  определение уровня вложенных popup-меню.
+- The `File → Recent files` menu now uses the nested AMSignal menu treatment:
+  every entry is a card with a file name and muted path. Popup nesting levels
+  are now classified correctly.
+- В панели каналов индивидуальный множитель перенесён в компактное поле справа
+  от имени канала. Поле применяет значение как формулу `coefficient*x` по
+  Enter или при потере фокуса и использует тематическую рамку вместо тяжёлого
+  системного края.
+- The channel panel now has a compact per-channel multiplier field beside each
+  channel name. It applies `coefficient*x` on Enter or focus loss and uses a
+  themed frame instead of the heavy system edge.
+
 ## v0.13.4
 
 - В нижней строке состояния во всех рабочих режимах теперь показана подпись

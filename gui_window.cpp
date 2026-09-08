@@ -162,13 +162,17 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_filter_mode_label = mk_panel_ctl(L"STATIC", filter_mode_label_text(),
                                                     SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
             g.side_filter_mode = mk_panel_ctl(L"COMBOBOX", L"",
-                                              CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER | WS_TABSTOP,
+                                              CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS |
+                                              CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP,
                                               IDC_SIDE_FILTER_MODE, g.side_filter_controls);
             g.side_filter_topology_label = mk_panel_ctl(L"STATIC", filter_topology_label_text(),
                                                         SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
             g.side_filter_topology = mk_panel_ctl(L"COMBOBOX", L"",
-                                                  CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER | WS_TABSTOP,
+                                                  CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS |
+                                                  CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER | WS_TABSTOP,
                                                   IDC_SIDE_FILTER_TOPOLOGY, g.side_filter_controls);
+            install_themed_combo(g.side_filter_mode);
+            install_themed_combo(g.side_filter_topology);
             g.side_filter_low_label = mk_panel_ctl(L"STATIC", filter_low_cutoff_text(),
                                                    SS_LEFT | SS_NOPREFIX, 0, g.side_filter_controls);
             g.side_filter_low_value = mk_panel_ctl(L"STATIC", L"", SS_RIGHT | SS_NOPREFIX, 0, g.side_filter_controls);
@@ -185,13 +189,7 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_global_formula_apply = mk_panel_btn(side_global_formula_apply_text(), IDC_SIDE_GLOBAL_FORMULA_APPLY, g.side_channel_controls);
             g.side_channel_separator = mk_panel_ctl(L"STATIC", L"", SS_ETCHEDHORZ, 0, g.side_channel_controls);
             g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
-            g.side_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
-                                               WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_FORMULA_EDIT, g.side_channel_controls);
             g.side_channel_color = mk_panel_btn(side_channel_color_button_text(), IDC_SIDE_CHANNEL_COLOR, g.side_channel_controls);
-            g.side_formula_apply_selected = mk_panel_btn(side_formula_apply_selected_text(), IDC_SIDE_FORMULA_APPLY_SELECTED, g.side_channel_controls);
-            g.side_formula_apply_visible = mk_panel_btn(side_formula_apply_visible_text(), IDC_SIDE_FORMULA_APPLY_VISIBLE, g.side_channel_controls);
-            g.side_formula_reset_selected = mk_panel_btn(side_formula_reset_selected_text(), IDC_SIDE_FORMULA_RESET_SELECTED, g.side_channel_controls);
-            g.side_formula_reset_all = mk_panel_btn(side_formula_reset_all_text(), IDC_SIDE_FORMULA_RESET_ALL, g.side_channel_controls);
 
             const struct PointToggleSeed { int id; const wchar_t* text; bool on; } point_toggle_seeds[] = {
                 {IDC_SIDE_PT_NUM, side_pt_num_text(), g.pdisp.number},

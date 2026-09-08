@@ -6,6 +6,10 @@ namespace gui {
 
 std::wstring channel_display_label(std::size_t ci);
 
+// Text for the per-channel multiplier field. Empty means that a legacy
+// non-multiplicative formula is active for this channel.
+std::wstring channel_coefficient_text(std::size_t ci);
+
 void invalidate_formula_runtime();
 
 void invalidate_formula_runtime_channel(std::size_t channel_index);

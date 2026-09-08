@@ -117,11 +117,14 @@ bool load_program_logo() {
     return true;
 }
 
-const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup) {
+const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup,
+                                           const std::wstring& subtitle, bool recent_file) {
     auto entry = std::make_unique<OwnerDrawMenuEntry>();
     entry->text = text;
+    entry->subtitle = subtitle;
     entry->top_level = top_level;
     entry->popup = popup;
+    entry->recent_file = recent_file;
     g_menu_text_storage.push_back(std::move(entry));
     return g_menu_text_storage.back().get();
 }

@@ -15,6 +15,7 @@
 namespace gui {
 
 WNDPROC g_channel_edit_proc = nullptr;
+WNDPROC g_channel_coefficient_edit_proc = nullptr;
 
 void finish_channel_rename(bool apply) {
     if (g.editing_channel < 0 || g.editing_channel >= static_cast<int>(g.channel_labels.size())) return;
@@ -70,6 +71,46 @@ LRESULT CALLBACK ChannelEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return CallWindowProcW(g_channel_edit_proc, hwnd, msg, wp, lp);
 }
 
+LRESULT CALLBACK ChannelCoefficientEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_GETDLGCODE) {
+        return CallWindowProcW(g_channel_coefficient_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
+    }
+    if (msg == WM_KEYDOWN && wp == VK_RETURN) {
+        SetFocus(g.main);
+        return 0;
+    }
+    return CallWindowProcW(g_channel_coefficient_edit_proc, hwnd, msg, wp, lp);
+}
+
+bool commit_channel_coefficient(int ci, bool show_error) {
+    if (ci < 0 || ci >= static_cast<int>(g.channel_coefficient_edits.size()) ||
+        ci >= static_cast<int>(g.ds.channel_count())) return false;
+    HWND edit = g.channel_coefficient_edits[static_cast<std::size_t>(ci)];
+    wchar_t buffer[128]{};
+    GetWindowTextW(edit, buffer, 128);
+    double coefficient = 0.0;
+    if (!parse_wide_double_text(buffer, coefficient)) {
+        if (show_error) {
+            MessageBoxW(g.main,
+                g_str == &kEn ? L"Enter a finite numeric multiplier." : L"Введите конечный числовой коэффициент.",
+                settings_window_title(), MB_OK | MB_ICONWARNING);
+        }
+        return false;
+    }
+
+    std::wstring formula = format_edit_number(coefficient) + L"*x";
+    std::wstring error;
+    std::vector<FormulaToken> compiled;
+    if (!compile_formula_rpn(formula, compiled, error, g_str == &kEn)) return false;
+    ensure_channel_formulas_loaded();
+    const SettingsSnapshot before = capture_settings_snapshot();
+    assign_formula_to_channel(static_cast<std::size_t>(ci), formula, compiled);
+    on_signal_transform_changed(true);
+    record_settings_change(before);
+    SetWindowTextW(edit, format_edit_number(coefficient).c_str());
+    return true;
+}
+
 void finish_channel_rename_if_click_outside(HWND hwnd) {
     if (!g.channel_edit) return;
     RECT edit_rect;
@@ -114,6 +155,8 @@ void destroy_checks() {
     g.checks.clear();
     for (HWND h : g.check_labels) DestroyWindow(h);
     g.check_labels.clear();
+    for (HWND h : g.channel_coefficient_edits) DestroyWindow(h);
+    g.channel_coefficient_edits.clear();
 }
 
 void rebuild_checks() {
@@ -138,6 +181,21 @@ void rebuild_checks() {
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CHAN_LABEL_BASE + i)), inst, nullptr);
         SendMessageW(lbl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         g.check_labels.push_back(lbl);
+
+        HWND coefficient = CreateWindowExW(
+            0, L"EDIT", channel_coefficient_text(i).c_str(),
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP | ES_AUTOHSCROLL | ES_RIGHT,
+            0, 0, 10, 10, g.main,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CHAN_COEFFICIENT_BASE + i)), inst, nullptr);
+        SendMessageW(coefficient, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        install_compact_themed_edit(coefficient);
+        if (!g_channel_coefficient_edit_proc) {
+            g_channel_coefficient_edit_proc = reinterpret_cast<WNDPROC>(
+                SetWindowLongPtrW(coefficient, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ChannelCoefficientEditProc)));
+        } else {
+            SetWindowLongPtrW(coefficient, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(ChannelCoefficientEditProc));
+        }
+        g.channel_coefficient_edits.push_back(coefficient);
     }
 }
 
@@ -150,6 +208,7 @@ void hide_ui_controls() {
     for (HWND b : g.buttons) ShowWindow(b, SW_HIDE);
     for (HWND c : g.checks) ShowWindow(c, SW_HIDE);
     for (HWND c : g.check_labels) ShowWindow(c, SW_HIDE);
+    for (HWND c : g.channel_coefficient_edits) ShowWindow(c, SW_HIDE);
     for (HWND c : g.side_channel_controls) ShowWindow(c, SW_HIDE);
     for (HWND c : g.side_filter_controls) ShowWindow(c, SW_HIDE);
     for (HWND c : g.side_point_controls) ShowWindow(c, SW_HIDE);
@@ -306,6 +365,11 @@ void load_side_transform_controls() {
         SetWindowTextW(g.side_formula_edit, text);
         EnableWindow(g.side_formula_edit, has_data());
     }
+    for (std::size_t i = 0; i < g.channel_coefficient_edits.size(); ++i) {
+        HWND edit = g.channel_coefficient_edits[i];
+        if (edit && GetFocus() != edit) SetWindowTextW(edit, channel_coefficient_text(i).c_str());
+        if (edit) EnableWindow(edit, has_data());
+    }
     if (g.side_channel_color) EnableWindow(g.side_channel_color, valid);
     if (g.side_formula_apply_selected) EnableWindow(g.side_formula_apply_selected, valid);
     if (g.side_formula_apply_visible) EnableWindow(g.side_formula_apply_visible, has_data());
@@ -338,13 +402,14 @@ void load_side_point_group_controls() {
         EnableWindow(g.side_point_group_name, valid);
     }
     if (g.side_point_group_rename) EnableWindow(g.side_point_group_rename, valid);
-    if (HWND num = GetDlgItem(g.main, IDC_SIDE_PT_NUM)) EnableWindow(num, valid);
-    if (HWND x = GetDlgItem(g.main, IDC_SIDE_PT_X)) EnableWindow(x, valid);
-    if (HWND y = GetDlgItem(g.main, IDC_SIDE_PT_Y)) EnableWindow(y, valid);
-    if (HWND dx = GetDlgItem(g.main, IDC_SIDE_PT_DX)) EnableWindow(dx, valid);
-    if (HWND dy = GetDlgItem(g.main, IDC_SIDE_PT_DY)) EnableWindow(dy, valid);
-    if (HWND invdt = GetDlgItem(g.main, IDC_SIDE_PT_INVDT)) EnableWindow(invdt, valid);
-    if (HWND dist = GetDlgItem(g.main, IDC_SIDE_PT_DIST)) EnableWindow(dist, valid);
+    // These are defaults for the first point group when none exists yet.
+    if (HWND num = GetDlgItem(g.main, IDC_SIDE_PT_NUM)) EnableWindow(num, TRUE);
+    if (HWND x = GetDlgItem(g.main, IDC_SIDE_PT_X)) EnableWindow(x, TRUE);
+    if (HWND y = GetDlgItem(g.main, IDC_SIDE_PT_Y)) EnableWindow(y, TRUE);
+    if (HWND dx = GetDlgItem(g.main, IDC_SIDE_PT_DX)) EnableWindow(dx, TRUE);
+    if (HWND dy = GetDlgItem(g.main, IDC_SIDE_PT_DY)) EnableWindow(dy, TRUE);
+    if (HWND invdt = GetDlgItem(g.main, IDC_SIDE_PT_INVDT)) EnableWindow(invdt, TRUE);
+    if (HWND dist = GetDlgItem(g.main, IDC_SIDE_PT_DIST)) EnableWindow(dist, TRUE);
     if (HWND snap = GetDlgItem(g.main, IDC_SIDE_PT_SNAP)) EnableWindow(snap, TRUE);
 }
 
@@ -433,6 +498,7 @@ void set_side_panel_tab(int tab) {
     for (HWND h : g.side_point_controls) if (h) ShowWindow(h, show_points ? SW_SHOW : SW_HIDE);
     for (HWND h : g.checks) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
     for (HWND h : g.check_labels) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
+    for (HWND h : g.channel_coefficient_edits) if (h) ShowWindow(h, show_channels ? SW_SHOW : SW_HIDE);
     if (!show_channels && g.channel_edit) ShowWindow(g.channel_edit, SW_HIDE);
     if (g.side_tab_channels) InvalidateRect(g.side_tab_channels, nullptr, FALSE);
     if (g.side_tab_points) InvalidateRect(g.side_tab_points, nullptr, FALSE);

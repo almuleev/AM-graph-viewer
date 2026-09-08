@@ -5,9 +5,11 @@ namespace gui {
 
 std::wstring menu_text(const wchar_t* base, int command);
 
-void append_menu_popup_owner_draw(HMENU bar, HMENU popup, const std::wstring& text);
+void append_menu_popup_owner_draw(HMENU menu, HMENU popup, const std::wstring& text,
+                                  bool top_level = true);
 
-void append_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text);
+void append_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text,
+                                 const std::wstring& subtitle = L"", bool recent_file = false);
 
 void modify_menu_item_owner_draw(HMENU menu, UINT id, const std::wstring& text);
 

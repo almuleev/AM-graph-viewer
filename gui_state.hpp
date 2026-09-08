@@ -273,6 +273,7 @@ struct App {
     HWND side_formula_apply_visible = nullptr;
     HWND side_formula_reset_selected = nullptr;
     HWND side_formula_reset_all = nullptr;
+    std::vector<HWND> channel_coefficient_edits;
     HWND side_point_group_list = nullptr;
     HWND side_point_group_visible = nullptr;
     HWND side_point_group_new = nullptr;

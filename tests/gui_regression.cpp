@@ -786,12 +786,31 @@ void reopen_spectrum() {
     require(!peaks.empty(), "reopened raw spectrum retains peak");
     near(peaks[0].amp, 1, "time-domain recipe is never reapplied to imported FFT amplitudes");
 }
+
+void channel_coefficient_fields() {
+    reset_document({"A", "B"}, {0, 1}, {{1, 2}, {3, 4}});
+    g.channel_formulas = {L"2.5*x", L"x+7"};
+    rebuild_formula_cache_from_state();
+    require(channel_coefficient_text(0) == L"2.5", "multiplier field shows the channel coefficient");
+    require(channel_coefficient_text(1).empty(), "non-multiplicative legacy formula does not pretend to be a coefficient");
+}
+
+void point_display_defaults() {
+    reset_document({"A"}, {0, 1}, {{1, 2}});
+    g.pdisp = {false, true, false, true, false, true, true};
+    clear_all_measure_point_groups();
+    const int index = create_point_group(g.marker_color);
+    require(index == 0, "first point group is created from point display defaults");
+    const PointDisplay& display = g.point_groups[0].display;
+    require(!display.number && display.x && !display.y && display.dx && !display.dy && display.inv_dt && display.dist,
+            "first point group inherits display choices set before any point exists");
+}
 }
 
 int main() {
     std::filesystem::create_directories(test_dir);
     try {
-        exports(); processing(); fft_recording_recovery();
+        exports(); channel_coefficient_fields(); point_display_defaults(); processing(); fft_recording_recovery();
         light_mode_and_history(); reopen_spectrum(); fft_selected_gap_range(); stitched_gap_regressions();
         light_mode_fft_visibility();
         routed_window_messages();

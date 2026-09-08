@@ -662,6 +662,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                     reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
                 if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                install_themed_combo(ctl);
                 return ctl;
             };
             auto mkradio = [&](const std::wstring& text, int x, int y, int w, int h, int id, DWORD extra_style = 0) {

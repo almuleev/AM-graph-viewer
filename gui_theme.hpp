@@ -44,8 +44,10 @@ extern HICON g_program_logo_icon;
 
 struct OwnerDrawMenuEntry {
     std::wstring text;
+    std::wstring subtitle;
     bool top_level = false;
     bool popup = false;
+    bool recent_file = false;
 };
 
 extern std::vector<std::unique_ptr<OwnerDrawMenuEntry>> g_menu_text_storage;
@@ -58,7 +60,8 @@ void unload_program_logo();
 
 bool load_program_logo();
 
-const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup);
+const OwnerDrawMenuEntry* stash_menu_entry(const std::wstring& text, bool top_level, bool popup,
+                                           const std::wstring& subtitle = L"", bool recent_file = false);
 
 void refresh_theme_windows();
 

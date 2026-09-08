@@ -20,6 +20,18 @@ std::wstring channel_display_label(std::size_t ci) {
     return std::wstring(L"Channel_") + std::to_wstring(ci + 1);
 }
 
+std::wstring channel_coefficient_text(std::size_t ci) {
+    ensure_channel_formulas_loaded();
+    ensure_channel_formula_storage();
+    if (ci >= g.channel_formulas.size() || ci >= g.channel_formula_rpn.size()) return L"";
+    if (g.channel_formula_rpn[ci].empty()) {
+        std::wstring error;
+        compile_formula_rpn(g.channel_formulas[ci], g.channel_formula_rpn[ci], error, g_str == &kEn);
+    }
+    const AffineFormulaInfo info = analyze_formula_rpn_affine(g.channel_formula_rpn[ci]);
+    return info.valid && info.add == 0.0 ? format_edit_number(info.mul) : L"";
+}
+
 void invalidate_formula_runtime() {
     g.formula_runtime_dirty = true;
     invalidate_transformed_channel_cache();

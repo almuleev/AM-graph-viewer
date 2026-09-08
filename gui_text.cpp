@@ -160,7 +160,7 @@ const wchar_t* side_global_formula_apply_text() {
 }
 
 const wchar_t* side_channel_formula_label_text() {
-    return (g_str == &kEn) ? L"Coefficient for the selected channel:" : L"Коэффициент выбранного канала:";
+    return (g_str == &kEn) ? L"Individual multiplier for each channel:" : L"Индивидуальный множитель канала:";
 }
 
 const wchar_t* point_group_list_title() {

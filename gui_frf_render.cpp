@@ -44,6 +44,47 @@ std::vector<double> display_coefficients(const lvm::FrfResult& r) {
     }
     return values;
 }
+// Measurement points must snap to what is drawn, not to the unsmoothed source
+// bin. Otherwise a click visibly lands away from its point when FRF display
+// smoothing is enabled.
+bool snap_to_displayed_frf_curve(double& frequency, double& coefficient) {
+    if (!g.frf.result.ok || !g.vvalid || g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return false;
+    const RECT& p = g.vrect;
+    const int width = p.right - p.left, height = p.bottom - p.top;
+    if (width <= 0 || height <= 0) return false;
+    const auto to_x = [&](double f) {
+        return static_cast<double>(p.left) +
+            (std::log10(f) - g.vx0) / (g.vx1 - g.vx0) * width;
+    };
+    const auto to_y = [&](double kd) {
+        return static_cast<double>(p.bottom) -
+            (kd - g.vy0) / (g.vy1 - g.vy0) * height;
+    };
+    const double target_x = to_x(frequency), target_y = to_y(coefficient);
+    double best_distance = std::numeric_limits<double>::infinity();
+    double best_frequency = frequency, best_coefficient = coefficient;
+    for (const auto& result : g.frf.result.responses) {
+        if (!result.ok) continue;
+        const auto values = display_coefficients(result);
+        for (std::size_t k = 1; k < result.frequencies.size(); ++k) {
+            const double f = result.frequencies[k];
+            const double kd = values[k];
+            if (!(f > 0) || !std::isfinite(kd)) continue;
+            const double dx = to_x(f) - target_x;
+            const double dy = to_y(kd) - target_y;
+            const double distance = dx * dx + dy * dy;
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_frequency = f;
+                best_coefficient = kd;
+            }
+        }
+    }
+    if (!std::isfinite(best_distance)) return false;
+    frequency = best_frequency;
+    coefficient = best_coefficient;
+    return true;
+}
 void line(HDC dc, int x0, int y0, int x1, int y1) {
     MoveToEx(dc, x0, y0, nullptr); LineTo(dc, x1, y1);
 }
@@ -233,7 +274,7 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     UndoAction action; action.type=UndoAction::ADD_MARKER; action.marker=marker; push_undo(action);
                     g.pending_marker=false;
                 } else if (g.measure_mode) {
-                    if (g.snap_to_data) snap_to_nearest(frequency,coefficient);
+                    if (g.snap_to_data) snap_to_displayed_frf_curve(frequency, coefficient);
                     bool created=false;
                     const int group=ensure_point_group_for_measurement((GetKeyState(VK_CONTROL)&0x8000)!=0,&created);
                     if (group>=0) {

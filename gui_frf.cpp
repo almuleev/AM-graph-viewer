@@ -8,6 +8,7 @@
 #include "gui_menu.hpp"
 #include "gui_controls.hpp"
 #include "gui_side_panel.hpp"
+#include "gui_settings_window.hpp"
 #include "gui_ids.hpp"
 #include "gui_export.hpp"
 
@@ -32,6 +33,20 @@ int smoothing_choice(double octaves) {
 HWND control(int id) { return g.frf_panel ? GetDlgItem(g.frf_panel, id) : nullptr; }
 const wchar_t* tr(const wchar_t* en, const wchar_t* ru) { return g_str == &kEn ? en : ru; }
 void label(int id, const wchar_t* value) { if (HWND h = control(id)) SetWindowTextW(h, value); }
+WNDPROC g_frf_length_edit_proc = nullptr;
+
+LRESULT CALLBACK FrfLengthEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_GETDLGCODE) {
+        return CallWindowProcW(g_frf_length_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
+    }
+    if (msg == WM_KEYDOWN && wp == VK_RETURN) {
+        HWND panel = GetParent(hwnd);
+        SendMessageW(panel, WM_COMMAND, MAKEWPARAM(Calculate, BN_CLICKED),
+                     reinterpret_cast<LPARAM>(GetDlgItem(panel, Calculate)));
+        return 0;
+    }
+    return CallWindowProcW(g_frf_length_edit_proc, hwnd, msg, wp, lp);
+}
 bool read_segment_length() {
     wchar_t text[64]{};
     GetWindowTextW(control(Length), text, 64);
@@ -59,27 +74,36 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             make(InputSummary, L"STATIC", SS_LEFT, 12, 47, 278, 17);
             make(OutputLabel, L"STATIC", SS_LEFT, 12, 66, 278, 18);
             make(Output, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 84, 278, 24);
-            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 112, 278, 24);
-            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 140, 130, 18);
-            make(LengthLabel, L"STATIC", SS_LEFT, 156, 140, 134, 18);
-            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 12, 160, 130, 200);
-            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 160, 134, 24);
-            make(Method, L"STATIC", SS_LEFT, 12, 190, 278, 48);
-            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 240, 130, 18);
-            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 156, 238, 134, 200);
-            make(Source, L"STATIC", SS_LEFT, 12, 266, 278, 32);
-            make(LowLabel, L"STATIC", SS_LEFT, 12, 300, 130, 18);
-            make(HighLabel, L"STATIC", SS_LEFT, 156, 300, 134, 18);
-            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 320, 130, 24);
-            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 320, 134, 24);
-            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 348, 278, 24);
-            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 378, 122, 24);
-            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 378, 72, 24);
-            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 378, 72, 24);
-            make(Hint, L"STATIC", SS_LEFT, 12, 408, 278, 42);
+            make(Processing, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 112, 278, 28);
+            make(EstimatorLabel, L"STATIC", SS_LEFT, 12, 144, 130, 18);
+            make(LengthLabel, L"STATIC", SS_LEFT, 156, 144, 134, 18);
+            make(Estimator, L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP, 12, 164, 130, 200);
+            make(Length, L"EDIT", WS_BORDER | ES_NUMBER | WS_TABSTOP, 156, 164, 134, 24);
+            make(Method, L"STATIC", SS_LEFT, 12, 194, 278, 44);
+            make(SmoothingLabel, L"STATIC", SS_LEFT, 12, 242, 130, 18);
+            make(Smoothing, L"COMBOBOX", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP, 156, 240, 134, 200);
+            make(Source, L"STATIC", SS_LEFT, 12, 268, 278, 40);
+            make(LowLabel, L"STATIC", SS_LEFT, 12, 312, 130, 18);
+            make(HighLabel, L"STATIC", SS_LEFT, 156, 312, 134, 18);
+            make(Low, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 12, 332, 130, 24);
+            make(High, L"EDIT", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 156, 332, 134, 24);
+            make(ApplyRange, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 362, 278, 24);
+            make(Calculate, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 12, 392, 122, 24);
+            make(Csv, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 140, 392, 72, 24);
+            make(Png, L"BUTTON", BS_OWNERDRAW | WS_TABSTOP, 218, 392, 72, 24);
+            make(Hint, L"STATIC", SS_LEFT, 12, 424, 278, 68);
+            install_themed_combo(control(Estimator));
+            install_themed_combo(control(Smoothing));
+            if (HWND length = control(Length)) {
+                g_frf_length_edit_proc = reinterpret_cast<WNDPROC>(
+                    SetWindowLongPtrW(length, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(FrfLengthEditProc)));
+            }
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"H1 (Welch)"));
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Direct Y/X"));
-            for (const wchar_t* choice : {L"Off",L"1/24 octave",L"1/12 octave",L"1/6 octave",L"1/3 octave"})
+            const wchar_t* const smoothing_en[] = {L"Off",L"1/24 octave",L"1/12 octave",L"1/6 octave",L"1/3 octave"};
+            const wchar_t* const smoothing_ru[] = {L"Без сглаживания",L"1/24 октавы",L"1/12 октавы",L"1/6 октавы",L"1/3 октавы"};
+            const wchar_t* const* smoothing_text = g_str == &kEn ? smoothing_en : smoothing_ru;
+            for (const wchar_t* choice : {smoothing_text[0], smoothing_text[1], smoothing_text[2], smoothing_text[3], smoothing_text[4]})
                 SendMessageW(control(Smoothing),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(choice));
             refresh_frf_controls(true);
             return 0;
@@ -133,6 +157,10 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DRAWITEM: {
             auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
             if (!dis || !dis->hwndItem) break;
+            if (dis->CtlType == ODT_COMBOBOX && (dis->CtlID == Estimator || dis->CtlID == Smoothing)) {
+                draw_settings_combo_item(dis);
+                return TRUE;
+            }
             wchar_t text[128]{}; GetWindowTextW(dis->hwndItem, text, 128);
             if (dis->CtlID == Processing) {
                 draw_themed_check_control(dis->hDC, dis->rcItem, text,
@@ -143,6 +171,14 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     (dis->itemState & ODS_SELECTED) != 0, false, false);
             }
             return TRUE;
+        }
+        case WM_MEASUREITEM: {
+            auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lp);
+            if (mis && mis->CtlType == ODT_COMBOBOX && (mis->CtlID == Estimator || mis->CtlID == Smoothing)) {
+                measure_settings_combo_item(mis);
+                return TRUE;
+            }
+            break;
         }
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLORBTN: {

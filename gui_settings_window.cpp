@@ -32,18 +32,16 @@ void draw_settings_combo_item(const DRAWITEMSTRUCT* dis) {
     COLORREF bg = combo_edit ? g_theme->bg_plot : (selected ? g_theme->btn_hover : g_theme->bg_plot);
     COLORREF text_col = disabled ? g_theme->text_secondary : g_theme->text_primary;
 
-    HBRUSH bg_brush = CreateSolidBrush(bg);
-    FillRect(dis->hDC, &r, bg_brush);
-    DeleteObject(bg_brush);
-
     if (combo_edit) {
-        HPEN border = CreatePen(PS_SOLID, 1, g_theme->btn_border);
-        HGDIOBJ old_pen = SelectObject(dis->hDC, border);
-        HGDIOBJ old_brush = SelectObject(dis->hDC, GetStockObject(NULL_BRUSH));
-        Rectangle(dis->hDC, r.left, r.top, r.right, r.bottom);
-        SelectObject(dis->hDC, old_brush);
-        SelectObject(dis->hDC, old_pen);
-        DeleteObject(border);
+        fill_rounded_rect(dis->hDC, r, g_theme->bg_plot, g_theme->btn_border, 5);
+    } else if (selected) {
+        RECT selected_rect = r;
+        InflateRect(&selected_rect, -2, -1);
+        fill_rounded_rect(dis->hDC, selected_rect, bg, mix_color(g_theme->accent, g_theme->btn_border, 78), 4);
+    } else {
+        HBRUSH bg_brush = CreateSolidBrush(bg);
+        FillRect(dis->hDC, &r, bg_brush);
+        DeleteObject(bg_brush);
     }
 
     UINT item = dis->itemID;
@@ -78,12 +76,13 @@ void draw_settings_combo_item(const DRAWITEMSTRUCT* dis) {
 
 void measure_settings_list_item(MEASUREITEMSTRUCT* mis) {
     if (!mis || mis->CtlType != ODT_LISTBOX) return;
-    if (mis->CtlID != IDC_SET_HOTKEY_LIST) return;
+    if (mis->CtlID != IDC_SET_HOTKEY_LIST && mis->CtlID != IDC_HOTKEYS_DIALOG_LIST) return;
     mis->itemHeight = 24;
 }
 
 void draw_settings_list_item(const DRAWITEMSTRUCT* dis) {
-    if (!dis || dis->CtlType != ODT_LISTBOX || dis->CtlID != IDC_SET_HOTKEY_LIST) return;
+    if (!dis || dis->CtlType != ODT_LISTBOX ||
+        (dis->CtlID != IDC_SET_HOTKEY_LIST && dis->CtlID != IDC_HOTKEYS_DIALOG_LIST)) return;
 
     RECT r = dis->rcItem;
     const bool disabled = (dis->itemState & ODS_DISABLED) != 0;
@@ -114,14 +113,42 @@ void draw_settings_list_item(const DRAWITEMSTRUCT* dis) {
             fill_rounded_rect(dis->hDC, fill, row_bg, row_border, 5);
         }
 
-        RECT text_rect = r;
-        text_rect.left += 10;
-        text_rect.right -= 10;
-        SetBkMode(dis->hDC, TRANSPARENT);
-        SetTextColor(dis->hDC, text_col);
+        const std::size_t shortcut_begin = text.rfind(L"  [");
+        const bool has_shortcut = shortcut_begin != std::wstring::npos && !text.empty() && text.back() == L']';
+        const std::wstring title = has_shortcut ? text.substr(0, shortcut_begin) : text;
+        const std::wstring shortcut = has_shortcut
+            ? text.substr(shortcut_begin + 3, text.size() - shortcut_begin - 4)
+            : L"";
+
         HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
         HGDIOBJ old_font = SelectObject(dis->hDC, font);
-        DrawTextW(dis->hDC, text.c_str(), -1, &text_rect,
+        SIZE shortcut_size{};
+        if (has_shortcut) {
+            GetTextExtentPoint32W(dis->hDC, shortcut.c_str(), static_cast<int>(shortcut.size()), &shortcut_size);
+            const int pill_w = shortcut_size.cx + 16;
+            RECT pill = {r.right - pill_w - 8, r.top + 4, r.right - 8, r.bottom - 4};
+            const COLORREF pill_bg = selected
+                ? mix_color(g_theme->accent, row_bg, 72)
+                : mix_color(g_theme->btn_hover, base_bg, 86);
+            const COLORREF pill_border = selected
+                ? mix_color(g_theme->accent, row_border, 60)
+                : g_theme->btn_border;
+            fill_rounded_rect(dis->hDC, pill, pill_bg, pill_border, 8);
+            RECT shortcut_rect = pill;
+            shortcut_rect.left += 8;
+            shortcut_rect.right -= 8;
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, selected ? RGB(255, 255, 255) : g_theme->text_secondary);
+            DrawTextW(dis->hDC, shortcut.c_str(), -1, &shortcut_rect,
+                      DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        }
+
+        RECT text_rect = r;
+        text_rect.left += 10;
+        text_rect.right -= has_shortcut ? shortcut_size.cx + 32 : 10;
+        SetBkMode(dis->hDC, TRANSPARENT);
+        SetTextColor(dis->hDC, text_col);
+        DrawTextW(dis->hDC, title.c_str(), -1, &text_rect,
                   DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(dis->hDC, old_font);
     }
@@ -180,6 +207,8 @@ const wchar_t* settings_window_title() {
 void refresh_settings_controls() {
     if (!g.settings_wnd) return;
     CheckRadioButton(g.settings_wnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
+    if (HWND theme = GetDlgItem(g.settings_wnd, IDW_THEME_LIGHT)) InvalidateRect(theme, nullptr, FALSE);
+    if (HWND theme = GetDlgItem(g.settings_wnd, IDW_THEME_DARK)) InvalidateRect(theme, nullptr, FALSE);
     if (HWND light = GetDlgItem(g.settings_wnd, IDW_LIGHT_MODE)) {
         set_toggle_checked(light, g.light_mode);
     }
@@ -223,31 +252,35 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 return mk(L"BUTTON", text, BS_OWNERDRAW | WS_TABSTOP, x, y, w, h, id);
             };
             const bool en = (g_str == &kEn);
-            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 300, IDC_SET_GROUP_GENERAL);
+            mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 332, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
             mkcheck(g_str->light_mode, 28, 64, 278, 28, IDW_LIGHT_MODE);
             set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
             mkcheck(gap_markers_toggle_text(), 28, 98, 278, 28, IDC_SET_GAP_MARKERS);
             mkcheck(stitch_gaps_toggle_text(), 28, 128, 360, 28, IDC_SET_STITCH_GAPS);
-            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 188, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 184, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
-            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 216, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 212, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            mk(L"STATIC", en ? L"Theme" : L"Тема", SS_LEFT, 28, 164, 72, 20, IDW_THEME_LABEL);
+            mk(L"BUTTON", g_str->theme_light, BS_OWNERDRAW, 104, 160, 124, 24, IDW_THEME_LIGHT);
+            mk(L"BUTTON", g_str->theme_dark, BS_OWNERDRAW, 240, 160, 124, 24, IDW_THEME_DARK);
+            mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 204, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
+            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 200, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 232, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
+            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 228, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
 
-            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 310, 510, 188, IDC_SET_GROUP_HOTKEYS);
+            mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 342, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
-                24, 334, 240, 146, IDC_SET_HOTKEY_LIST);
-            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 342, 70, 22, IDC_SET_HOTKEY_CTRL);
-            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 342, 70, 22, IDC_SET_HOTKEY_SHIFT);
-            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 342, 70, 22, IDC_SET_HOTKEY_ALT);
-            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 374, 80, 20, 0);
-            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_VSCROLL | WS_BORDER, 284, 394, 214, 260, IDC_SET_HOTKEY_KEY);
+                24, 366, 240, 146, IDC_SET_HOTKEY_LIST);
+            mk(L"BUTTON", L"Ctrl", BS_OWNERDRAW, 284, 374, 70, 22, IDC_SET_HOTKEY_CTRL);
+            mk(L"BUTTON", L"Shift", BS_OWNERDRAW, 356, 374, 70, 22, IDC_SET_HOTKEY_SHIFT);
+            mk(L"BUTTON", L"Alt", BS_OWNERDRAW, 428, 374, 70, 22, IDC_SET_HOTKEY_ALT);
+            mk(L"STATIC", en ? L"Key:" : L"Клавиша:", SS_LEFT, 284, 406, 80, 20, 0);
+            HWND combo = mk(L"COMBOBOX", L"", CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_BORDER, 284, 426, 214, 260, IDC_SET_HOTKEY_KEY);
+            install_themed_combo(combo);
             populate_hotkey_key_combo(combo);
-            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 432, 100, 28, IDC_SET_HOTKEY_APPLY);
-            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 432, 100, 28, IDC_SET_HOTKEY_RESET);
-            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 466, 100, 28, IDC_SET_HOTKEY_CLEAR);
-            mk(L"BUTTON", en ? L"Reset all" : L"Сбросить всё", BS_OWNERDRAW, 398, 466, 100, 28, IDC_SET_HOTKEY_RESET_ALL);
+            mk(L"BUTTON", en ? L"Apply" : L"Применить", BS_OWNERDRAW, 284, 464, 100, 28, IDC_SET_HOTKEY_APPLY);
+            mk(L"BUTTON", en ? L"Reset" : L"Сбросить", BS_OWNERDRAW, 398, 464, 100, 28, IDC_SET_HOTKEY_RESET);
+            mk(L"BUTTON", en ? L"Clear" : L"Очистить", BS_OWNERDRAW, 284, 498, 100, 28, IDC_SET_HOTKEY_CLEAR);
+            mk(L"BUTTON", en ? L"Reset all" : L"Сбросить всё", BS_OWNERDRAW, 398, 498, 100, 28, IDC_SET_HOTKEY_RESET_ALL);
             populate_hotkey_list(hwnd);
             load_selected_hotkey_controls(hwnd);
             CheckRadioButton(hwnd, IDC_SET_LANG_RU, IDC_SET_LANG_EN, g_str == &kEn ? IDC_SET_LANG_EN : IDC_SET_LANG_RU);
@@ -275,6 +308,12 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         toggle_checked_state(light);
                         apply_light_mode(is_toggle_checked(light));
                     }
+                    return 0;
+                case IDW_THEME_LIGHT:
+                    if (HIWORD(wp) == BN_CLICKED) apply_theme_choice(&kLightTheme);
+                    return 0;
+                case IDW_THEME_DARK:
+                    if (HIWORD(wp) == BN_CLICKED) apply_theme_choice(&kDarkTheme);
                     return 0;
                 case IDC_SET_GAP_MARKERS:
                     if (HIWORD(wp) == BN_CLICKED || HIWORD(wp) == BN_DOUBLECLICKED) {
@@ -416,6 +455,8 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     bool active = false;
                     if (ctl_id == IDC_SET_LANG_RU) active = g_str == &kRu;
                     else if (ctl_id == IDC_SET_LANG_EN) active = g_str == &kEn;
+                    else if (ctl_id == IDW_THEME_LIGHT) active = g_theme == &kLightTheme;
+                    else if (ctl_id == IDW_THEME_DARK) active = g_theme == &kDarkTheme;
                     draw_themed_button(dis->hDC, dis->rcItem, txt, pressed, active, false);
                 }
                 return TRUE;
@@ -475,7 +516,7 @@ void open_settings() {
         HINSTANCE inst = reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE));
             g.settings_wnd = CreateWindowExW(
             WS_EX_TOOLWINDOW, L"LvmPtSettings", settings_window_title(),
-            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 536,
+            WS_POPUP | WS_CAPTION | WS_SYSMENU, CW_USEDEFAULT, CW_USEDEFAULT, 540, 568,
             g.main, nullptr, inst, nullptr);
         if (!g.settings_wnd) return;
         RECT mr, sr;

@@ -45,6 +45,14 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g_filter_slider_before.reset();
             const int id = LOWORD(wp);
             if (g.mode == AnalysisMode::FRF && !frf_command_supported(id)) return 0;
+            if (id >= IDM_RECENT_FILE_BASE &&
+                id < IDM_RECENT_FILE_BASE + static_cast<int>(g.recent_files.size())) {
+                const std::wstring path = g.recent_files[static_cast<std::size_t>(id - IDM_RECENT_FILE_BASE)];
+                if (!load_path_interactive(path) && !g.last_error.empty()) {
+                    MessageBoxW(hwnd, to_w(g.last_error).c_str(), g_str->msg_read_err, MB_ICONERROR | MB_OK);
+                }
+                return 0;
+            }
             switch (id) {
                 case IDC_OPEN: open_file(); return 0;
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
@@ -528,23 +536,23 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_SIDE_PT_DIST: {
                     const SettingsSnapshot before = capture_settings_snapshot();
                     PointDisplay* display = active_point_display();
-                    if (!display) return 0;
                     toggle_checked_state(GetDlgItem(hwnd, id));
                     auto checked = [&](int ctl_id) {
                         return is_toggle_checked(GetDlgItem(hwnd, ctl_id));
                     };
-                    display->number = checked(IDC_SIDE_PT_NUM);
-                    display->x = checked(IDC_SIDE_PT_X);
-                    display->y = checked(IDC_SIDE_PT_Y);
-                    display->dx = checked(IDC_SIDE_PT_DX);
-                    display->dy = checked(IDC_SIDE_PT_DY);
-                    display->inv_dt = checked(IDC_SIDE_PT_INVDT);
-                    display->dist = checked(IDC_SIDE_PT_DIST);
-                    g.pdisp = *display;
+                    PointDisplay next = display ? *display : g.pdisp;
+                    next.number = checked(IDC_SIDE_PT_NUM);
+                    next.x = checked(IDC_SIDE_PT_X);
+                    next.y = checked(IDC_SIDE_PT_Y);
+                    next.dx = checked(IDC_SIDE_PT_DX);
+                    next.dy = checked(IDC_SIDE_PT_DY);
+                    next.inv_dt = checked(IDC_SIDE_PT_INVDT);
+                    next.dist = checked(IDC_SIDE_PT_DIST);
+                    if (display) *display = next;
+                    g.pdisp = next;
                     record_settings_change(before);
                     save_runtime_settings();
                     refresh_settings_controls();
-                    sync_point_display_from_active_group();
                     refresh_side_panel_controls();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
@@ -610,6 +618,17 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 }
                 default: break;
+            }
+            if (id >= IDC_CHAN_COEFFICIENT_BASE &&
+                id < IDC_CHAN_COEFFICIENT_BASE + static_cast<int>(g.channel_coefficient_edits.size())) {
+                const int ci = id - IDC_CHAN_COEFFICIENT_BASE;
+                if (HIWORD(wp) == EN_SETFOCUS) {
+                    g.side_selected_channel = ci;
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                } else if (HIWORD(wp) == EN_KILLFOCUS && GetWindowTextLengthW(g.channel_coefficient_edits[ci]) > 0) {
+                    commit_channel_coefficient(ci);
+                }
+                return 0;
             }
             if (id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size())) {
                 const int ci = id - IDC_CHAN_BASE;

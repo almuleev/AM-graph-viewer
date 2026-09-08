@@ -48,6 +48,165 @@ void draw_button_with_colors(HDC dc, const RECT& r, const wchar_t* txt,
     SelectObject(dc, old_font);
 }
 
+namespace {
+
+constexpr UINT_PTR kThemedComboSubclassId = 0x414D4342; // "AMCB"
+constexpr UINT_PTR kThemedEditSubclassId = 0x414D4544;  // "AMED"
+constexpr wchar_t kThemedComboPressedProperty[] = L"AMSignalThemedComboPressed";
+
+std::wstring combo_selection_text(HWND combo) {
+    const int index = static_cast<int>(SendMessageW(combo, CB_GETCURSEL, 0, 0));
+    if (index == CB_ERR) return L"";
+    const LRESULT len = SendMessageW(combo, CB_GETLBTEXTLEN, index, 0);
+    if (len <= 0) return L"";
+    std::wstring text(static_cast<std::size_t>(len), L'\0');
+    SendMessageW(combo, CB_GETLBTEXT, index, reinterpret_cast<LPARAM>(text.data()));
+    return text;
+}
+
+void paint_themed_combo(HWND combo) {
+    RECT window{};
+    GetWindowRect(combo, &window);
+    const int width = window.right - window.left;
+    const int height = window.bottom - window.top;
+    if (width <= 0 || height <= 0) return;
+
+    HDC dc = GetWindowDC(combo);
+    if (!dc) return;
+    const RECT r = {0, 0, width, height};
+    const bool enabled = IsWindowEnabled(combo) != FALSE;
+    const bool focused = GetFocus() == combo;
+    const bool pressed = GetPropW(combo, kThemedComboPressedProperty) != nullptr ||
+                         SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0) != FALSE;
+    const COLORREF surface = enabled ? (pressed ? g_theme->btn_hover : g_theme->bg_plot)
+                                     : mix_color(g_theme->bg_plot, g_theme->bg_panel, 104);
+    const COLORREF border = focused || pressed ? g_theme->accent : g_theme->btn_border;
+    fill_rounded_rect(dc, r, surface, border, 6);
+
+    const int arrow_width = min(28, max(22, width / 5));
+    RECT divider = {r.right - arrow_width, r.top + 5, r.right - arrow_width + 1, r.bottom - 5};
+    HBRUSH divider_brush = CreateSolidBrush(mix_color(border, surface, 112));
+    FillRect(dc, &divider, divider_brush);
+    DeleteObject(divider_brush);
+
+    const COLORREF arrow = enabled ? (pressed ? g_theme->accent_hover : g_theme->text_secondary)
+                                   : g_theme->text_secondary;
+    const int cx = r.right - arrow_width / 2;
+    const int cy = (r.top + r.bottom) / 2 + (pressed ? 1 : 0);
+    HPEN arrow_pen = CreatePen(PS_SOLID, 2, arrow);
+    HGDIOBJ old_pen = SelectObject(dc, arrow_pen);
+    MoveToEx(dc, cx - 4, cy - 2, nullptr);
+    LineTo(dc, cx, cy + 2);
+    LineTo(dc, cx + 4, cy - 2);
+    SelectObject(dc, old_pen);
+    DeleteObject(arrow_pen);
+
+    const std::wstring text = combo_selection_text(combo);
+    RECT text_rect = {r.left + 9, r.top + 1, r.right - arrow_width - 7, r.bottom - 1};
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, enabled ? g_theme->text_primary : g_theme->text_secondary);
+    HFONT font = g.ui_font ? g.ui_font : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HGDIOBJ old_font = SelectObject(dc, font);
+    DrawTextW(dc, text.c_str(), -1, &text_rect,
+              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    SelectObject(dc, old_font);
+    ReleaseDC(combo, dc);
+}
+
+LRESULT CALLBACK themed_combo_proc(HWND combo, UINT msg, WPARAM wp, LPARAM lp,
+                                   UINT_PTR, DWORD_PTR) {
+    switch (msg) {
+        case WM_LBUTTONDOWN:
+            SetPropW(combo, kThemedComboPressedProperty, reinterpret_cast<HANDLE>(1));
+            InvalidateRect(combo, nullptr, FALSE);
+            break;
+        case WM_LBUTTONUP:
+        case WM_KILLFOCUS:
+            RemovePropW(combo, kThemedComboPressedProperty);
+            InvalidateRect(combo, nullptr, FALSE);
+            break;
+        case WM_SETFOCUS:
+        case WM_ENABLE:
+        case CB_SETCURSEL:
+            InvalidateRect(combo, nullptr, FALSE);
+            break;
+        case WM_NCDESTROY:
+            RemovePropW(combo, kThemedComboPressedProperty);
+            RemoveWindowSubclass(combo, themed_combo_proc, kThemedComboSubclassId);
+            break;
+        case WM_PAINT: {
+            const LRESULT result = DefSubclassProc(combo, msg, wp, lp);
+            paint_themed_combo(combo);
+            return result;
+        }
+        default:
+            break;
+    }
+    return DefSubclassProc(combo, msg, wp, lp);
+}
+
+void paint_compact_edit_frame(HWND edit) {
+    RECT window{};
+    GetWindowRect(edit, &window);
+    const int width = window.right - window.left;
+    const int height = window.bottom - window.top;
+    if (width <= 2 || height <= 2) return;
+    HDC dc = GetWindowDC(edit);
+    if (!dc) return;
+    const bool enabled = IsWindowEnabled(edit) != FALSE;
+    const COLORREF border = !enabled ? mix_color(g_theme->btn_border, g_theme->bg_panel, 96)
+        : (GetFocus() == edit ? g_theme->accent : g_theme->btn_border);
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    HGDIOBJ old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    RoundRect(dc, 0, 0, width, height, 6, 6);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+    ReleaseDC(edit, dc);
+}
+
+LRESULT CALLBACK themed_edit_proc(HWND edit, UINT msg, WPARAM wp, LPARAM lp,
+                                  UINT_PTR, DWORD_PTR) {
+    switch (msg) {
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_ENABLE:
+            RedrawWindow(edit, nullptr, nullptr, RDW_INVALIDATE | RDW_FRAME);
+            break;
+        case WM_NCPAINT: {
+            const LRESULT result = DefSubclassProc(edit, msg, wp, lp);
+            paint_compact_edit_frame(edit);
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(edit, themed_edit_proc, kThemedEditSubclassId);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(edit, msg, wp, lp);
+}
+
+} // namespace
+
+void install_themed_combo(HWND combo) {
+    if (!combo || !IsWindow(combo)) return;
+    SetWindowSubclass(combo, themed_combo_proc, kThemedComboSubclassId, 0);
+    InvalidateRect(combo, nullptr, TRUE);
+}
+
+void install_compact_themed_edit(HWND edit) {
+    if (!edit || !IsWindow(edit)) return;
+    const LONG_PTR ex_style = GetWindowLongPtrW(edit, GWL_EXSTYLE) & ~static_cast<LONG_PTR>(WS_EX_CLIENTEDGE);
+    const LONG_PTR style = GetWindowLongPtrW(edit, GWL_STYLE) | WS_BORDER;
+    SetWindowLongPtrW(edit, GWL_EXSTYLE, ex_style);
+    SetWindowLongPtrW(edit, GWL_STYLE, style);
+    SetWindowSubclass(edit, themed_edit_proc, kThemedEditSubclassId, 0);
+    SetWindowPos(edit, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+}
+
 bool is_channel_checkbox_id(int id) {
     return id >= IDC_CHAN_BASE && id < IDC_CHAN_BASE + static_cast<int>(g.visible.size());
 }
@@ -68,6 +227,8 @@ bool is_side_toggle_id(int id) {
 bool is_settings_toggle_button_id(int id) {
     return id == IDC_SET_LANG_RU ||
            id == IDC_SET_LANG_EN ||
+           id == IDW_THEME_LIGHT ||
+           id == IDW_THEME_DARK ||
            id == IDC_SET_HOTKEY_CTRL ||
            id == IDC_SET_HOTKEY_SHIFT ||
            id == IDC_SET_HOTKEY_ALT;

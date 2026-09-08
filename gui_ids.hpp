@@ -139,6 +139,7 @@ enum {
     IDW_ACTIONS_TITLE,
     IDW_ACTIONS_HINT,
     IDW_LANG_LABEL,
+    // Used by the welcome screen; Settings has no separate theme label.
     IDW_THEME_LABEL,
     IDW_THEME_LIGHT,
     IDW_THEME_DARK,

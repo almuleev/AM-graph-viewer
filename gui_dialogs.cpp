@@ -266,7 +266,7 @@ LRESULT CALLBACK NumericPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             int button_x = std::max(16, (384 - total_w) / 2);
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", g_numeric_prompt.apply_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
                 button_x, 104, ok_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SPEED_PROMPT_OK)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
@@ -421,7 +421,7 @@ LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", g_range_prompt.apply_text.c_str(),
-                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
                 button_x + autofill_w + button_gap, 178, apply_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_RANGE_PROMPT_OK)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);

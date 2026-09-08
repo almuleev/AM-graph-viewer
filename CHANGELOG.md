@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.13.6
+
+- Во всех редактируемых полях AMSignal клавиша Enter теперь подтверждает
+  введённое значение. В панели АЧХ она запускает расчёт из поля длины сегмента
+  и применяет диапазон из полей частоты; в панели каналов подтверждает общий
+  коэффициент и имя группы точек; в настройках сохраняет подписи осей. В
+  числовых и диапазонном диалогах Enter активирует основное действие. Прежнее
+  поведение индивидуального множителя и переименования канала сохранено.
+- Переключатели языка, светлой и тёмной темы собраны в одну верхнюю строку
+  раздела «Общие», без отдельной подписи темы. Русская подпись тёмной темы
+  приведена к написанию «Темная тема».
+- Карта архитектуры и правила проекта уточнены: Enter означает подтверждение
+  значения в редактируемом поле и запуск его явного действия либо сохранение
+  значения при потере фокуса.
+- Enter now confirms a value in every editable AMSignal field. In the FRF
+  panel it starts calculation from the segment-length field and applies the
+  entered frequency range; in the channel panel it confirms the global
+  coefficient and a point-group name; in Settings it saves axis labels.
+  Numeric and range dialogs activate their primary action with Enter. Existing
+  channel-multiplier and channel-renaming behaviour is retained.
+- Language, Light-theme, and Dark-theme controls are grouped into one top row
+  in General Settings, with no separate theme label. The Russian Dark-theme
+  caption was also normalized to «Темная тема».
+- The architecture map and project guidance now explicitly document that Enter
+  confirms editable-field input by invoking its explicit action or committing
+  the value on focus loss.
+
 ## v0.13.5
 
 - Приведены к палитре AMSignal выпадающие списки метода и сглаживания АЧХ,

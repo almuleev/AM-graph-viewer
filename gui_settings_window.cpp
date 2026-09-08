@@ -17,6 +17,28 @@
 
 namespace gui {
 
+namespace {
+WNDPROC g_axis_label_edit_proc = nullptr;
+
+LRESULT CALLBACK AxisLabelEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_GETDLGCODE) {
+        return CallWindowProcW(g_axis_label_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
+    }
+    if (msg == WM_KEYDOWN && wp == VK_RETURN) {
+        SetFocus(GetParent(hwnd));
+        return 0;
+    }
+    return CallWindowProcW(g_axis_label_edit_proc, hwnd, msg, wp, lp);
+}
+
+void install_axis_label_edit(HWND edit) {
+    if (!edit) return;
+    WNDPROC previous = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(edit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(AxisLabelEditProc)));
+    if (!g_axis_label_edit_proc) g_axis_label_edit_proc = previous;
+}
+} // namespace
+
 void measure_settings_combo_item(MEASUREITEMSTRUCT* mis) {
     if (!mis || mis->CtlType != ODT_COMBOBOX) return;
     mis->itemHeight = 22;
@@ -255,17 +277,16 @@ LRESULT CALLBACK SettingsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             mk(L"BUTTON", en ? L"General" : L"Общие", BS_OWNERDRAW, 12, 10, 510, 332, IDC_SET_GROUP_GENERAL);
             mk(L"BUTTON", g_str->lang_ru, BS_OWNERDRAW, 28, 36, 110, 22, IDC_SET_LANG_RU);
             mk(L"BUTTON", g_str->lang_en, BS_OWNERDRAW, 144, 36, 110, 22, IDC_SET_LANG_EN);
+            mk(L"BUTTON", g_str->theme_light, BS_OWNERDRAW, 264, 36, 120, 22, IDW_THEME_LIGHT);
+            mk(L"BUTTON", g_str->theme_dark, BS_OWNERDRAW, 390, 36, 120, 22, IDW_THEME_DARK);
             mkcheck(g_str->light_mode, 28, 64, 278, 28, IDW_LIGHT_MODE);
             set_toggle_checked(GetDlgItem(hwnd, IDW_LIGHT_MODE), g.light_mode);
             mkcheck(gap_markers_toggle_text(), 28, 98, 278, 28, IDC_SET_GAP_MARKERS);
             mkcheck(stitch_gaps_toggle_text(), 28, 128, 360, 28, IDC_SET_STITCH_GAPS);
-            mk(L"STATIC", en ? L"Theme" : L"Тема", SS_LEFT, 28, 164, 72, 20, IDW_THEME_LABEL);
-            mk(L"BUTTON", g_str->theme_light, BS_OWNERDRAW, 104, 160, 124, 24, IDW_THEME_LIGHT);
-            mk(L"BUTTON", g_str->theme_dark, BS_OWNERDRAW, 240, 160, 124, 24, IDW_THEME_DARK);
             mk(L"STATIC", axis_x_label_text(), SS_LEFT, 28, 204, 72, 20, IDC_SET_AXIS_X_LABEL_STATIC);
-            mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 200, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT);
+            install_axis_label_edit(mk(L"EDIT", g.axis_x_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 200, 260, 24, IDC_SET_AXIS_X_LABEL_EDIT));
             mk(L"STATIC", axis_y_label_text(), SS_LEFT, 28, 232, 72, 20, IDC_SET_AXIS_Y_LABEL_STATIC);
-            mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 228, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT);
+            install_axis_label_edit(mk(L"EDIT", g.axis_y_label.c_str(), WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, 104, 228, 260, 24, IDC_SET_AXIS_Y_LABEL_EDIT));
 
             mk(L"BUTTON", en ? L"Hotkeys" : L"Горячие клавиши", BS_OWNERDRAW, 12, 342, 510, 188, IDC_SET_GROUP_HOTKEYS);
             mk(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,

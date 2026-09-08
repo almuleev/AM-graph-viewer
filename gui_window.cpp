@@ -186,6 +186,7 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_global_formula_label = mk_panel_ctl(L"STATIC", side_global_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
             g.side_global_formula_edit = mk_panel_ctl(L"EDIT", default_channel_formula_text().c_str(),
                                                       WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_GLOBAL_FORMULA_EDIT, g.side_channel_controls);
+            install_side_panel_apply_edit(g.side_global_formula_edit);
             g.side_global_formula_apply = mk_panel_btn(side_global_formula_apply_text(), IDC_SIDE_GLOBAL_FORMULA_APPLY, g.side_channel_controls);
             g.side_channel_separator = mk_panel_ctl(L"STATIC", L"", SS_ETCHEDHORZ, 0, g.side_channel_controls);
             g.side_channel_formula_label = mk_panel_ctl(L"STATIC", side_channel_formula_label_text(), SS_LEFT, 0, g.side_channel_controls);
@@ -213,6 +214,7 @@ LRESULT handle_window_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             g.side_point_group_new = mk_panel_btn(point_group_new_button_text(), IDC_SIDE_POINT_GROUP_NEW, g.side_point_controls);
             g.side_point_group_delete = mk_panel_btn(side_point_group_delete_text(), IDC_SIDE_POINT_GROUP_DELETE, g.side_point_controls);
             g.side_point_group_name = mk_panel_ctl(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL, IDC_SIDE_POINT_GROUP_NAME, g.side_point_controls);
+            install_side_panel_apply_edit(g.side_point_group_name);
             g.side_point_group_rename = mk_panel_btn(side_point_group_rename_text(), IDC_SIDE_POINT_GROUP_RENAME, g.side_point_controls);
 
             g.status = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,

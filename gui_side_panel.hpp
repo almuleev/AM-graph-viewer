@@ -12,6 +12,8 @@ LRESULT CALLBACK ChannelEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 LRESULT CALLBACK ChannelCoefficientEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
+void install_side_panel_apply_edit(HWND edit);
+
 bool commit_channel_coefficient(int ci, bool show_error = true);
 
 void finish_channel_rename_if_click_outside(HWND hwnd);

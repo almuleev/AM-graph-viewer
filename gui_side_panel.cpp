@@ -16,6 +16,32 @@ namespace gui {
 
 WNDPROC g_channel_edit_proc = nullptr;
 WNDPROC g_channel_coefficient_edit_proc = nullptr;
+WNDPROC g_side_panel_apply_edit_proc = nullptr;
+
+LRESULT CALLBACK SidePanelApplyEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_GETDLGCODE) {
+        return CallWindowProcW(g_side_panel_apply_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
+    }
+    if (msg == WM_KEYDOWN && wp == VK_RETURN) {
+        const int id = GetDlgCtrlID(hwnd);
+        const int action = id == IDC_SIDE_GLOBAL_FORMULA_EDIT ? IDC_SIDE_GLOBAL_FORMULA_APPLY :
+                           id == IDC_SIDE_POINT_GROUP_NAME ? IDC_SIDE_POINT_GROUP_RENAME : 0;
+        if (action) {
+            HWND parent = GetParent(hwnd);
+            SendMessageW(parent, WM_COMMAND, MAKEWPARAM(action, BN_CLICKED),
+                         reinterpret_cast<LPARAM>(GetDlgItem(parent, action)));
+            return 0;
+        }
+    }
+    return CallWindowProcW(g_side_panel_apply_edit_proc, hwnd, msg, wp, lp);
+}
+
+void install_side_panel_apply_edit(HWND edit) {
+    if (!edit) return;
+    WNDPROC previous = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(edit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(SidePanelApplyEditProc)));
+    if (!g_side_panel_apply_edit_proc) g_side_panel_apply_edit_proc = previous;
+}
 
 void finish_channel_rename(bool apply) {
     if (g.editing_channel < 0 || g.editing_channel >= static_cast<int>(g.channel_labels.size())) return;

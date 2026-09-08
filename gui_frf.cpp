@@ -33,19 +33,20 @@ int smoothing_choice(double octaves) {
 HWND control(int id) { return g.frf_panel ? GetDlgItem(g.frf_panel, id) : nullptr; }
 const wchar_t* tr(const wchar_t* en, const wchar_t* ru) { return g_str == &kEn ? en : ru; }
 void label(int id, const wchar_t* value) { if (HWND h = control(id)) SetWindowTextW(h, value); }
-WNDPROC g_frf_length_edit_proc = nullptr;
+WNDPROC g_frf_edit_proc = nullptr;
 
-LRESULT CALLBACK FrfLengthEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+LRESULT CALLBACK FrfEditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_GETDLGCODE) {
-        return CallWindowProcW(g_frf_length_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
+        return CallWindowProcW(g_frf_edit_proc, hwnd, msg, wp, lp) | DLGC_WANTALLKEYS;
     }
     if (msg == WM_KEYDOWN && wp == VK_RETURN) {
         HWND panel = GetParent(hwnd);
-        SendMessageW(panel, WM_COMMAND, MAKEWPARAM(Calculate, BN_CLICKED),
-                     reinterpret_cast<LPARAM>(GetDlgItem(panel, Calculate)));
+        const int action = GetDlgCtrlID(hwnd) == Length ? Calculate : ApplyRange;
+        SendMessageW(panel, WM_COMMAND, MAKEWPARAM(action, BN_CLICKED),
+                     reinterpret_cast<LPARAM>(GetDlgItem(panel, action)));
         return 0;
     }
-    return CallWindowProcW(g_frf_length_edit_proc, hwnd, msg, wp, lp);
+    return CallWindowProcW(g_frf_edit_proc, hwnd, msg, wp, lp);
 }
 bool read_segment_length() {
     wchar_t text[64]{};
@@ -94,9 +95,12 @@ LRESULT CALLBACK FrfPanelProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             make(Hint, L"STATIC", SS_LEFT, 12, 424, 278, 68);
             install_themed_combo(control(Estimator));
             install_themed_combo(control(Smoothing));
-            if (HWND length = control(Length)) {
-                g_frf_length_edit_proc = reinterpret_cast<WNDPROC>(
-                    SetWindowLongPtrW(length, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(FrfLengthEditProc)));
+            for (const int id : {Length, Low, High}) {
+                if (HWND edit = control(id)) {
+                    WNDPROC previous = reinterpret_cast<WNDPROC>(
+                        SetWindowLongPtrW(edit, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(FrfEditProc)));
+                    if (!g_frf_edit_proc) g_frf_edit_proc = previous;
+                }
             }
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"H1 (Welch)"));
             SendMessageW(control(Estimator), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Direct Y/X"));

@@ -590,7 +590,7 @@ void create_frf_panel(HWND parent, HINSTANCE instance) {
 
 void layout_frf_panel() {
     if (!g.frf_panel) return;
-    const bool show = g.mode == AnalysisMode::FRF && g.side_panel_visible && !welcome_visible();
+    const bool show = g.mode == AnalysisMode::FRF && g.side_panel_visible && !welcome_visible() && !g.frf_point_settings_open;
     ShowWindow(g.frf_panel, show ? SW_SHOW : SW_HIDE);
     if (show) {
         RECT r; GetClientRect(g.main, &r);
@@ -680,7 +680,7 @@ void reset_frf_view() {
 }
 bool frf_command_supported(int id) {
     switch (id) {
-        case IDC_PLAY: case IDM_ADD_MARKER: case IDM_CLEAR_MARKERS: case IDM_VISMOOTH:
+        case IDC_PLAY: case IDM_VISMOOTH:
             return false;
     }
     return true;

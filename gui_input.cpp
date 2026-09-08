@@ -63,7 +63,8 @@ bool snap_to_nearest_target(double& dx, double& dy, int* out_channel) {
     if (pw <= 0 || ph <= 0) return false;
 
     auto to_px = [&](double x) -> double {
-        const double displayed_x = (g.mode == AnalysisMode::FFT) ? x : stitched_time_from_raw(x);
+        const double displayed_x = (g.mode == AnalysisMode::FRF) ? std::log10(x) :
+            (g.mode == AnalysisMode::FFT) ? x : stitched_time_from_raw(x);
         return static_cast<double>(p.left) + (displayed_x - g.vx0) / (g.vx1 - g.vx0) * pw;
     };
     auto to_py = [&](double y) -> double {
@@ -166,7 +167,7 @@ int hit_test_marker(int px, int py) {
     int best_score = 999999;
     for (std::size_t i = 0; i < g.markers.size(); ++i) {
         const App::Marker& m = g.markers[i];
-        if (m.freq != (g.mode == AnalysisMode::FFT)) continue;
+        if (m.mode != g.mode) continue;
         const int dxp = std::abs(px - mx(m.x));
         if (dxp > 6) continue;
         int score = dxp * 10;
@@ -403,6 +404,7 @@ LRESULT handle_input_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     mk.x = dx;
                     mk.y = dy;
                     mk.freq = (g.mode == AnalysisMode::FFT);
+                    mk.mode = g.mode;
                     mk.snapped = snapped;
                     mk.channel = snapped ? snapped_channel : -1;
                     wchar_t buf[16];

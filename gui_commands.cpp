@@ -85,7 +85,20 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     set_status();
                     InvalidateRect(hwnd, nullptr, FALSE);
                     return 0;
-                case IDC_PTSETTINGS: open_settings(); return 0;
+                case IDC_PTSETTINGS:
+                    if (welcome_visible() && !has_data()) { open_settings(); return 0; }
+                    g.side_panel_visible = true;
+                    if (g.mode == AnalysisMode::FRF) {
+                        g.frf_point_settings_open = !g.frf_point_settings_open;
+                        set_side_panel_tab(g.frf_point_settings_open ? 1 : 0);
+                    } else {
+                        set_side_panel_tab(1);
+                    }
+                    save_runtime_settings();
+                    layout();
+                    redraw_window_with_children(hwnd);
+                    return 0;
+                case IDM_SETTINGS: open_settings(); return 0;
                 case IDC_SIDEPANEL:
                     g.side_panel_visible = !g.side_panel_visible;
                     save_runtime_settings();

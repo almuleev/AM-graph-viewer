@@ -66,13 +66,18 @@ void layout() {
     MoveWindow(g.hide_all_btn, panel_x + 92, kTopBar + 42, 86, 28, FALSE);
     const int tab_gap = 4;
     const int tab_w = max(84, (content_w - tab_gap * 2) / 3);
-    if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, tab_w, 28, FALSE);
-    if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + tab_w + tab_gap, kTopBar + 8, tab_w, 28, FALSE);
-    if (g.side_tab_filter) MoveWindow(g.side_tab_filter, panel_x + (tab_w + tab_gap) * 2, kTopBar + 8, tab_w, 28, FALSE);
+    if (g.mode == AnalysisMode::FRF) {
+        if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x, kTopBar + 8, content_w, 28, FALSE);
+    } else {
+        if (g.side_tab_channels) MoveWindow(g.side_tab_channels, panel_x, kTopBar + 8, tab_w, 28, FALSE);
+        if (g.side_tab_points) MoveWindow(g.side_tab_points, panel_x + tab_w + tab_gap, kTopBar + 8, tab_w, 28, FALSE);
+        if (g.side_tab_filter) MoveWindow(g.side_tab_filter, panel_x + (tab_w + tab_gap) * 2, kTopBar + 8, tab_w, 28, FALSE);
+    }
     apply_side_panel_visibility();
 
     const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible() && g.mode != AnalysisMode::FRF;
-    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible() && g.mode != AnalysisMode::FRF;
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible() &&
+        (g.mode != AnalysisMode::FRF || g.frf_point_settings_open);
     const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible() && g.mode != AnalysisMode::FRF;
     const int channels_content_top = channels_viewport_top;
     const int points_content_top = points_viewport_top;

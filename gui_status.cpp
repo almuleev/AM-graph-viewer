@@ -14,7 +14,7 @@ namespace gui {
 bool marker_status_detail(std::wstring& text, COLORREF& color) {
     if (g.active_marker < 0 || g.active_marker >= static_cast<int>(g.markers.size())) return false;
     const App::Marker& m = g.markers[static_cast<std::size_t>(g.active_marker)];
-    if (m.freq != (g.mode == AnalysisMode::FFT) || !m.snapped || m.channel < 0) return false;
+    if (m.mode != g.mode || !m.snapped || m.channel < 0) return false;
     color = channel_color(static_cast<std::size_t>(m.channel));
     wchar_t buf[160];
     if ((g.mode == AnalysisMode::FFT)) {
@@ -31,6 +31,13 @@ bool marker_status_detail(std::wstring& text, COLORREF& color) {
 void set_status() {
     if (g.mode == AnalysisMode::FRF) {
         g.status_text = frf_status_text();
+        std::size_t lines=0, markers=0;
+        for (const auto& line : g.guides) if (line.mode==AnalysisMode::FRF) ++lines;
+        for (const auto& marker : g.markers) if (marker.mode==AnalysisMode::FRF) ++markers;
+        wchar_t buf[128]{};
+        if (lines) { swprintf(buf,128,g_str->st_lines,lines); g.status_text+=buf; }
+        if (markers) { swprintf(buf,128,g_str->st_markers,markers); g.status_text+=buf; }
+        g.status_text+=measure_points_status_text();
         g.status_detail_text.clear(); g.status_detail_color = g_theme->accent;
         refresh_frf_controls();
         if (g.status) SetWindowTextW(g.status, g.status_text.c_str());
@@ -78,7 +85,7 @@ void set_status() {
         if (nlines) { swprintf(buf, 512, g_str->st_lines, nlines); s += buf; }
         std::size_t nmark = 0;
         for (const auto& m : g.markers)
-            if (m.freq == (g.mode == AnalysisMode::FFT)) ++nmark;
+            if (m.mode == g.mode) ++nmark;
         if (nmark) { swprintf(buf, 512, g_str->st_markers, nmark); s += buf; }
     }
     if (g.playing) {

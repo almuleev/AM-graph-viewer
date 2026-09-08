@@ -391,6 +391,7 @@ bool settings_snapshot_differs(const SettingsSnapshot& a, const SettingsSnapshot
                 lhs[i].y != rhs[i].y ||
                 lhs[i].label != rhs[i].label ||
                 lhs[i].freq != rhs[i].freq ||
+                lhs[i].mode != rhs[i].mode ||
                 lhs[i].snapped != rhs[i].snapped ||
                 lhs[i].channel != rhs[i].channel) {
                 return false;
@@ -553,7 +554,7 @@ void pop_undo() {
         }
         case UndoAction::ADD_MARKER: {
             auto it = std::find_if(g.markers.begin(), g.markers.end(), [&](const App::Marker& m) {
-                return m.x == a.marker.x && m.freq == a.marker.freq && m.label == a.marker.label;
+                return m.x == a.marker.x && m.mode == a.marker.mode && m.label == a.marker.label;
             });
             if (it != g.markers.end()) {
                 g_redo.push_back(a);

@@ -161,6 +161,7 @@ struct App {
         double y = 0.0;
         std::wstring label;
         bool freq = false;
+        AnalysisMode mode = AnalysisMode::Time;
         bool snapped = false;
         int channel = -1;
     };
@@ -239,6 +240,7 @@ struct App {
 
     bool side_panel_visible = true;
     int side_panel_tab = 0; // 0 = channels, 1 = points, 2 = filter
+    bool frf_point_settings_open = false;
     int side_selected_channel = -1;
     int side_scroll_y = 0;
     int side_scroll_max = 0;

@@ -294,7 +294,7 @@ void draw_markers(HDC dc) {
     HGDIOBJ prev_pen = SelectObject(dc, bp);
     HGDIOBJ prev_brush = SelectObject(dc, wb);
     for (const auto& m : g.markers) {
-        if (m.freq != (g.mode == AnalysisMode::FFT)) continue;
+        if (m.mode != g.mode) continue;
         const int X = mx(m.x);
         if (X < p.left || X > p.right) continue;
         MoveToEx(dc, X, p.top, nullptr); LineTo(dc, X, p.bottom);
@@ -348,7 +348,8 @@ void draw_measure(HDC dc) {
     const RECT& p = g.vrect;
     if (g.vx1 <= g.vx0 || g.vy1 <= g.vy0) return;
     auto mx = [&](double dx) {
-        const double displayed_x = (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
+        const double displayed_x = (g.mode == AnalysisMode::FRF) ? std::log10(dx) :
+            (g.mode == AnalysisMode::FFT) ? dx : stitched_time_from_raw(dx);
         return p.left + static_cast<int>((displayed_x - g.vx0) / (g.vx1 - g.vx0) * (p.right - p.left));
     };
     auto my = [&](double dy) {

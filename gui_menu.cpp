@@ -313,7 +313,7 @@ HMENU make_menu() {
     append_menu_popup_owner_draw(bar, tools, text(L"Tools", L"Инструменты"));
 
     const HMENU settings = CreatePopupMenu();
-    append_menu_item_owner_draw(settings, IDC_PTSETTINGS, text(L"General settings", L"Общие настройки"));
+    append_menu_item_owner_draw(settings, IDM_SETTINGS, text(L"General settings", L"Общие настройки"));
     append_menu_popup_owner_draw(bar, settings, text(L"Settings", L"Настройки"));
 
     const HMENU help = CreatePopupMenu();

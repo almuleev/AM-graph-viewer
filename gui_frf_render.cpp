@@ -191,6 +191,7 @@ void draw_frf(HDC dc, const RECT& p) {
     g.vx0 = g.frf.log_start; g.vx1 = g.frf.log_end;
     g.vy0 = low; g.vy1 = high; g.vrect = p; g.vvalid = true;
     draw_guides(dc);
+    draw_markers(dc);
     draw_measure(dc);
 }
 
@@ -210,7 +211,7 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             changed(); return 0;
         }
         case WM_LBUTTONDOWN:
-            if (inside(GET_X_LPARAM(lp),GET_Y_LPARAM(lp)) && (g.pending_line || g.measure_mode) && g.vvalid) {
+            if (inside(GET_X_LPARAM(lp),GET_Y_LPARAM(lp)) && (g.pending_line || g.pending_marker || g.measure_mode) && g.vvalid) {
                 double frequency=0, coefficient=0;
                 if (!px_to_data(GET_X_LPARAM(lp),GET_Y_LPARAM(lp),frequency,coefficient)) return 0;
                 if (g.pending_line) {
@@ -218,6 +219,17 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     line.vertical=g.pending_line==1; line.value=line.vertical ? frequency : coefficient; line.mode=AnalysisMode::FRF;
                     g.guides.push_back(line);
                     UndoAction action; action.type=UndoAction::ADD_LINE; action.line=line; push_undo(action);
+                    g.pending_line=0;
+                } else if (g.pending_marker) {
+                    App::Marker marker;
+                    marker.x=frequency; marker.y=coefficient; marker.freq=true;
+                    marker.mode=AnalysisMode::FRF; marker.snapped=false; marker.channel=-1;
+                    wchar_t label[16]{}; swprintf(label,16,L"M%zu",g.markers.size()+1);
+                    marker.label=label;
+                    g.markers.push_back(marker);
+                    g.active_marker=static_cast<int>(g.markers.size())-1;
+                    UndoAction action; action.type=UndoAction::ADD_MARKER; action.marker=marker; push_undo(action);
+                    g.pending_marker=false;
                 } else if (g.measure_mode) {
                     bool created=false;
                     const int group=ensure_point_group_for_measurement((GetKeyState(VK_CONTROL)&0x8000)!=0,&created);
@@ -303,7 +315,7 @@ LRESULT handle_frf_input(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_SETCURSOR:
             if (reinterpret_cast<HWND>(wp) == hwnd && LOWORD(lp) == HTCLIENT) {
-                SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE;
+                SetCursor(LoadCursor(nullptr, (g.pending_line || g.pending_marker || g.measure_mode) ? IDC_CROSS : IDC_HAND)); return TRUE;
             }
             break;
     }

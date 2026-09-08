@@ -194,7 +194,7 @@ void write_export_metadata(std::ofstream& out,
             std::wstring line = L"marker[" + std::to_wstring(i + 1) + L"] label=" + export_metadata_text(m.label);
             line += L", x=" + format_edit_number(m.x);
             line += L", y=" + format_edit_number(m.y);
-            line += L", mode=" + std::wstring(m.freq ? L"frequency" : L"time");
+            line += L", mode=" + std::wstring(m.mode == AnalysisMode::FRF ? L"frf" : m.freq ? L"frequency" : L"time");
             const auto found = m.channel >= 0 ? std::find(exported_channels.begin(), exported_channels.end(), static_cast<std::size_t>(m.channel)) : exported_channels.end();
             const int export_channel = found == exported_channels.end() ? -1 : static_cast<int>(found - exported_channels.begin());
             line += L", snapped=" + std::wstring(m.snapped && export_channel >= 0 ? L"1" : L"0");
@@ -606,7 +606,8 @@ void apply_export_metadata_from_comments(const std::vector<std::string>& comment
             parse_double(extract_between(tail, "x=", ", y="), marker.x);
             parse_double(extract_between(tail, "y=", ", mode="), marker.y);
             const std::string mode = lower_copy(extract_between(tail, "mode=", ", snapped="));
-            marker.freq = (mode == "frequency");
+            marker.freq = (mode == "frequency" || mode == "frf");
+            marker.mode = mode == "frf" ? AnalysisMode::FRF : marker.freq ? AnalysisMode::FFT : AnalysisMode::Time;
             bool snapped = false;
             if (parse_bool(extract_between(tail, "snapped=", ", channel="), snapped)) marker.snapped = snapped;
             parse_int(extract_after(tail, "channel="), marker.channel);

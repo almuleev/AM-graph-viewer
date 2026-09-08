@@ -475,7 +475,8 @@ void frf_integration() {
     near(g.frf.log_end,view_end,"FRF frequency limits preserved on return");
     g.pending_marker=false;
     WndProc(nullptr,WM_COMMAND,IDM_ADD_MARKER,0);
-    require(!g.pending_marker,"markers remain unavailable on FRF");
+    require(g.pending_marker && frf_command_supported(IDM_ADD_MARKER),"FRF accepts the common marker tool");
+    g.pending_marker=false;
     WndProc(nullptr,WM_COMMAND,IDM_ADD_VLINE,0);
     require(g.pending_line==1 && frf_command_supported(IDC_MEASURE),"FRF reuses the standard point and line tools");
     add_guide_line(true,16);
@@ -508,6 +509,21 @@ void frf_integration() {
         create_frf_panel(g.main,GetModuleHandleW(nullptr));
         layout();
         require(g.frf_panel!=nullptr,"FRF panel is embedded in the existing main window");
+        double frf_low=0, frf_high=0; frf_y_range(frf_low,frf_high);
+        const RECT chart=plot_rect();
+        g.vvalid=true; g.vrect=chart; g.vx0=g.frf.log_start; g.vx1=g.frf.log_end;
+        g.vy0=frf_low; g.vy1=frf_high;
+        const int point_x=(chart.left+chart.right)/2, point_y=(chart.top+chart.bottom)/2;
+        WndProc(g.main,WM_COMMAND,IDM_ADD_MARKER,0);
+        require(g.pending_marker,"FRF marker command remains armed in the rendered window");
+        handle_frf_input(g.main,WM_LBUTTONDOWN,0,MAKELPARAM(point_x,point_y));
+        require(!g.markers.empty() && g.markers.back().mode==AnalysisMode::FRF && !g.pending_marker,
+                "FRF marker uses frequency and dynamic-coefficient coordinates");
+        WndProc(g.main,WM_COMMAND,IDC_MEASURE,0);
+        handle_frf_input(g.main,WM_LBUTTONDOWN,0,MAKELPARAM(point_x,point_y));
+        require(!g.point_groups.empty() && g.point_groups.back().mode==PointGroupMode::FRF &&
+                !g.point_groups.back().points.empty(),"FRF measurement point uses its dedicated point group");
+        g.measure_mode=false;
         wchar_t input_text[128]{};
         GetWindowTextW(GetDlgItem(g.frf_panel,7101),input_text,128);
         require(std::wstring(input_text).find(L"Input, special")!=std::wstring::npos,

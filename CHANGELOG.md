@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.13.3
 
 - Меню выбора ролей АЧХ теперь использует палитру приложения в тёмной теме,
   включая фон, границы, подсветку, текст и флажки. В светлой теме сохранено
@@ -10,6 +10,18 @@
   its background, borders, hover state, text, and checkmarks. Light theme keeps
   the native Windows menu appearance. A second click on the same control now
   reliably hides the popup even while its window loses focus.
+- В АЧХ исправлены маркеры и точки измерения: оба инструмента используют
+  координаты Hz/КД, корректно отображаются на логарифмической шкале и не
+  смешиваются с аннотациями времени или FFT.
+- FRF markers and measurement points are fixed: both use Hz/KD coordinates,
+  render correctly on the logarithmic frequency axis, and remain separate from
+  Time and FFT annotations.
+- В АЧХ кнопка настройки точек теперь открывает встроенную правую панель точек:
+  она временно заменяет панель расчёта, а повторное нажатие возвращает её.
+  Пункты общих настроек в меню и на стартовом экране сохранены отдельно.
+- In FRF, the point-settings button now opens the docked point panel in place
+  of the calculation panel; pressing it again restores the FRF controls.
+  General Settings remain separately available in the menu and welcome screen.
 
 ## v0.13.2
 

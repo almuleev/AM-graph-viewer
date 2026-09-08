@@ -48,6 +48,7 @@ enum {
     IDM_CLEAR_POINTS,
     IDM_HOTKEYS,
     IDM_ABOUT,
+    IDM_SETTINGS,
     IDW_START = 1114,   // welcome screen: start working
 
     // Playback speed menu items.

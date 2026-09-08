@@ -396,7 +396,7 @@ bool side_panel_hit_test(const POINT& pt) {
 }
 
 void update_side_panel_scrollbar(int viewport_top, int content_height) {
-    if (g.mode == AnalysisMode::FRF) { g.side_scroll_max = 0; return; }
+    if (g.mode == AnalysisMode::FRF && !g.frf_point_settings_open) { g.side_scroll_max = 0; return; }
     g.side_content_height_channels = max(g.side_content_height_channels, 0);
     g.side_content_height_points = max(g.side_content_height_points, 0);
     g.side_content_height_filter = max(g.side_content_height_filter, 0);
@@ -421,7 +421,8 @@ void scroll_side_panel(int delta) {
 void set_side_panel_tab(int tab) {
     g.side_panel_tab = (tab >= 0 && tab <= 2) ? tab : 0;
     const bool show_channels = g.side_panel_visible && g.side_panel_tab == 0 && !welcome_visible() && g.mode != AnalysisMode::FRF;
-    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible() && g.mode != AnalysisMode::FRF;
+    const bool show_points = g.side_panel_visible && g.side_panel_tab == 1 && !welcome_visible() &&
+        (g.mode != AnalysisMode::FRF || g.frf_point_settings_open);
     const bool show_filter = g.side_panel_visible && g.side_panel_tab == 2 && !welcome_visible() && g.mode != AnalysisMode::FRF;
     if (g.show_all_btn) ShowWindow(g.show_all_btn, show_channels ? SW_SHOW : SW_HIDE);
     if (g.hide_all_btn) ShowWindow(g.hide_all_btn, show_channels ? SW_SHOW : SW_HIDE);
@@ -444,10 +445,11 @@ void set_side_panel_tab(int tab) {
 }
 
 void apply_side_panel_visibility() {
-    const bool show = g.side_panel_visible && !welcome_visible() && g.mode != AnalysisMode::FRF;
-    if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show ? SW_SHOW : SW_HIDE);
-    if (g.side_tab_points) ShowWindow(g.side_tab_points, show ? SW_SHOW : SW_HIDE);
-    if (g.side_tab_filter) ShowWindow(g.side_tab_filter, show ? SW_SHOW : SW_HIDE);
+    const bool show = g.side_panel_visible && !welcome_visible();
+    const bool frf = g.mode == AnalysisMode::FRF;
+    if (g.side_tab_channels) ShowWindow(g.side_tab_channels, show && !frf ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_points) ShowWindow(g.side_tab_points, show && (!frf || g.frf_point_settings_open) ? SW_SHOW : SW_HIDE);
+    if (g.side_tab_filter) ShowWindow(g.side_tab_filter, show && !frf ? SW_SHOW : SW_HIDE);
     set_side_panel_tab(g.side_panel_tab);
 }
 

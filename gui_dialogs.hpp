@@ -59,12 +59,20 @@ enum class ExportFileFormat {
     Lvm = 2,
 };
 
+// "Save as" deliberately separates data interchange from an AMSignal project.
+// A project is an LVM-compatible snapshot with the complete, unmodified source
+// data and all application metadata needed to restore the document.
+enum class ExportSaveMode {
+    OriginalData = 0,
+    AppliedSettings = 1,
+    Project = 2,
+};
+
 struct ExportPromptState {
     HWND wnd = nullptr;
+    HWND save_mode_combo = nullptr;
     HWND format_combo = nullptr;
     HWND range_combo = nullptr;
-    HWND processing_apply_radio = nullptr;
-    HWND processing_settings_radio = nullptr;
     HWND include_channel_names_check = nullptr;
     HWND include_hidden_channels_check = nullptr;
     HWND include_points_check = nullptr;
@@ -75,6 +83,7 @@ struct ExportPromptState {
     HWND include_graph_settings_check = nullptr;
     bool done = false;
     bool accepted = false;
+    ExportSaveMode save_mode = ExportSaveMode::OriginalData;
     ExportFileFormat selected_format = ExportFileFormat::Csv;
     ExportRangeMode selected_range = ExportRangeMode::Visible;
     bool apply_processing_to_data = true;
@@ -88,6 +97,10 @@ struct ExportPromptState {
     bool include_graph_settings = true;
     std::wstring title;
     std::wstring intro;
+    std::wstring save_mode_label_text;
+    std::wstring save_original_text;
+    std::wstring save_applied_text;
+    std::wstring save_project_text;
     std::wstring format_label_text;
     std::wstring range_label_text;
     std::wstring format_txt_text;
@@ -96,8 +109,6 @@ struct ExportPromptState {
     std::wstring range_selected_text;
     std::wstring range_visible_text;
     std::wstring range_whole_text;
-    std::wstring processing_apply_text;
-    std::wstring processing_settings_text;
     std::wstring channel_names_text;
     std::wstring hidden_channels_text;
     std::wstring points_text;
@@ -111,6 +122,7 @@ struct ExportPromptState {
 };
 
 struct ExportOptions {
+    ExportSaveMode save_mode = ExportSaveMode::OriginalData;
     ExportFileFormat format = ExportFileFormat::Csv;
     ExportRangeMode selected_range = ExportRangeMode::Visible;
     bool apply_processing_to_data = true;
@@ -122,6 +134,9 @@ struct ExportOptions {
     bool include_formulas = true;
     bool include_filter_settings = true;
     bool include_graph_settings = true;
+    // Kept true for callers of the export API; the "Original data" UI mode
+    // explicitly switches it off.
+    bool include_metadata = true;
 };
 
 extern ExportPromptState g_export_prompt;
@@ -162,9 +177,13 @@ LRESULT CALLBACK RangePromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
 ExportFileFormat export_prompt_selected_format();
 
+ExportSaveMode export_prompt_selected_save_mode();
+
 ExportRangeMode export_prompt_selected_range();
 
 void sync_export_prompt_state_from_controls();
+
+void update_export_prompt_controls();
 
 LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 

@@ -25,10 +25,46 @@
 #include "gui_theme.hpp"
 #include "gui_time_axis.hpp"
 #include "gui_welcome.hpp"
+#include <shlobj.h>
 
 namespace gui {
 
 std::thread g_load_worker;
+
+namespace {
+constexpr wchar_t kProjectExtension[] = L".AMSig";
+constexpr wchar_t kProjectClass[] = L"AMSignal.Project";
+
+bool write_user_class_value(const std::wstring& key_name, const wchar_t* value_name,
+                            const std::wstring& value) {
+    HKEY key = nullptr;
+    const std::wstring path = L"Software\\Classes\\" + key_name;
+    const LONG created = RegCreateKeyExW(HKEY_CURRENT_USER, path.c_str(), 0, nullptr,
+                                        REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, nullptr);
+    if (created != ERROR_SUCCESS) return false;
+    const DWORD bytes = static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t));
+    const LONG written = RegSetValueExW(key, value_name, 0, REG_SZ,
+                                        reinterpret_cast<const BYTE*>(value.c_str()), bytes);
+    RegCloseKey(key);
+    return written == ERROR_SUCCESS;
+}
+} // namespace
+
+void register_project_file_association() {
+    wchar_t executable[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH) return;
+    const std::wstring exe_path(executable, length);
+    const std::wstring command = L"\"" + exe_path + L"\" \"%1\"";
+    const std::wstring icon = L"\"" + exe_path + L"\",0";
+    if (write_user_class_value(kProjectExtension, nullptr, kProjectClass) &&
+        write_user_class_value(kProjectClass, nullptr, L"AMSignal Project") &&
+        write_user_class_value(std::wstring(kProjectClass) + L"\\DefaultIcon", nullptr, icon) &&
+        write_user_class_value(std::wstring(kProjectClass) + L"\\shell\\open\\command", nullptr, command)) {
+        // Explorer recognizes per-user associations without administrator rights.
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    }
+}
 
 template <typename TResult>
 void post_async_result(HWND target, UINT message, std::unique_ptr<TResult> result) {
@@ -149,6 +185,8 @@ void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_
 
     const wchar_t* base = wcsrchr(wpath.c_str(), L'\\');
     g.file_name = base ? base + 1 : wpath;
+    const std::filesystem::path source_path(wpath);
+    g.project_path = lstrcmpiW(source_path.extension().c_str(), kProjectExtension) == 0 ? wpath : L"";
     SetWindowTextW(g.main, (std::wstring(g_str->app_title) + L" — " + g.file_name).c_str());
     add_recent_file(wpath);
     if (g.welcome_wnd) { ShowWindow(g.welcome_wnd, SW_HIDE); show_ui_controls(); }

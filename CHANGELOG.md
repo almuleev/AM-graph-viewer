@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.14.0
+
+- Полностью переработано «Сохранить как»: теперь оно явно разделяет проект,
+  обработанные каналы и исходные каналы. Проект сохраняет исходные отсчёты и
+  все восстанавливаемые параметры; обработанные каналы записываются с уже
+  применёнными формулами и фильтром; исходные каналы сохраняются без обработки.
+  В диалоге убрана лишняя верхняя подсказка, проект стоит первым и оставляет
+  доступными только имя и расположение файла.
+- Добавлен переносимый формат проекта `.AMSig`. При первом запуске AMSignal
+  регистрирует ассоциацию этого расширения в профиле текущего пользователя
+  Windows, поэтому проекты открываются двойным кликом без прав администратора.
+- Горячие клавиши сохранения приведены к однозначной схеме: `Ctrl+S` сохраняет
+  текущий проект и запрашивает имя для нового, `Ctrl+Shift+S` открывает
+  «Сохранить как», `Ctrl+Alt+S` экспортирует PNG. Прежняя стандартная
+  привязка `Ctrl+S` для PNG автоматически переносится при загрузке настроек.
+- Добавлены регрессионные проверки исходного и проектного экспорта, восстановления
+  настроек проекта и стандартных сочетаний клавиш. Сценарии сборки дополнены
+  библиотеками Windows, нужными для регистрации пользовательской ассоциации.
+- Reworked the entire `Save as` flow around three explicit choices: project,
+  processed channels, and original channels. A project stores raw samples and
+  every restorable setting; processed-channel exports bake in formulas and
+  filters; original-channel exports remain unprocessed. The redundant heading
+  was removed, and the first project option only permits naming and locating
+  the file.
+- Added the portable `.AMSig` project format. On first run, AMSignal registers
+  a per-user Windows association, so projects open by double-click without
+  administrator rights.
+- Standard save shortcuts are now unambiguous: `Ctrl+S` saves the current
+  project or asks for a new project location, `Ctrl+Shift+S` opens `Save as`,
+  and `Ctrl+Alt+S` exports PNG. The previous default `Ctrl+S` PNG binding is
+  migrated automatically when settings load.
+- Added regression coverage for raw and project export, project-setting recovery,
+  and the default shortcuts. Build scripts now link the Windows libraries used
+  for the per-user file association.
+
 ## v0.13.6
 
 - Во всех редактируемых полях AMSignal клавиша Enter теперь подтверждает

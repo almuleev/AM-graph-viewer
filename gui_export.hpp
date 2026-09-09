@@ -42,6 +42,10 @@ const wchar_t* export_file_name(ExportFileFormat format);
 
 bool save_export_file(const std::wstring& path, const ExportOptions& opts);
 
+bool save_project_file(const std::wstring& path);
+
+void save_current_project();
+
 bool write_frf_csv(std::ofstream& out);
 
 bool save_frf_csv(const std::wstring& path);

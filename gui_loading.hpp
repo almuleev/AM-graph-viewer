@@ -31,6 +31,9 @@ struct AsyncLoadResult {
 
 void request_async_load_cancel();
 
+// Registers the per-user Windows association for AMSignal project files.
+void register_project_file_association();
+
 void apply_loaded_dataset(lvm::Dataset ds, const std::wstring& wpath, bool hide_channels,
                           bool requested_time_window, double cached_global_gap_step,
                           bool cached_global_gap_step_ready);

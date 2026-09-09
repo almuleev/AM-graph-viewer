@@ -572,6 +572,18 @@ ExportFileFormat export_prompt_selected_format() {
     return ExportFileFormat::Csv;
 }
 
+ExportSaveMode export_prompt_selected_save_mode() {
+    if (!g_export_prompt.save_mode_combo) return ExportSaveMode::OriginalData;
+    const int sel = static_cast<int>(SendMessageW(g_export_prompt.save_mode_combo, CB_GETCURSEL, 0, 0));
+    if (sel == CB_ERR) return ExportSaveMode::OriginalData;
+    const int value = static_cast<int>(SendMessageW(g_export_prompt.save_mode_combo, CB_GETITEMDATA, sel, 0));
+    switch (value) {
+        case static_cast<int>(ExportSaveMode::AppliedSettings): return ExportSaveMode::AppliedSettings;
+        case static_cast<int>(ExportSaveMode::Project): return ExportSaveMode::Project;
+    }
+    return ExportSaveMode::OriginalData;
+}
+
 ExportRangeMode export_prompt_selected_range() {
     if (!g_export_prompt.range_combo) return ExportRangeMode::Visible;
     const int sel = static_cast<int>(SendMessageW(g_export_prompt.range_combo, CB_GETCURSEL, 0, 0));
@@ -586,12 +598,9 @@ ExportRangeMode export_prompt_selected_range() {
 }
 
 void sync_export_prompt_state_from_controls() {
+    g_export_prompt.save_mode = export_prompt_selected_save_mode();
     g_export_prompt.selected_format = export_prompt_selected_format();
     g_export_prompt.selected_range = export_prompt_selected_range();
-    if (g_export_prompt.processing_apply_radio) {
-        g_export_prompt.apply_processing_to_data =
-            SendMessageW(g_export_prompt.processing_apply_radio, BM_GETCHECK, 0, 0) == BST_CHECKED;
-    }
     if (g_export_prompt.include_channel_names_check) {
         g_export_prompt.include_channel_names =
             SendMessageW(g_export_prompt.include_channel_names_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -626,6 +635,20 @@ void sync_export_prompt_state_from_controls() {
     }
 }
 
+void update_export_prompt_controls() {
+    const bool applied = g_export_prompt.save_mode == ExportSaveMode::AppliedSettings;
+    const bool data_export = g_export_prompt.save_mode != ExportSaveMode::Project;
+    const std::initializer_list<HWND> settings_controls = {
+        g_export_prompt.include_channel_names_check, g_export_prompt.include_hidden_channels_check,
+        g_export_prompt.include_points_check, g_export_prompt.include_markers_check,
+        g_export_prompt.include_guides_check, g_export_prompt.include_formulas_check,
+        g_export_prompt.include_filter_check, g_export_prompt.include_graph_settings_check,
+    };
+    for (HWND control : settings_controls) if (control) EnableWindow(control, applied);
+    if (g_export_prompt.range_combo) EnableWindow(g_export_prompt.range_combo, data_export);
+    if (g_export_prompt.format_combo) EnableWindow(g_export_prompt.format_combo, data_export);
+}
+
 LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE: {
@@ -636,10 +659,8 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             GetClientRect(hwnd, &client);
             const int client_w = std::max(0, static_cast<int>(client.right - client.left));
             const int content_w = std::max(680, client_w - 36);
-            const int intro_h = 34;
             const int section_h = 20;
             const int option_h = 24;
-            const int radio_h = 26;
             const int col_gap = 16;
             const int col_w = (content_w - col_gap) / 2;
             const int label_w = 88;
@@ -665,16 +686,6 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 install_themed_combo(ctl);
                 return ctl;
             };
-            auto mkradio = [&](const std::wstring& text, int x, int y, int w, int h, int id, DWORD extra_style = 0) {
-                HWND ctl = CreateWindowExW(
-                    0, L"BUTTON", text.c_str(),
-                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_MULTILINE | extra_style,
-                    x, y, w, h, hwnd,
-                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                    reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-                if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-                return ctl;
-            };
             auto add_combo_item = [&](HWND combo, const std::wstring& text, int value) {
                 int idx = static_cast<int>(SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str())));
                 if (idx >= 0) {
@@ -691,9 +702,17 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 if (ctl) SendMessageW(ctl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
                 return ctl;
             };
-            mkstatic(g_export_prompt.intro, 18, 16, content_w, intro_h);
-            mkstatic(g_export_prompt.format_label_text, 18, 56, label_w, section_h);
-            g_export_prompt.format_combo = mkcombo(combo_x, 52, combo_w, 260, IDC_EXPORT_SCOPE_CURRENT);
+            mkstatic(g_export_prompt.save_mode_label_text, 18, 18, label_w, section_h);
+            g_export_prompt.save_mode_combo = mkcombo(combo_x, 14, combo_w, 260, IDC_EXPORT_SAVE_MODE);
+            if (g_export_prompt.save_mode_combo) {
+                add_combo_item(g_export_prompt.save_mode_combo, g_export_prompt.save_project_text, static_cast<int>(ExportSaveMode::Project));
+                add_combo_item(g_export_prompt.save_mode_combo, g_export_prompt.save_applied_text, static_cast<int>(ExportSaveMode::AppliedSettings));
+                add_combo_item(g_export_prompt.save_mode_combo, g_export_prompt.save_original_text, static_cast<int>(ExportSaveMode::OriginalData));
+                SendMessageW(g_export_prompt.save_mode_combo, CB_SETMINVISIBLE, 4, 0);
+                SendMessageW(g_export_prompt.save_mode_combo, CB_SETDROPPEDWIDTH, std::max(300, combo_w), 0);
+            }
+            mkstatic(g_export_prompt.format_label_text, 18, 52, label_w, section_h);
+            g_export_prompt.format_combo = mkcombo(combo_x, 48, combo_w, 260, IDC_EXPORT_SCOPE_CURRENT);
             if (g_export_prompt.format_combo) {
                 add_combo_item(g_export_prompt.format_combo, g_export_prompt.format_txt_text, static_cast<int>(ExportFileFormat::Txt));
                 add_combo_item(g_export_prompt.format_combo, g_export_prompt.format_csv_text, static_cast<int>(ExportFileFormat::Csv));
@@ -702,8 +721,8 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 SendMessageW(g_export_prompt.format_combo, CB_SETDROPPEDWIDTH, std::max(220, combo_w), 0);
             }
 
-            mkstatic(g_export_prompt.range_label_text, 18, 90, label_w, section_h);
-            g_export_prompt.range_combo = mkcombo(combo_x, 86, combo_w, 260, IDC_EXPORT_SCOPE_FRAGMENT);
+            mkstatic(g_export_prompt.range_label_text, 18, 86, label_w, section_h);
+            g_export_prompt.range_combo = mkcombo(combo_x, 82, combo_w, 260, IDC_EXPORT_SCOPE_FRAGMENT);
             if (g_export_prompt.range_combo) {
                 add_combo_item(g_export_prompt.range_combo, g_export_prompt.range_selected_text, static_cast<int>(ExportRangeMode::Selected));
                 add_combo_item(g_export_prompt.range_combo, g_export_prompt.range_visible_text, static_cast<int>(ExportRangeMode::Visible));
@@ -712,22 +731,15 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 SendMessageW(g_export_prompt.range_combo, CB_SETDROPPEDWIDTH, std::max(220, combo_w), 0);
             }
 
-            mkstatic(g_str == &kEn ? L"Data mode:" : L"Режим данных:", 18, 126, content_w, section_h);
-            g_export_prompt.processing_settings_radio = mkradio(
-                g_export_prompt.processing_settings_text, 18, 150, content_w, radio_h,
-                IDC_EXPORT_APPLY_SETTINGS, WS_GROUP);
-            g_export_prompt.processing_apply_radio = mkradio(
-                g_export_prompt.processing_apply_text, 18, 178, content_w, radio_h,
-                IDC_EXPORT_APPLY_DATA);
-            mkstatic(g_str == &kEn ? L"Additional data:" : L"Дополнительные данные:", 18, 214, content_w, section_h);
-            g_export_prompt.include_channel_names_check = mkcheck(g_export_prompt.channel_names_text, 18, 238, col_w, option_h, IDC_EXPORT_INCLUDE_CHANNEL_NAMES);
-            g_export_prompt.include_formulas_check = mkcheck(g_export_prompt.formulas_text, 18 + col_w + col_gap, 238, col_w, option_h, IDC_EXPORT_INCLUDE_FORMULAS);
-            g_export_prompt.include_points_check = mkcheck(g_export_prompt.points_text, 18, 266, col_w, option_h, IDC_EXPORT_INCLUDE_POINTS);
-            g_export_prompt.include_filter_check = mkcheck(g_export_prompt.filter_text, 18 + col_w + col_gap, 266, col_w, option_h, IDC_EXPORT_INCLUDE_FILTER);
-            g_export_prompt.include_markers_check = mkcheck(g_export_prompt.markers_text, 18, 294, col_w, option_h, IDC_EXPORT_INCLUDE_MARKERS);
-            g_export_prompt.include_graph_settings_check = mkcheck(g_export_prompt.graph_settings_text, 18 + col_w + col_gap, 294, col_w, option_h, IDC_EXPORT_INCLUDE_GRAPH_SETTINGS);
-            g_export_prompt.include_guides_check = mkcheck(g_export_prompt.guides_text, 18, 322, col_w, option_h, IDC_EXPORT_INCLUDE_GUIDES);
-            g_export_prompt.include_hidden_channels_check = mkcheck(g_export_prompt.hidden_channels_text, 18 + col_w + col_gap, 322, col_w, option_h, IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS);
+            mkstatic(g_str == &kEn ? L"Additional data:" : L"Дополнительные данные:", 18, 122, content_w, section_h);
+            g_export_prompt.include_channel_names_check = mkcheck(g_export_prompt.channel_names_text, 18, 146, col_w, option_h, IDC_EXPORT_INCLUDE_CHANNEL_NAMES);
+            g_export_prompt.include_formulas_check = mkcheck(g_export_prompt.formulas_text, 18 + col_w + col_gap, 146, col_w, option_h, IDC_EXPORT_INCLUDE_FORMULAS);
+            g_export_prompt.include_points_check = mkcheck(g_export_prompt.points_text, 18, 174, col_w, option_h, IDC_EXPORT_INCLUDE_POINTS);
+            g_export_prompt.include_filter_check = mkcheck(g_export_prompt.filter_text, 18 + col_w + col_gap, 174, col_w, option_h, IDC_EXPORT_INCLUDE_FILTER);
+            g_export_prompt.include_markers_check = mkcheck(g_export_prompt.markers_text, 18, 202, col_w, option_h, IDC_EXPORT_INCLUDE_MARKERS);
+            g_export_prompt.include_graph_settings_check = mkcheck(g_export_prompt.graph_settings_text, 18 + col_w + col_gap, 202, col_w, option_h, IDC_EXPORT_INCLUDE_GRAPH_SETTINGS);
+            g_export_prompt.include_guides_check = mkcheck(g_export_prompt.guides_text, 18, 230, col_w, option_h, IDC_EXPORT_INCLUDE_GUIDES);
+            g_export_prompt.include_hidden_channels_check = mkcheck(g_export_prompt.hidden_channels_text, 18 + col_w + col_gap, 230, col_w, option_h, IDC_EXPORT_INCLUDE_HIDDEN_CHANNELS);
 
             const int continue_w = prompt_button_width(dc, g_export_prompt.continue_text.c_str(), 130);
             const int cancel_w = prompt_button_width(dc, g_export_prompt.cancel_text.c_str(), 100);
@@ -737,7 +749,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (button_x + total_w > client_w - 16) {
                 button_x = std::max(16, client_w - 16 - total_w);
             }
-            const int button_y = 374;
+            const int button_y = 282;
             HWND ok = CreateWindowExW(
                 0, L"BUTTON", g_export_prompt.continue_text.c_str(),
                 WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW | BS_DEFPUSHBUTTON,
@@ -750,8 +762,6 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 button_x + continue_w + button_gap, button_y, cancel_w, 28, hwnd,
                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)),
                 reinterpret_cast<LPCREATESTRUCT>(lp)->hInstance, nullptr);
-            set_toggle_checked(g_export_prompt.processing_settings_radio, !g_export_prompt.apply_processing_to_data);
-            set_toggle_checked(g_export_prompt.processing_apply_radio, g_export_prompt.apply_processing_to_data);
             auto set_check = [&](HWND ctl, bool on) {
                 set_toggle_checked(ctl, on);
             };
@@ -767,6 +777,10 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 const int fmt_index = combo_index_for_value(g_export_prompt.format_combo, g_export_prompt.selected_format);
                 SendMessageW(g_export_prompt.format_combo, CB_SETCURSEL, fmt_index >= 0 ? fmt_index : 1, 0);
             }
+            if (g_export_prompt.save_mode_combo) {
+                const int mode_index = combo_index_for_value(g_export_prompt.save_mode_combo, g_export_prompt.save_mode);
+                SendMessageW(g_export_prompt.save_mode_combo, CB_SETCURSEL, mode_index >= 0 ? mode_index : 0, 0);
+            }
             if (g_export_prompt.range_combo) {
                 const int range_index = combo_index_for_value(g_export_prompt.range_combo, g_export_prompt.selected_range);
                 SendMessageW(g_export_prompt.range_combo, CB_SETCURSEL, range_index >= 0 ? range_index : 1, 0);
@@ -777,12 +791,24 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 SetFocus(g_export_prompt.format_combo);
             }
             sync_export_prompt_state_from_controls();
+            update_export_prompt_controls();
             SelectObject(dc, old_font);
             ReleaseDC(hwnd, dc);
             return 0;
         }
         case WM_COMMAND:
             switch (LOWORD(wp)) {
+                case IDC_EXPORT_SAVE_MODE:
+                    if (HIWORD(wp) == CBN_DROPDOWN) {
+                        expand_combo_dropdown(GetDlgItem(hwnd, LOWORD(wp)));
+                        return 0;
+                    }
+                    if (HIWORD(wp) == CBN_SELCHANGE) {
+                        sync_export_prompt_state_from_controls();
+                        update_export_prompt_controls();
+                        return 0;
+                    }
+                    break;
                 case IDC_EXPORT_SCOPE_CURRENT:
                     if (HIWORD(wp) == CBN_DROPDOWN) {
                         expand_combo_dropdown(GetDlgItem(hwnd, LOWORD(wp)));
@@ -803,16 +829,6 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         return 0;
                     }
                     break;
-                case IDC_EXPORT_APPLY_SETTINGS:
-                    set_toggle_checked(g_export_prompt.processing_settings_radio, true);
-                    set_toggle_checked(g_export_prompt.processing_apply_radio, false);
-                    sync_export_prompt_state_from_controls();
-                    return 0;
-                case IDC_EXPORT_APPLY_DATA:
-                    set_toggle_checked(g_export_prompt.processing_settings_radio, false);
-                    set_toggle_checked(g_export_prompt.processing_apply_radio, true);
-                    sync_export_prompt_state_from_controls();
-                    return 0;
                 case IDC_EXPORT_INCLUDE_CHANNEL_NAMES:
                 case IDC_EXPORT_INCLUDE_POINTS:
                 case IDC_EXPORT_INCLUDE_MARKERS:
@@ -826,7 +842,8 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case IDOK:
                     sync_export_prompt_state_from_controls();
-                    if (g_export_prompt.selected_format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
+                    if (g_export_prompt.save_mode != ExportSaveMode::Project &&
+                        g_export_prompt.selected_format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
                         MessageBoxW(hwnd,
                                     g_str == &kEn ? L"LVM export is available only in Time mode."
                                                    : L"Экспорт LVM доступен только в режиме Время.",
@@ -861,7 +878,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             MEASUREITEMSTRUCT* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lp);
             if (!mis) break;
             if (mis->CtlType == ODT_COMBOBOX &&
-                (mis->CtlID == IDC_EXPORT_SCOPE_CURRENT || mis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
+                (mis->CtlID == IDC_EXPORT_SAVE_MODE || mis->CtlID == IDC_EXPORT_SCOPE_CURRENT || mis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
                 measure_settings_combo_item(mis);
                 return TRUE;
             }
@@ -878,7 +895,7 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lp);
             if (!dis || !dis->hwndItem) break;
             if (dis->CtlType == ODT_COMBOBOX &&
-                (dis->CtlID == IDC_EXPORT_SCOPE_CURRENT || dis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
+                (dis->CtlID == IDC_EXPORT_SAVE_MODE || dis->CtlID == IDC_EXPORT_SCOPE_CURRENT || dis->CtlID == IDC_EXPORT_SCOPE_FRAGMENT)) {
                 draw_settings_combo_item(dis);
                 return TRUE;
             }
@@ -892,11 +909,6 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (ctl_id == IDCANCEL) {
                 draw_welcome_action_button(dis->hDC, dis->rcItem, txt, pressed, false, false);
-                return TRUE;
-            }
-            if (ctl_id == IDC_EXPORT_APPLY_SETTINGS || ctl_id == IDC_EXPORT_APPLY_DATA) {
-                draw_themed_button(dis->hDC, dis->rcItem, txt, pressed,
-                                   is_toggle_checked(dis->hwndItem), false);
                 return TRUE;
             }
             if (ctl_id == IDC_EXPORT_INCLUDE_CHANNEL_NAMES ||
@@ -917,10 +929,9 @@ LRESULT CALLBACK ExportPromptProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             g_export_prompt.done = true;
             g_export_prompt.wnd = nullptr;
+            g_export_prompt.save_mode_combo = nullptr;
             g_export_prompt.format_combo = nullptr;
             g_export_prompt.range_combo = nullptr;
-            g_export_prompt.processing_apply_radio = nullptr;
-            g_export_prompt.processing_settings_radio = nullptr;
             g_export_prompt.include_channel_names_check = nullptr;
             g_export_prompt.include_points_check = nullptr;
             g_export_prompt.include_markers_check = nullptr;
@@ -1101,6 +1112,7 @@ bool prompt_export_options(ExportOptions& out_options) {
     const bool en = (g_str == &kEn);
     g_export_prompt.done = false;
     g_export_prompt.accepted = false;
+    g_export_prompt.save_mode = ExportSaveMode::Project;
     g_export_prompt.selected_format = ExportFileFormat::Csv;
     g_export_prompt.selected_range = has_fft_window() ? ExportRangeMode::Selected : ExportRangeMode::Visible;
     g_export_prompt.apply_processing_to_data = true;
@@ -1113,7 +1125,10 @@ bool prompt_export_options(ExportOptions& out_options) {
     g_export_prompt.include_filter_settings = true;
     g_export_prompt.include_graph_settings = true;
     g_export_prompt.title = export_prompt_title_text(en);
-    g_export_prompt.intro = export_prompt_intro_text(en);
+    g_export_prompt.save_mode_label_text = en ? L"Save:" : L"Сохранение:";
+    g_export_prompt.save_original_text = en ? L"Original channels" : L"Исходные каналы";
+    g_export_prompt.save_applied_text = en ? L"Processed channels" : L"Обработанные каналы";
+    g_export_prompt.save_project_text = en ? L"AMSignal project" : L"Проект AMSignal";
     g_export_prompt.format_label_text = en ? L"Format:" : L"Формат:";
     g_export_prompt.range_label_text = en ? L"Area:" : L"Область:";
     g_export_prompt.format_txt_text = L"TXT";
@@ -1122,10 +1137,8 @@ bool prompt_export_options(ExportOptions& out_options) {
     g_export_prompt.range_selected_text = en ? L"Selected" : L"Выделенная";
     g_export_prompt.range_visible_text = en ? L"Visible" : L"Видимая";
     g_export_prompt.range_whole_text = en ? L"Whole" : L"Весь";
-    g_export_prompt.processing_apply_text = export_apply_processing_text(en);
-    g_export_prompt.processing_settings_text = export_processing_settings_text(en);
     g_export_prompt.channel_names_text = export_include_channel_names_text(en);
-    g_export_prompt.hidden_channels_text = export_include_hidden_channels_text(en);
+    g_export_prompt.hidden_channels_text = en ? L"All channels" : L"Все каналы";
     g_export_prompt.points_text = export_include_points_text(en);
     g_export_prompt.markers_text = export_include_markers_text(en);
     g_export_prompt.guides_text = export_include_guides_text(en);
@@ -1139,7 +1152,7 @@ bool prompt_export_options(ExportOptions& out_options) {
         L"LvmExportPrompt",
         g_export_prompt.title.c_str(),
         WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VISIBLE,
-        CW_USEDEFAULT, CW_USEDEFAULT, 784, 440,
+        CW_USEDEFAULT, CW_USEDEFAULT, 784, 348,
         g.main, nullptr,
         reinterpret_cast<HINSTANCE>(GetWindowLongPtr(g.main, GWLP_HINSTANCE)),
         nullptr);
@@ -1154,8 +1167,8 @@ bool prompt_export_options(ExportOptions& out_options) {
         mr.top + ((mr.bottom - mr.top) - (wr.bottom - wr.top)) / 2,
         0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
     EnableWindow(g.main, FALSE);
-    if (g_export_prompt.format_combo) {
-        SetFocus(g_export_prompt.format_combo);
+    if (g_export_prompt.save_mode_combo) {
+        SetFocus(g_export_prompt.save_mode_combo);
     }
 
     MSG msg;
@@ -1169,9 +1182,10 @@ bool prompt_export_options(ExportOptions& out_options) {
     EnableWindow(g.main, TRUE);
     SetForegroundWindow(g.main);
     if (!g_export_prompt.accepted) return false;
+    out_options.save_mode = g_export_prompt.save_mode;
     out_options.format = g_export_prompt.selected_format;
     out_options.selected_range = g_export_prompt.selected_range;
-    out_options.apply_processing_to_data = g_export_prompt.apply_processing_to_data;
+    out_options.apply_processing_to_data = out_options.save_mode == ExportSaveMode::AppliedSettings;
     out_options.include_channel_names = g_export_prompt.include_channel_names;
     out_options.include_hidden_channels = g_export_prompt.include_hidden_channels;
     out_options.include_points = g_export_prompt.include_points;
@@ -1180,6 +1194,18 @@ bool prompt_export_options(ExportOptions& out_options) {
     out_options.include_formulas = g_export_prompt.include_formulas;
     out_options.include_filter_settings = g_export_prompt.include_filter_settings;
     out_options.include_graph_settings = g_export_prompt.include_graph_settings;
+    out_options.include_metadata = out_options.save_mode == ExportSaveMode::AppliedSettings;
+    if (out_options.save_mode == ExportSaveMode::OriginalData) {
+        out_options.apply_processing_to_data = false;
+        out_options.include_channel_names = true;
+        out_options.include_hidden_channels = true;
+        out_options.include_points = false;
+        out_options.include_markers = false;
+        out_options.include_guides = false;
+        out_options.include_formulas = false;
+        out_options.include_filter_settings = false;
+        out_options.include_graph_settings = false;
+    }
     return true;
 }
 

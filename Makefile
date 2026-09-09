@@ -56,7 +56,7 @@ test-gui: tests/gui_regression.exe
 	./tests/gui_regression.exe
 
 tests/gui_regression.exe: $(GUI_TEST_OBJECT) $(GUI_OBJECTS)
-	$(CXX) -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32 -luxtheme
+	$(CXX) -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32 -luxtheme -ladvapi32 -lshell32
 
 .build/make_gui:
 	mkdir -p $@
@@ -83,7 +83,7 @@ $(GUI_RES): AM_logo.rc AM_logo.ico
 	$(WINDRES) -O coff -i $< -o $@
 
 $(GUI_BIN): $(GUI_OBJECTS) $(GUI_RES)
-	$(CXX) -municode -mwindows -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32 -luxtheme
+	$(CXX) -municode -mwindows -o $@ $^ $(LDFLAGS) -lcomdlg32 -lgdi32 -luser32 -lgdiplus -lcomctl32 -luxtheme -ladvapi32 -lshell32
 
 clean:
 	rm -f $(APP_OBJ) $(BIN) $(TEST_BIN) $(GUI_BIN) $(GUI_RES) $(GUI_OBJECTS) $(GUI_OBJECTS:.o=.d) $(GUI_TEST_OBJECT) $(GUI_TEST_OBJECT:.o=.d) tests/gui_regression.exe

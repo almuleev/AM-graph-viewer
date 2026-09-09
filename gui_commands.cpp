@@ -57,6 +57,7 @@ LRESULT handle_commands_message(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case IDC_OPEN: open_file(); return 0;
                 case IDC_SAVEPNG: save_png_dialog(); return 0;
                 case IDC_SAVECSV: save_as_dialog(); return 0;
+                case IDC_SAVE_PROJECT: save_current_project(); return 0;
                 case IDM_EXIT: DestroyWindow(hwnd); return 0;
                 case IDM_MODE_TIME:
                     set_mode(AnalysisMode::Time);

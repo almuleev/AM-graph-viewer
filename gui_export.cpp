@@ -243,14 +243,16 @@ bool write_tabular_export(std::ofstream& out, const ExportOptions& opts) {
         }
         if (cols.empty()) return false;
         write_export_metadata(out, opts, csv, export_start, export_end, actual_selected_range, source_cols);
-        write_export_comment(out, L"[fft_sampling]", line_end);
-        write_export_key_value(out, L"source_start", to_w(numfmt(export_spec.source_start)), line_end);
-        write_export_key_value(out, L"source_end", to_w(numfmt(export_spec.source_end)), line_end);
-        write_export_key_value(out, L"sample_dt", to_w(numfmt(export_spec.sample_dt)), line_end);
-        write_export_key_value(out, L"sample_count", std::to_wstring(export_spec.n), line_end);
-        write_export_key_value(out, L"gaps_ignored", export_spec.gaps_ignored ? L"1" : L"0", line_end);
-        write_export_key_value(out, L"resampled", export_spec.resampled ? L"1" : L"0", line_end);
-        write_export_comment(out, L"", line_end);
+        if (opts.include_metadata) {
+            write_export_comment(out, L"[fft_sampling]", line_end);
+            write_export_key_value(out, L"source_start", to_w(numfmt(export_spec.source_start)), line_end);
+            write_export_key_value(out, L"source_end", to_w(numfmt(export_spec.source_end)), line_end);
+            write_export_key_value(out, L"sample_dt", to_w(numfmt(export_spec.sample_dt)), line_end);
+            write_export_key_value(out, L"sample_count", std::to_wstring(export_spec.n), line_end);
+            write_export_key_value(out, L"gaps_ignored", export_spec.gaps_ignored ? L"1" : L"0", line_end);
+            write_export_key_value(out, L"resampled", export_spec.resampled ? L"1" : L"0", line_end);
+            write_export_comment(out, L"", line_end);
+        }
         out << "Frequency";
         for (std::size_t c : source_cols) {
             const std::string name = to_utf8(export_channel_label_text(c, opts.include_channel_names));
@@ -321,12 +323,18 @@ bool save_tabular_export(const std::wstring& path, const ExportOptions& opts) {
 }
 
 bool write_lvm_export(std::ofstream& out, const ExportOptions& opts) {
-    if (!has_data() || g.mode != AnalysisMode::Time) return false;
+    const bool project = opts.save_mode == ExportSaveMode::Project;
+    if (!has_data() || (!project && g.mode != AnalysisMode::Time)) return false;
 
     double export_start = 0.0;
     double export_end = 0.0;
     bool actual_selected_range = false;
-    if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) return false;
+    if (project) {
+        export_start = g.ds.time.empty() ? 0.0 : g.ds.time.front();
+        export_end = g.ds.time.empty() ? 0.0 : g.ds.time.back();
+    } else if (!export_range_bounds_for_mode(opts.selected_range, export_start, export_end, actual_selected_range)) {
+        return false;
+    }
 
     const auto bounds = export_range_bounds(g.ds.time, export_start, export_end);
     std::size_t begin = bounds.first;
@@ -491,6 +499,7 @@ const wchar_t* export_file_name(ExportFileFormat format) {
 }
 
 bool save_export_file(const std::wstring& path, const ExportOptions& opts) {
+    if (opts.save_mode == ExportSaveMode::Project) return save_project_file(path);
     if (g.mode == AnalysisMode::FRF) return opts.format == ExportFileFormat::Csv && save_frf_csv(path);
     switch (opts.format) {
         case ExportFileFormat::Txt:
@@ -502,22 +511,61 @@ bool save_export_file(const std::wstring& path, const ExportOptions& opts) {
     return false;
 }
 
-void save_as_dialog() {
-    if (g.mode == AnalysisMode::FRF) {
-        if (!g.frf.result.ok || g.frf.pending) {
-            show_styled_info_prompt(g.main, L"FRF", frf_status_text().c_str(), false);
-            return;
-        }
-        std::wstring path;
-        if (!save_dialog(path, export_file_filter(ExportFileFormat::Csv), L"csv", file_stem()+L"_frf.csv")) return;
-        if (save_frf_csv(path)) status_msg(L"FRF: " + path);
-        else MessageBoxW(g.main, to_w(g.last_error).c_str(), L"FRF", MB_OK | MB_ICONERROR);
+bool save_project_file(const std::wstring& path) {
+    ExportOptions project;
+    project.save_mode = ExportSaveMode::Project;
+    project.format = ExportFileFormat::Lvm;
+    project.selected_range = ExportRangeMode::Whole;
+    project.apply_processing_to_data = false;
+    project.include_channel_names = true;
+    project.include_hidden_channels = true;
+    project.include_points = true;
+    project.include_markers = true;
+    project.include_guides = true;
+    project.include_formulas = true;
+    project.include_filter_settings = true;
+    project.include_graph_settings = true;
+    project.include_metadata = true;
+    return save_lvm_export(path, project);
+}
+
+void save_current_project() {
+    if (!has_data()) {
+        show_styled_info_prompt(g.main, g_str->msg_nodata, g_str->msg_openfirst, false);
         return;
     }
+    if (g.project_path.empty()) {
+        const wchar_t* filter = (g_str == &kEn)
+            ? L"AMSignal project\0*.AMSig\0All files\0*.*\0"
+            : L"Проект AMSignal\0*.AMSig\0Все файлы\0*.*\0";
+        std::wstring path;
+        if (!save_dialog(path, filter, L"AMSig", file_stem() + L".AMSig")) return;
+        if (save_project_file(path)) {
+            g.project_path = path;
+            status_msg((g_str == &kEn ? L"Project saved: " : L"Проект сохранён: ") + path);
+        } else {
+            MessageBoxW(g.main, g_str == &kEn ? L"Failed to save project." : L"Не удалось сохранить проект.",
+                        g_str->msg_error_title, MB_ICONERROR);
+        }
+        return;
+    }
+    if (save_project_file(g.project_path)) {
+        status_msg((g_str == &kEn ? L"Project saved: " : L"Проект сохранён: ") + g.project_path);
+    } else {
+        MessageBoxW(g.main, g_str == &kEn ? L"Failed to save project." : L"Не удалось сохранить проект.",
+                    g_str->msg_error_title, MB_ICONERROR);
+    }
+}
+
+void save_as_dialog() {
     if (!has_data()) { show_styled_info_prompt(g.main, g_str->msg_nodata, g_str->msg_openfirst, false); return; }
     ExportOptions opts;
     if (!prompt_export_options(opts)) return;
-    if (opts.format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
+    if (opts.save_mode != ExportSaveMode::Project && g.mode == AnalysisMode::FRF && (!g.frf.result.ok || g.frf.pending)) {
+        show_styled_info_prompt(g.main, L"FRF", frf_status_text().c_str(), false);
+        return;
+    }
+    if (opts.save_mode != ExportSaveMode::Project && opts.format == ExportFileFormat::Lvm && (g.mode == AnalysisMode::FFT)) {
         MessageBoxW(g.main,
                     g_str == &kEn ? L"LVM export is available only in Time mode."
                                    : L"Экспорт LVM доступен только в режиме времени.",
@@ -525,14 +573,20 @@ void save_as_dialog() {
         return;
     }
 
-    const wchar_t* ext = export_file_extension(opts.format);
-    std::wstring def = export_default_name(file_stem(), opts.selected_range, L".", (g.mode == AnalysisMode::FFT));
-    def += ext;
+    const bool project = opts.save_mode == ExportSaveMode::Project;
+    const wchar_t* ext = project ? L"AMSig" : export_file_extension(opts.format);
+    std::wstring def = project ? file_stem() + L".AMSig" :
+        export_default_name(file_stem(), opts.selected_range, L".", (g.mode == AnalysisMode::FFT)) + ext;
     std::wstring path;
-    if (!save_dialog(path, export_file_filter(opts.format), ext, def)) return;
+    const wchar_t* project_filter = (g_str == &kEn)
+        ? L"AMSignal project\0*.AMSig\0All files\0*.*\0"
+        : L"Проект AMSignal\0*.AMSig\0Все файлы\0*.*\0";
+    if (!save_dialog(path, project ? project_filter : export_file_filter(opts.format), ext, def)) return;
     if (save_export_file(path, opts)) {
+        if (project) g.project_path = path;
         const wchar_t* b = wcsrchr(path.c_str(), L'\\');
-        status_msg(export_status_prefix(export_file_name(opts.format), opts.selected_range, g_str == &kEn) + (b ? b + 1 : path.c_str()));
+        status_msg((project ? (g_str == &kEn ? L"Project saved: " : L"Проект сохранён: ") :
+            export_status_prefix(export_file_name(opts.format), opts.selected_range, g_str == &kEn)) + (b ? b + 1 : path.c_str()));
     } else {
         MessageBoxW(g.main,
                     g_str == &kEn ? L"Failed to export file." : L"Не удалось сохранить файл.",

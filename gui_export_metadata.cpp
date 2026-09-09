@@ -93,10 +93,14 @@ void write_export_metadata(std::ofstream& out,
                            double range_end,
                            bool actual_selected_range,
                            const std::vector<std::size_t>& exported_channels) {
+    if (!opts.include_metadata) return;
     const char* line_end = csv ? "\n" : "\r\n";
 
     write_export_comment(out, L"[export]", line_end);
     write_export_key_value(out, L"schema_version", L"2", line_end);
+    if (opts.save_mode == ExportSaveMode::Project) {
+        write_export_key_value(out, L"document_kind", L"amsignal_project", line_end);
+    }
     write_export_key_value(out, L"text_encoding", L"percent_utf8", line_end);
     write_export_key_value(out, L"range_mode", export_range_mode_key(opts.selected_range), line_end);
     write_export_key_value(out, L"range_source", actual_selected_range ? L"selected" : L"visible", line_end);

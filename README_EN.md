@@ -78,7 +78,7 @@ handled separately by filling with the channel mean, without shifting channels.
 - Settings include “Stitch time gaps in the graph”. It compresses only the displayed time axis and navigation; source data, measurements, and export retain real timestamps.
 - Filter sliders apply on release and create one undo action, including affected measurements.
 - History retains up to 128 actions and 64 MiB of payload. Old entries are removed at the limit; an action larger than the entire budget clears history.
-- CSV/TXT files with a `Frequency` column open directly as stored spectra, without another FFT. They contain no time-domain signal.
+- `.AMSig` projects restore their raw samples and saved AMSignal settings. After the first run, Windows opens this per-user associated extension in AMSignal on double-click. CSV/TXT files with a `Frequency` column open directly as stored spectra, without another FFT. They contain no time-domain signal.
 - Windows CLI supports Unicode paths. `build_cli.ps1` and `build_gui.ps1` label builds with the checkout version and dirty state; `Start GUI.bat` selects the newest executable.
 - Run `make test` and, on Windows, `make test-gui`. CI builds the CLI/core on Linux and GUI/CLI on Windows.
 - GUI modules compile separately with cached object files. Without Make, run GUI tests using `powershell -ExecutionPolicy Bypass -File .\build_gui.ps1 -Test`. See the [architecture map (Russian)](docs/ARCHITECTURE.md).

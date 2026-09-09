@@ -108,6 +108,34 @@ void exports() {
     require(parsed.names == std::vector<std::string>{"A","B"}, "LVM labels match data without metadata import");
     near(parsed.channels[0][0], 10, "LVM channel A"); near(parsed.channels[1][3], 23, "LVM channel B");
 
+    ExportOptions original;
+    original.save_mode = ExportSaveMode::OriginalData;
+    original.selected_range = ExportRangeMode::Whole;
+    original.apply_processing_to_data = false;
+    original.include_channel_names = true;
+    original.include_hidden_channels = true;
+    original.include_metadata = false;
+    g.global_formula = L"5*x"; rebuild_formula_cache_from_state();
+    const auto original_path = test_dir / "original.csv";
+    require(save_tabular_export(original_path.wstring(), original), "original-data export");
+    auto original_data = lvm::read_lvm_file(original_path);
+    require(original_data.ok && original_data.export_comments.empty(), "original export contains no AMSignal settings");
+    near(original_data.channels[0][0], 10, "original export retains unprocessed samples");
+
+    g.visible = {1, 0};
+    g.global_formula = L"2*x"; g.channel_formulas = {L"x+1", L"x-1"};
+    g.noise_threshold_enabled = true; g.noise_threshold_min = 0.25; g.noise_threshold_max = 0.75;
+    rebuild_formula_cache_from_state();
+    const auto project_path = test_dir / "roundtrip.AMSig";
+    require(save_project_file(project_path.wstring()), "project export");
+    reopen(project_path, true);
+    require(g.ds.names == std::vector<std::string>{"A", "B"} && g.visible == std::vector<char>{1, 0},
+            "project restores all channels and visibility");
+    near(g.ds.channels[0][0], 10, "project retains raw samples");
+    require(g.global_formula == L"2*x" && g.channel_formulas[0] == L"x+1",
+            "project restores formulas without baking them into data");
+    require(g.noise_threshold_enabled, "project restores filter settings");
+
     opts.format = ExportFileFormat::Csv; opts.selected_range = ExportRangeMode::Visible;
     { std::ofstream out(path); out << "KEEP THIS FILE"; }
     g.win_start = 10; g.win_end = 11;
@@ -787,6 +815,23 @@ void reopen_spectrum() {
     near(peaks[0].amp, 1, "time-domain recipe is never reapplied to imported FFT amplitudes");
 }
 
+void save_hotkeys() {
+    const auto bindings = default_hotkeys();
+    auto find = [&](int command) -> const HotkeyBinding* {
+        for (const auto& binding : bindings) if (binding.command == command) return &binding;
+        return nullptr;
+    };
+    const auto* project = find(IDC_SAVE_PROJECT);
+    const auto* save_as = find(IDC_SAVECSV);
+    const auto* png = find(IDC_SAVEPNG);
+    require(project && project->fvirt == (FVIRTKEY | FCONTROL) && project->key == 'S',
+            "Ctrl+S saves the project");
+    require(save_as && save_as->fvirt == (FVIRTKEY | FCONTROL | FSHIFT) && save_as->key == 'S',
+            "Ctrl+Shift+S opens Save as");
+    require(png && png->fvirt == (FVIRTKEY | FCONTROL | FALT) && png->key == 'S',
+            "Ctrl+Alt+S saves PNG");
+}
+
 void channel_coefficient_fields() {
     reset_document({"A", "B"}, {0, 1}, {{1, 2}, {3, 4}});
     g.channel_formulas = {L"2.5*x", L"x+7"};
@@ -810,7 +855,7 @@ void point_display_defaults() {
 int main() {
     std::filesystem::create_directories(test_dir);
     try {
-        exports(); channel_coefficient_fields(); point_display_defaults(); processing(); fft_recording_recovery();
+        exports(); save_hotkeys(); channel_coefficient_fields(); point_display_defaults(); processing(); fft_recording_recovery();
         light_mode_and_history(); reopen_spectrum(); fft_selected_gap_range(); stitched_gap_regressions();
         light_mode_fft_visibility();
         routed_window_messages();

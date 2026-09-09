@@ -214,6 +214,8 @@ struct App {
     std::shared_ptr<const lvm::ScanIndex> cached_scan_index;
 
     std::wstring file_name;
+    // Empty until the document has been saved as, or opened from, an AMSignal project.
+    std::wstring project_path;
     std::vector<std::wstring> recent_files;
     std::string last_error;
 

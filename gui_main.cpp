@@ -67,6 +67,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmd, int show) {
     InitCommonControlsEx(&icc);
     load_app_settings();
     load_runtime_settings();
+    register_project_file_association();
     load_program_logo();
     HICON class_icon = g_program_logo_icon ? g_program_logo_icon : LoadIcon(nullptr, IDI_APPLICATION);
 

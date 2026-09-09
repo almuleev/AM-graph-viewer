@@ -22,8 +22,9 @@ const HotkeyBinding* find_hotkey_binding(int command) {
 std::vector<HotkeyBinding> default_hotkeys() {
     return {
         {IDC_OPEN, FVIRTKEY | FCONTROL, 'O'},
-        {IDC_SAVEPNG, FVIRTKEY | FCONTROL, 'S'},
+        {IDC_SAVEPNG, FVIRTKEY | FCONTROL | FALT, 'S'},
         {IDC_SAVECSV, FVIRTKEY | FCONTROL | FSHIFT, 'S'},
+        {IDC_SAVE_PROJECT, FVIRTKEY | FCONTROL, 'S'},
         {IDM_UNDO, FVIRTKEY | FCONTROL, 'Z'},
         {IDM_REDO, FVIRTKEY | FCONTROL | FSHIFT, 'Z'},
         {IDM_MODE_TIME, FVIRTKEY, 'T'},
@@ -51,7 +52,26 @@ std::vector<HotkeyBinding> default_hotkeys() {
 }
 
 void ensure_hotkeys_initialized() {
-    if (g.hotkeys.empty()) g.hotkeys = default_hotkeys();
+    if (g.hotkeys.empty()) {
+        g.hotkeys = default_hotkeys();
+        return;
+    }
+    // Move the former default Ctrl+S (PNG) to Ctrl+Alt+S. A deliberately
+    // customized binding is retained, but a missing project command receives
+    // the new standard binding when Ctrl+S is available.
+    HotkeyBinding* png = nullptr;
+    HotkeyBinding* project = nullptr;
+    bool ctrl_s_taken = false;
+    for (auto& binding : g.hotkeys) {
+        if (binding.command == IDC_SAVEPNG) png = &binding;
+        if (binding.command == IDC_SAVE_PROJECT) project = &binding;
+        if (binding.fvirt == (FVIRTKEY | FCONTROL) && binding.key == 'S') ctrl_s_taken = true;
+    }
+    if (png && png->fvirt == (FVIRTKEY | FCONTROL) && png->key == 'S') {
+        png->fvirt = FVIRTKEY | FCONTROL | FALT;
+        ctrl_s_taken = false;
+    }
+    if (!project && !ctrl_s_taken) g.hotkeys.push_back({IDC_SAVE_PROJECT, FVIRTKEY | FCONTROL, 'S'});
 }
 
 std::wstring key_name(WORD key) {
@@ -118,6 +138,7 @@ std::wstring command_name(int command) {
         case IDC_OPEN: return en ? L"Open file" : L"Открыть файл";
         case IDC_SAVEPNG: return en ? L"Save PNG" : L"Сохранить PNG";
         case IDC_SAVECSV: return en ? L"Save as…" : L"Сохранить как…";
+        case IDC_SAVE_PROJECT: return en ? L"Save project" : L"Сохранить проект";
         case IDM_UNDO: return en ? L"Undo" : L"Отменить";
         case IDM_REDO: return en ? L"Redo" : L"Повторить";
         case IDM_MODE_TIME: return en ? L"Time view" : L"Режим времени";
@@ -150,7 +171,7 @@ std::wstring command_name(int command) {
 
 std::vector<int> hotkey_command_order() {
     return {
-        IDC_OPEN, IDC_SAVEPNG, IDC_SAVECSV, IDM_UNDO, IDM_REDO,
+        IDC_OPEN, IDC_SAVEPNG, IDC_SAVECSV, IDC_SAVE_PROJECT, IDM_UNDO, IDM_REDO,
         IDM_MODE_TIME, IDM_MODE_FREQ, IDM_MODE_FRF, IDC_MEASURE, IDM_ADD_MARKER,
         IDM_ADD_VLINE, IDM_ADD_HLINE, IDC_AUTOY, IDM_VISMOOTH,
         IDM_VPAN, IDM_THEME, IDC_PLAY, IDC_ZOOMIN, IDC_ZOOMOUT,
@@ -174,6 +195,7 @@ std::wstring hotkeys_body_text() {
     append_hotkey_line(out, IDC_OPEN);
     append_hotkey_line(out, IDC_SAVEPNG);
     append_hotkey_line(out, IDC_SAVECSV);
+    append_hotkey_line(out, IDC_SAVE_PROJECT);
     append_hotkey_line(out, IDM_UNDO);
     append_hotkey_line(out, IDM_REDO);
     out += L"\n";

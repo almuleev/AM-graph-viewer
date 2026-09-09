@@ -43,7 +43,7 @@ foreach ($source in $sources) {
         if ($LASTEXITCODE -ne 0) { throw "Compilation failed: $source (exit $LASTEXITCODE)." }
     }
 }
-$libraries = @('-lcomdlg32', '-lgdi32', '-luser32', '-lgdiplus', '-lcomctl32', '-luxtheme')
+$libraries = @('-lcomdlg32', '-lgdi32', '-luser32', '-lgdiplus', '-lcomctl32', '-luxtheme', '-ladvapi32', '-lshell32')
 if ($Test) {
     $outName = 'tests/gui_regression.exe'
     & g++ -static -o $outName @objects @libraries

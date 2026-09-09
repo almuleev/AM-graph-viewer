@@ -33,6 +33,8 @@ enum {
     IDC_EXPORT_INCLUDE_FORMULAS,
     IDC_EXPORT_INCLUDE_FILTER,
     IDC_EXPORT_INCLUDE_GRAPH_SETTINGS,
+    IDC_EXPORT_SAVE_MODE,
+    IDC_SAVE_PROJECT,
 
     // Menu-only commands (no toolbar button).
     IDM_EXIT = 1100,

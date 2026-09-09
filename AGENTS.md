@@ -74,6 +74,8 @@
   тема: `gui_theme`;
   карточка разрывов: `gui_gap_details`; состояние/история: `gui_state`, `gui_state_history`.
 - Тесты: `tests/run_tests.cpp`, `tests/gui_regression.cpp`; история: `CHANGELOG.md`.
+- GUI и его регрессионный EXE связываются с `uxtheme`: он нужен тематическому
+  FRF popup (`OpenThemeData`/`DrawThemeBackground`) на Windows CI.
 - До создания первой точки переключатели её отображаемых величин остаются доступны: они задают шаблон первого создаваемого набора точек текущего режима.
 - Поставка: имя приложения — `AMSignal`, файл настроек — `AMS.ini`, GUI-артефакт
   релиза — `AMSignal-<версия>-x64.exe` (без `v` перед номером версии).

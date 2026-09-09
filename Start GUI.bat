@@ -13,7 +13,7 @@ if exist "%EXE%" (
 )
 
 echo [!] Graphical viewer not found in this folder.
-echo     Expected file: AMSignal-0.13.0-x64.exe
+echo     Expected file: AMSignal-^<version^>-x64.exe
 echo.
 echo     If you are building from source, run:
 echo     powershell -ExecutionPolicy Bypass -File .\build_gui.ps1

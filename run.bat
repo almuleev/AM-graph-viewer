@@ -5,7 +5,7 @@ cd /d "%~dp0"
 title AMSignal CLI
 
 echo This is the command-line analyzer.
-echo For the graphical viewer, launch "Start GUI.bat" or "AMSignal-0.13.0-x64.exe".
+echo For the graphical viewer, launch "Start GUI.bat" or "AMSignal-^<version^>-x64.exe".
 echo.
 
 set "EXE=%~dp0lvm_reader.exe"

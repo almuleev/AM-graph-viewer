@@ -1,10 +1,10 @@
 # AMSignal
 
 <p align="center">
-  <img src="docs/assets/github-banner.png" alt="AMSignal banner">
+  <img src="docs/assets/github-banner-v2.png" alt="AMSignal signal-analysis banner">
 </p>
 
-Native Win32 viewer and CLI toolkit for LabVIEW `.lvm` / `.txt` signal files.
+Native Win32 viewer and CLI toolkit for LabVIEW `.lvm`, `.txt` and `.csv` signal files.
 
 ## Why This Project Exists
 
@@ -20,12 +20,12 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 
 ### Desktop viewer
 
-- Time-domain and FFT modes in one window
+- Time-domain, FFT and FRF (frequency-response) modes in one window
 - Zoom, pan, playback and auto-zoom
 - Dark and light themes
 - Russian and English interface
 - Inline channel rename in the channel list
-- PNG, CSV and TXT export
+- PNG, CSV, TXT and LVM export; FRF results export to CSV and PNG
 - Drag and drop file opening
 
 ### Measurements and analysis
@@ -36,6 +36,14 @@ LabVIEW measurement logs are often easy to produce but inconvenient to inspect q
 - Vertical and horizontal guide lines
 - Named markers
 - Undo and redo for points, lines and markers
+
+### Frequency response (FRF)
+
+- Separate non-overlapping Reference and Response channel roles
+- H1/Welch estimator with Hann window and 50% overlap, plus Direct comparison
+- Multiple response curves, logarithmic frequency scale and display-only smoothing
+- Dynamic coefficient `KD = abs(H)` and diagnostic coherence; DC and weak-reference bins are excluded
+- Exported FRF CSV includes complex transfer, validity, coherence and calculation metadata. It is a result file and cannot yet be reopened as an FRF document.
 
 FFT accepts uneven and rounded timestamps by linearly interpolating values onto
 an evenly spaced gap-free grid with the same sample count. Gaps greater than
@@ -63,7 +71,7 @@ handled separately by filling with the channel mean, without shifting channels.
 - FFT peak inspection
 - Windowed processing for selected time ranges
 
-### Current development changes
+### Operational notes
 
 - Light Mode includes every sample in its min/max ranges, preserving single-sample impulses.
 - Light Mode computes FFT in the background for requested channels. Hiding and restoring a channel from the current cache does not restart FFT. Showing an uncached channel schedules a new job for visible channels; the cache holds the latest job, not every previously viewed channel. Changing the source interval or processing requires recalculation.
@@ -98,7 +106,7 @@ The graph previews below are based on the bundled sample input files from [`lvm_
 
 ### Download a ready-to-run build
 
-Use the [latest GitHub release](https://github.com/almuleev/am-graph-viewer/releases/latest) and download the Windows executable.
+Use the [latest GitHub release](https://github.com/almuleev/AMSignal/releases/latest) and download the Windows executable.
 
 ### Build the GUI
 
@@ -108,22 +116,24 @@ powershell -ExecutionPolicy Bypass -File .\build_gui.ps1
 
 ### Build the CLI
 
-```bash
-make
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_cli.ps1
 ```
 
 ### Run tests
 
-```bash
-make test
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_gui.ps1 -Test
 ```
+
+In an MSYS2/MinGW shell, `make all test test-gui gui` builds both applications and runs both test suites, as in Windows CI.
 
 ## Build Notes
 
 - Language: `C++17`
 - GUI stack: `Win32 API + GDI/GDI+`
 - Recommended Windows toolchain: `MSYS2 / MinGW g++`
-- GUI output name follows the current git tag and is built as `AMSignal-0.13.0-x64.exe`
+- GUI output name follows the current git tag: `AMSignal-<version>-x64.exe`
 
 ## Repository Layout
 
